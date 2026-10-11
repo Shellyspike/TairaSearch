@@ -1,0 +1,12 @@
+{
+  "historical": [
+    "玉葉", "Gyokuyō", "Gyokuyo", "吉記", "Kikki", "山槐記", "Sankaiki",
+    "兵範記", "Heihanki", "中右記", "吾妻鏡", "Azuma Kagami"
+  ],
+  "literary": ["平家物語", "源平盛衰記", "平治物語"],
+  "scholarship": [
+    "論文", "研究", "紀要", "Статьи", "Articles", "article", "journal",
+    "dissertation", "thesis", "a-new-history-of-medieval-japanese-theatre"
+  ],
+  "other": []
+}

@@ -1,0 +1,896 @@
+"""Rule-based daily selection of five source-grounded Taira episodes."""
+
+from __future__ import annotations
+
+import csv
+import json
+import re
+import sqlite3
+from argparse import Namespace
+from collections import Counter, defaultdict
+from datetime import date, datetime, timezone
+from difflib import SequenceMatcher
+from pathlib import Path
+from typing import Any, Callable
+
+from metadata_utils import person_variants
+from text_utils import normalize_text, unique_normalized
+
+
+NICHES = (
+    "illness",
+    "horse",
+    "music",
+    "dream",
+    "omen",
+    "fire",
+    "feast",
+    "travel",
+    "captivity",
+    "violence",
+    "family",
+)
+MILITARY_NICHES = {"captivity", "violence"}
+HUMAN_NICHES = {
+    "illness", "horse", "music", "dream", "omen", "fire", "feast", "travel", "family"
+}
+TOPIC_LABELS = {
+    "illness": "болезнь и лечение",
+    "horse": "лошади и верховая езда",
+    "music": "музыка и исполнение",
+    "dream": "сны",
+    "omen": "знамения и необычные явления",
+    "fire": "пожары",
+    "feast": "пиры и застолья",
+    "travel": "дорога и перемещения",
+    "captivity": "плен и заключение",
+    "violence": "насилие и столкновения",
+    "family": "семья и родственные отношения",
+}
+PERSON_RU = {
+    "清盛": "Киёмори",
+    "重盛": "Сигэмори",
+    "宗盛": "Мунэмори",
+    "知盛": "Томомори",
+    "重衡": "Сигэхира",
+    "維盛": "Корэмори",
+    "資盛": "Сукэмори",
+    "忠度": "Таданори",
+    "経盛": "Цунэмори",
+    "教盛": "Норимори",
+    "頼盛": "Ёримори",
+    "時忠": "Токитада",
+    "敦盛": "Ацумори",
+    "徳子": "Токуко",
+}
+WHY_INTERESTING = {
+    "illness": "Показывает телесный опыт, лечение и повседневную уязвимость представителей Тайра.",
+    "horse": "Даёт небольшой эпизод о мобильности, церемонии или обращении с лошадьми.",
+    "music": "Показывает культурную и церемониальную сторону жизни, не сводимую к политике и войне.",
+    "dream": "Фиксирует сон или его толкование как часть исторического нарратива.",
+    "omen": "Показывает, как необычные явления понимались и записывались современниками.",
+    "fire": "Локальный эпизод позволяет увидеть материальную среду и реакцию на бедствие.",
+    "feast": "Даёт бытовой или церемониальный эпизод вокруг еды, питья и собрания.",
+    "travel": "Показывает маршрут, поездку или перемещение конкретного человека.",
+    "captivity": "Даёт локально подтверждённый эпизод плена, задержания или ссылки.",
+    "violence": "Фиксирует конкретное столкновение; отбирается с ограничением на военные сюжеты.",
+    "family": "Показывает родственные и домашние связи, которые часто теряются в политической истории.",
+}
+DATE_RE = re.compile(
+    r"(?:仁安|嘉応|承安|安元|治承|養和|寿永|元暦|文治|建久|承久)"
+    r"[元一二三四五六七八九十百\d]+年"
+    r"(?:[一二三四五六七八九十\d]+月)?(?:[一二三四五六七八九十\d]+日)?"
+)
+WESTERN_DATE_RE = re.compile(r"(?:11|12)\d{2}年(?:\d{1,2}月)?(?:\d{1,2}日)?")
+KNOWN_PLACES = (
+    "福原", "京都", "鎌倉", "熊野", "高野山", "南都", "奈良", "伊勢", "宇治",
+    "一ノ谷", "一の谷", "屋島", "壇ノ浦", "比叡山", "六波羅", "大宰府",
+)
+WORD_RE = re.compile(r"[0-9A-Za-zА-Яа-яЁё一-龯々ぁ-ゖァ-ヺー]{2,}")
+
+
+def load_used_finds(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    with path.open(encoding="utf-8-sig", newline="") as stream:
+        reader = csv.DictReader(stream)
+        records: list[dict[str, Any]] = []
+        for row in reader:
+            if not any((value or "").strip() for value in row.values()):
+                continue
+            records.append(
+                {
+                    "id": normalize_text(row.get("id", "")),
+                    "persons": _split_values(row.get("persons", "")),
+                    "topics": _split_values(row.get("topics", "")),
+                    "description": normalize_text(row.get("short_description", "")),
+                    "source": normalize_text(row.get("source", "")),
+                }
+            )
+    return records
+
+
+def _split_values(value: str) -> list[str]:
+    return unique_normalized(re.split(r"[;,、|]+", value or ""))
+
+
+def _compact(value: str) -> str:
+    return "".join(normalize_text(value).casefold().split())
+
+
+def _grams(value: str, size: int = 3) -> set[str]:
+    compact = _compact(value)
+    if len(compact) <= size:
+        return {compact} if compact else set()
+    return {compact[index : index + size] for index in range(len(compact) - size + 1)}
+
+
+def _lexical_similarity(left: str, right: str) -> float:
+    if not left or not right:
+        return 0.0
+    sequence = SequenceMatcher(None, _compact(left), _compact(right)).ratio()
+    left_words = set(WORD_RE.findall(normalize_text(left)))
+    right_words = set(WORD_RE.findall(normalize_text(right)))
+    word_jaccard = (
+        len(left_words & right_words) / len(left_words | right_words)
+        if left_words and right_words
+        else 0.0
+    )
+    left_grams = _grams(left)
+    right_grams = _grams(right)
+    gram_jaccard = (
+        len(left_grams & right_grams) / len(left_grams | right_grams)
+        if left_grams and right_grams
+        else 0.0
+    )
+    return max(sequence, word_jaccard, gram_jaccard)
+
+
+def duplicate_check(candidate: dict[str, Any], used: list[dict[str, Any]]) -> dict[str, Any]:
+    best_score = 0.0
+    best_reason = "not found in used_finds.csv"
+    best_id = ""
+    candidate_people = set(candidate["person"])
+    candidate_topics = set(candidate["topics"])
+    candidate_date = candidate.get("date") or ""
+    material = " ".join([candidate["title"], candidate["what_happened"]])
+    for record in used:
+        if record["id"] and record["id"] == candidate["chunk_id"]:
+            return {
+                "status": "duplicate",
+                "confidence": 1.0,
+                "reason": "exact chunk_id in used_finds.csv",
+                "matched_id": record["id"],
+            }
+        people_overlap = bool(candidate_people & set(record["persons"]))
+        topics_overlap = bool(candidate_topics & set(record["topics"]))
+        same_source = bool(
+            record["source"]
+            and source_group(record["source"]) == candidate["source_group"]
+        )
+        used_dates = DATE_RE.findall(record["description"]) + WESTERN_DATE_RE.findall(
+            record["description"]
+        )
+        same_date = bool(candidate_date and candidate_date in used_dates)
+        lexical = _lexical_similarity(material, record["description"])
+        score = lexical
+        reasons: list[str] = []
+        if people_overlap:
+            score += 0.18
+            reasons.append("same person")
+        if topics_overlap:
+            score += 0.12
+            reasons.append("same topic")
+        if same_source:
+            score += 0.18
+            reasons.append("same source")
+        if same_date:
+            score += 0.25
+            reasons.append("same date")
+        if lexical >= 0.45:
+            reasons.append(f"summary similarity {lexical:.2f}")
+        if score > best_score:
+            best_score = score
+            best_reason = ", ".join(reasons) or "weak lexical overlap"
+            best_id = record["id"]
+    status = "duplicate" if best_score >= 0.78 else "duplicate_risk" if best_score >= 0.52 else "clear"
+    return {
+        "status": status,
+        "confidence": round(min(best_score, 1.0), 3),
+        "reason": best_reason if used else "not found in used_finds.csv",
+        "matched_id": best_id or None,
+    }
+
+
+def source_subtype(source: str) -> str:
+    compact = _compact(source)
+    if any(_compact(name) in compact for name in ("玉葉", "Gyokuyō", "吉記", "Kikki", "山槐記", "兵範記", "中右記")):
+        return "contemporary_diary"
+    if any(_compact(name) in compact for name in ("吾妻鏡", "AzumaKagami")):
+        return "later_chronicle"
+    if any(_compact(name) in compact for name in ("平家物語", "源平盛衰記", "平治物語")):
+        return "war_tale"
+    return "other"
+
+
+def source_group(source: str) -> str:
+    """Collapse scans/editions of the same named work for diversity rules."""
+    compact = _compact(source)
+    groups = (
+        ("玉葉", ("玉葉", "Gyokuyō", "Gyokuyo")),
+        ("吉記", ("吉記", "Kikki")),
+        ("山槐記", ("山槐記", "Sankaiki")),
+        ("兵範記", ("兵範記", "Heihanki")),
+        ("中右記", ("中右記",)),
+        ("吾妻鏡", ("吾妻鏡", "AzumaKagami")),
+        ("平家物語", ("平家物語",)),
+        ("源平盛衰記", ("源平盛衰記",)),
+        ("平治物語", ("平治物語",)),
+    )
+    for canonical, variants in groups:
+        if any(_compact(variant) in compact for variant in variants):
+            return canonical
+    return normalize_text(source)
+
+
+def _find_date(text: str) -> str | None:
+    match = DATE_RE.search(text) or WESTERN_DATE_RE.search(text)
+    return match.group(0) if match else None
+
+
+def _find_place(text: str) -> str | None:
+    return next((place for place in KNOWN_PLACES if place in text), None)
+
+
+def _occurrences(text: str, term: str) -> list[int]:
+    result: list[int] = []
+    start = 0
+    while term and (position := text.find(term, start)) >= 0:
+        result.append(position)
+        start = position + max(1, len(term))
+    return result
+
+
+def _linked_evidence(
+    text: str,
+    persons: list[str],
+    topic_terms: list[str],
+    people: dict[str, dict[str, Any]],
+    limit: int = 480,
+) -> tuple[str | None, list[str], int | None]:
+    normalized = normalize_text(text)
+    compact_chars: list[str] = []
+    original_positions: list[int] = []
+    for index, char in enumerate(normalized):
+        if not char.isspace():
+            compact_chars.append(char.casefold())
+            original_positions.append(index)
+    compact_text = "".join(compact_chars)
+    person_terms: list[str] = []
+    for person in persons:
+        try:
+            _canonical, variants = person_variants(people, person)
+            person_terms.extend(variants)
+        except ValueError:
+            person_terms.append(person)
+    person_terms = unique_normalized(person_terms)
+    useful_topic_terms = unique_normalized(topic_terms)
+    # Single-character family terms such as 子 are too ambiguous for an
+    # unattended event decision. Longer alternatives remain available.
+    if any(len(_compact(term)) >= 2 for term in useful_topic_terms):
+        useful_topic_terms = [term for term in useful_topic_terms if len(_compact(term)) >= 2]
+
+    pairs: list[tuple[int, int, int, str, str]] = []
+    for person_term in person_terms:
+        person_compact = _compact(person_term)
+        if not person_compact:
+            continue
+        for topic_term in useful_topic_terms:
+            topic_compact = _compact(topic_term)
+            if not topic_compact or topic_compact in person_compact:
+                continue
+            # Chunk-level co-occurrence alone is not evidence of one episode.
+            # Keep only tight local links; this also prevents adjacent dated
+            # diary entries from being merged into one event.
+            distance_limit = 60 if len(topic_compact) == 1 else 80
+            for person_position in _occurrences(compact_text, person_compact):
+                person_end = person_position + len(person_compact)
+                for topic_position in _occurrences(compact_text, topic_compact):
+                    topic_end = topic_position + len(topic_compact)
+                    if not (person_end <= topic_position or topic_end <= person_position):
+                        continue
+                    gap = max(person_position, topic_position) - min(person_end, topic_end)
+                    if gap <= distance_limit:
+                        pairs.append(
+                            (
+                                gap,
+                                -len(topic_compact),
+                                min(person_position, topic_position),
+                                person_term,
+                                topic_term,
+                            )
+                        )
+    if not pairs or not original_positions:
+        return None, [], None
+    gap, _negative_length, pair_start, person_term, topic_term = min(pairs)
+    person_position = compact_text.find(_compact(person_term), pair_start)
+    topic_position = compact_text.find(_compact(topic_term), pair_start)
+    pair_end = max(
+        person_position + len(_compact(person_term)),
+        topic_position + len(_compact(topic_term)),
+    )
+    compact_start = max(0, min(person_position, topic_position) - 130)
+    compact_end = min(len(original_positions), max(pair_end + 260, compact_start + limit))
+    original_start = original_positions[compact_start]
+    original_end = original_positions[compact_end - 1] + 1
+    evidence = normalized[original_start:original_end].strip()
+    if original_start:
+        evidence = "…" + evidence
+    if original_end < len(normalized):
+        evidence += "…"
+    # Tables of contents often contain both a name and a keyword, but do not
+    # constitute evidence of a local episode.
+    if (
+        evidence.count("の事") >= 4
+        or evidence.count("事") >= 12
+        or ("の事" in evidence and len(evidence) < 180)
+    ):
+        return None, [], None
+    return evidence, [person_term, topic_term], gap
+
+
+def _evidence_readable(text: str) -> bool:
+    """Stricter than index text_quality because final claims need clear OCR."""
+    japanese = sum(
+        "\u3040" <= char <= "\u30ff" or "\u3400" <= char <= "\u9fff"
+        for char in text
+    )
+    ascii_letters = sum(char.isascii() and char.isalpha() for char in text)
+    replacement = text.count("\ufffd") + text.count("〓")
+    if replacement >= 5:
+        return False
+    if japanese >= 50 and ascii_letters > max(20, int(japanese * 0.12)):
+        return False
+    return True
+
+
+def _search_args(topic: str, top: int) -> Namespace:
+    return Namespace(
+        query=None,
+        topic=[topic],
+        person=[],
+        source_type=["historical", "literary"],
+        exclude_source_type=["scholarship"],
+        source=[],
+        exclude_source=[],
+        quality=["good"],
+        top=top,
+        offset=0,
+        json=False,
+        include_duplicates=False,
+    )
+
+
+def _collapse_neighbours(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    kept: list[dict[str, Any]] = []
+    for candidate in sorted(candidates, key=lambda item: -item["retrieval_score"]):
+        duplicate_neighbour = any(
+            (
+                prior["relative_path"] == candidate["relative_path"]
+                and abs(prior["chunk_no"] - candidate["chunk_no"]) <= 2
+                and bool(set(prior["person"]) & set(candidate["person"]))
+                and bool(set(prior["topics"]) & set(candidate["topics"]))
+            )
+            or (
+                prior["source_group"] == candidate["source_group"]
+                and prior["primary_topic"] == candidate["primary_topic"]
+                and bool(set(prior["person"]) & set(candidate["person"]))
+                and _lexical_similarity(
+                    prior["what_happened"], candidate["what_happened"]
+                )
+                >= 0.62
+            )
+            for prior in kept
+        )
+        if not duplicate_neighbour:
+            kept.append(candidate)
+    return kept
+
+
+def _select_diverse(candidates: list[dict[str, Any]], count: int = 5) -> list[dict[str, Any]]:
+    eligible = [item for item in candidates if item["duplicate_check"]["status"] == "clear"]
+    selected: list[dict[str, Any]] = []
+    source_counts: Counter[str] = Counter()
+    people_counts: Counter[str] = Counter()
+    topic_counts: Counter[str] = Counter()
+
+    def choose(max_per_source: int) -> None:
+        while len(selected) < count:
+            best: dict[str, Any] | None = None
+            best_score = float("-inf")
+            military_count = sum(item["primary_topic"] in MILITARY_NICHES for item in selected)
+            human_count = sum(item["primary_topic"] in HUMAN_NICHES for item in selected)
+            for candidate in eligible:
+                source_key = candidate["source_group"]
+                if candidate in selected or source_counts[source_key] >= max_per_source:
+                    continue
+                military = candidate["primary_topic"] in MILITARY_NICHES
+                if military and military_count >= 2:
+                    continue
+                new_people = sum(people_counts[person] == 0 for person in candidate["person"])
+                primary_topic = candidate["primary_topic"]
+                new_topics = int(topic_counts[primary_topic] == 0)
+                score = candidate["retrieval_score"]
+                score += min(new_people, 2) * 0.55 + min(new_topics, 2) * 0.45
+                if primary_topic in HUMAN_NICHES and human_count < 2:
+                    score += 1.0
+                score -= source_counts[source_key] * 1.8
+                score -= topic_counts[primary_topic] * 1.5
+                if score > best_score:
+                    best_score = score
+                    best = candidate
+            if best is None:
+                return
+            selected.append(best)
+            source_counts[best["source_group"]] += 1
+            people_counts.update(best["person"])
+            topic_counts.update([best["primary_topic"]])
+
+    choose(1)
+    if len(selected) < count:
+        choose(2)
+    return selected
+
+
+def build_daily_five(
+    connection: sqlite3.Connection,
+    topics: dict[str, list[str]],
+    people: dict[str, dict[str, Any]],
+    used_finds_path: Path,
+    *,
+    search_function: Callable[..., list[dict[str, Any]]],
+    context_function: Callable[..., list[dict[str, Any]]],
+    top_per_topic: int = 20,
+    pool_size: int = 120,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    used = load_used_finds(used_finds_path)
+    niches = [name for name in NICHES if name in topics]
+    by_chunk: dict[str, dict[str, Any]] = {}
+    niche_counts: dict[str, int] = {}
+    for niche in niches:
+        rows = search_function(
+            connection, _search_args(niche, top_per_topic), topics, people, events_only=True
+        )
+        niche_counts[niche] = len(rows)
+        for row in rows:
+            candidate = by_chunk.setdefault(
+                row["chunk_id"],
+                {
+                    **row,
+                    "matched_niches": [],
+                    "retrieval_score": 0.0,
+                },
+            )
+            candidate["matched_niches"].append(niche)
+            candidate["retrieval_score"] += 1.0 / max(row["rank"], 1)
+
+    ranked_pool = sorted(
+        by_chunk.values(),
+        key=lambda item: (-item["retrieval_score"], -item["score"], item["chunk_id"]),
+    )[:pool_size]
+    verified: list[dict[str, Any]] = []
+    rejected = Counter()
+    for raw in ranked_pool:
+        context = context_function(connection, raw["chunk_id"], 1, 1)
+        target = next((row for row in context if row["target"]), None)
+        if target is None or target["text_quality"] != "good":
+            rejected["quality_or_context"] += 1
+            continue
+        persons = list(target["people"])
+        matched_niches = [name for name in raw["matched_niches"] if name in target["topics"]]
+        if not persons or not matched_niches:
+            rejected["person_topic_not_in_target_chunk"] += 1
+            continue
+        primary_topic = matched_niches[0]
+        evidence, evidence_terms, evidence_gap = _linked_evidence(
+            target["text"], persons, topics[primary_topic], people
+        )
+        if evidence is None or not evidence_terms:
+            rejected["person_topic_not_locally_linked"] += 1
+            continue
+        if not _evidence_readable(evidence):
+            rejected["unreliable_local_ocr"] += 1
+            continue
+        linked_alias = evidence_terms[0]
+        linked_people: list[str] = []
+        for person in persons:
+            try:
+                _canonical, variants = person_variants(people, person)
+            except ValueError:
+                variants = [person]
+            if _compact(linked_alias) in {_compact(value) for value in variants}:
+                linked_people.append(person)
+        if not linked_people:
+            rejected["linked_person_not_resolved"] += 1
+            continue
+        event = {
+            "title": f"{', '.join(linked_people)} — {TOPIC_LABELS.get(primary_topic, primary_topic)}",
+            "person": linked_people,
+            "date": _find_date(evidence),
+            "place": _find_place(evidence),
+            "what_happened": evidence,
+            "why_interesting": WHY_INTERESTING.get(
+                primary_topic, "Локальный эпизод, связанный с конкретным представителем Тайра."
+            ),
+            "source": target["source"],
+            "source_group": source_group(target["source"]),
+            "source_type": source_subtype(target["source"]),
+            "index_source_type": target["source_type"],
+            "filename": target["filename"],
+            "path": target["path"],
+            "relative_path": raw["relative_path"],
+            "page_start": target["page_start"],
+            "page_end": target["page_end"],
+            "chunk_no": target["chunk_no"],
+            "chunk_id": target["chunk_id"],
+            "topics": matched_niches,
+            "primary_topic": primary_topic,
+            "text_quality": target["text_quality"],
+            "verified_context": {
+                "status": "ok",
+                "chunks_loaded": len(context),
+                "before": sum(row["chunk_no"] < target["chunk_no"] for row in context),
+                "after": sum(row["chunk_no"] > target["chunk_no"] for row in context),
+                "evidence_terms": evidence_terms,
+                "max_term_gap_chars": evidence_gap,
+                "note": "person and topic are locally linked in the target chunk; context ±1 loaded",
+            },
+            "retrieval_score": round(raw["retrieval_score"], 6),
+        }
+        event["duplicate_check"] = duplicate_check(event, used)
+        if event["duplicate_check"]["status"] == "duplicate":
+            rejected["used_duplicate"] += 1
+        elif event["duplicate_check"]["status"] == "duplicate_risk":
+            rejected["duplicate_risk"] += 1
+        verified.append(event)
+
+    verified = _collapse_neighbours(verified)
+    verified.sort(
+        key=lambda item: (
+            item["duplicate_check"]["status"] != "clear",
+            -item["retrieval_score"],
+            item["source"],
+        )
+    )
+    final = [] if dry_run else _select_diverse(verified, 5)
+    if not dry_run and len(final) != 5:
+        raise RuntimeError(
+            f"После проверки осталось только {len(final)} надёжных разнообразных событий; "
+            "ровно пять без домыслов выбрать нельзя. Запустите --dry-run для диагностики."
+        )
+    final_ids = {item["chunk_id"] for item in final}
+    alternates = [item for item in verified if item["chunk_id"] not in final_ids][
+        : (20 if dry_run else 15)
+    ]
+    return {
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "mode": "historical-events",
+        "dry_run": dry_run,
+        "filters": {
+            "source_type": ["historical", "literary"],
+            "exclude_source_type": ["scholarship"],
+            "quality": ["good"],
+            "requires_taira_person": True,
+            "niches": niches,
+        },
+        "stats": {
+            "niche_hits": niche_counts,
+            "unique_pool": len(by_chunk),
+            "pool_checked": len(ranked_pool),
+            "verified_candidates": len(verified),
+            "used_finds_records": len(used),
+            "rejected": dict(rejected),
+            "final_count": len(final),
+            "alternate_count": len(alternates),
+        },
+        "final": final,
+        "alternates": alternates,
+    }
+
+
+def save_result(result: dict[str, Any], path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+
+
+def _load_object(path: Path, label: str) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8-sig"))
+    except FileNotFoundError as exc:
+        raise RuntimeError(f"Не найден {label}: {path}") from exc
+    if not isinstance(payload, dict):
+        raise ValueError(f"{path}: ожидается JSON-объект")
+    return payload
+
+
+def _fallback_card(event: dict[str, Any]) -> dict[str, Any]:
+    people = event.get("person", [])
+    names = ", ".join(PERSON_RU.get(str(item), str(item)) for item in people)
+    topic = event.get("primary_topic") or next(iter(event.get("topics", [])), "эпизод")
+    label = TOPIC_LABELS.get(topic, topic)
+    evidence_terms = event.get("verified_context", {}).get("evidence_terms", [])
+    term = evidence_terms[-1] if evidence_terms else label
+    quote = normalize_text(str(event.get("what_happened", "")))[:500]
+    return {
+        "title_ru": f"{names or 'Персонаж Тайра'} упомянут в эпизоде о теме «{label}»",
+        "summary_ru": (
+            f"В локальном контексте источника «{event.get('source', '—')}» "
+            f"{names or 'персонаж Тайра'} назван рядом с выражением «{term}». "
+            "Более конкретное действие нельзя сформулировать без риска домысла; "
+            "проверочный фрагмент сохранён ниже."
+        ),
+        "why_interesting_ru": (
+            "Это потенциально полезная находка-указатель, но её содержательная "
+            "интерпретация требует ручного чтения источника."
+        ),
+        "source_quote": quote,
+        "date": event.get("date"),
+        "place": event.get("place"),
+        "card_status": "needs_manual_review",
+    }
+
+
+def apply_presentation_cards(
+    result: dict[str, Any],
+    connection: sqlite3.Connection,
+    *,
+    context_function: Callable[..., list[dict[str, Any]]],
+    cards_path: Path,
+    source_notes_path: Path,
+) -> dict[str, Any]:
+    """Enrich a completed retrieval result without changing retrieval/ranking."""
+    cards = _load_object(cards_path, "event_cards.json")
+    source_notes = _load_object(source_notes_path, "source_notes.json")
+    final = list(result.get("final", []))
+    alternates = list(result.get("alternates", []))
+    retrieval_final_ids = list(result.get("retrieval_final_chunk_ids") or [])
+    if not retrieval_final_ids:
+        retrieval_final_ids = [str(item.get("chunk_id", "")) for item in final]
+    previous_presentation = result.get("presentation", {})
+    previous_changes = (
+        previous_presentation.get("replacements", [])
+        if isinstance(previous_presentation, dict)
+        else []
+    )
+    changes: list[dict[str, str]] = [
+        dict(item) for item in previous_changes if isinstance(item, dict)
+    ]
+
+    for index, event in enumerate(list(final)):
+        card = cards.get(str(event.get("chunk_id", "")), {})
+        if not isinstance(card, dict) or card.get("usable", True):
+            continue
+        replacement_id = str(card.get("replacement_chunk_id", ""))
+        replacement_index = next(
+            (
+                item_index
+                for item_index, item in enumerate(alternates)
+                if item.get("chunk_id") == replacement_id
+            ),
+            None,
+        )
+        if replacement_index is None:
+            continue
+        replacement = alternates.pop(replacement_index)
+        rejected = dict(event)
+        rejected["presentation_rejection"] = str(card.get("reason", "недостаточный контекст"))
+        alternates.append(rejected)
+        final[index] = replacement
+        change = {
+            "removed_chunk_id": str(event.get("chunk_id", "")),
+            "replacement_chunk_id": replacement_id,
+            "reason": str(card.get("reason", "недостаточный контекст")),
+        }
+        if change not in changes:
+            changes.append(change)
+
+    for event in final:
+        chunk_id = str(event.get("chunk_id", ""))
+        card = cards.get(chunk_id)
+        if not isinstance(card, dict) or not card.get("title_ru"):
+            card = _fallback_card(event)
+        source_key = str(event.get("source_group", event.get("source", "")))
+        source_info = source_notes.get(source_key, {})
+        if not isinstance(source_info, dict):
+            source_info = {}
+        event["title_ru"] = str(card["title_ru"])
+        event["summary_ru"] = str(card["summary_ru"])
+        event["why_interesting_ru"] = str(card["why_interesting_ru"])
+        event["source_quote"] = normalize_text(str(card["source_quote"]))[:500]
+        event["date"] = card.get("date", event.get("date"))
+        event["place"] = card.get("place", event.get("place"))
+        event["people"] = list(event.get("person", []))
+        event["source_title_ru"] = source_info.get("title_ru")
+        event["source_author_ru"] = source_info.get("author_ru")
+        event["source_closeness_ru"] = source_info.get(
+            "closeness_ru",
+            {
+                "contemporary_diary": "современный событиям дневник",
+                "later_chronicle": "более поздняя хроника",
+                "war_tale": "воинская повесть",
+            }.get(event.get("source_type"), "другой тип источника"),
+        )
+        event["source_note"] = source_info.get(
+            "note_ru", "Тип и близость источника требуют ручной проверки."
+        )
+        event["card_status"] = str(card.get("card_status", "verified_context_summary"))
+        context = context_function(connection, chunk_id, 1, 1)
+        event.setdefault("verified_context", {})["chunks"] = [
+            {
+                "target": row["target"],
+                "chunk_id": row["chunk_id"],
+                "chunk_no": row["chunk_no"],
+                "page_start": row["page_start"],
+                "page_end": row["page_end"],
+                "text": row["text"],
+            }
+            for row in context
+        ]
+
+    result["retrieval_final_chunk_ids"] = retrieval_final_ids
+    result["final"] = final
+    result["alternates"] = alternates[:15]
+    result["presentation"] = {
+        "cards_config": str(cards_path),
+        "source_notes_config": str(source_notes_path),
+        "replacements": changes,
+        "note": "Retrieval/ranking unchanged; cards summarize verified local context.",
+    }
+    result.setdefault("stats", {})["final_count"] = len(final)
+    result["stats"]["alternate_count"] = len(result["alternates"])
+    result["stats"]["presentation_replacements"] = len(changes)
+    return result
+
+
+def _page_label(event: dict[str, Any]) -> str:
+    start, end = event.get("page_start"), event.get("page_end")
+    if start is None:
+        return "—"
+    return str(start) if end is None or end == start else f"{start}–{end}"
+
+
+def print_daily_result(result: dict[str, Any], *, json_output: bool) -> None:
+    if json_output:
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return
+    stats = result["stats"]
+    if result["dry_run"]:
+        print("DAILY-FIVE DRY RUN")
+        print("Ниши: " + ", ".join(result["filters"]["niches"]))
+        print("Найдено по нишам: " + json.dumps(stats["niche_hits"], ensure_ascii=False))
+        print(
+            f"Уникальный пул: {stats['unique_pool']}; проверено: {stats['pool_checked']}; "
+            f"после context/дублей: {stats['verified_candidates']}"
+        )
+        print("Отброшено: " + json.dumps(stats["rejected"], ensure_ascii=False))
+        print("\nЛучшие оставшиеся кандидаты:")
+        rows = result["alternates"]
+    else:
+        rows = result["final"]
+        for number, event in enumerate(rows, start=1):
+            print(f"\n### {number}. {event.get('title_ru', event['title'])}")
+            print("\nЧто случилось")
+            print(event.get("summary_ru", event["what_happened"]))
+            print("\nПочему это интересно")
+            print(event.get("why_interesting_ru", event["why_interesting"]))
+            print("\nЧто именно говорит источник")
+            print(f"«{event.get('source_quote', event['what_happened'])}»")
+            print("\nИсточник")
+            source_line = event.get("source_title_ru") or event["source"]
+            if event.get("date"):
+                source_line += f", {event['date']}"
+            print(source_line)
+            print(event.get("source_note", ""))
+            print("\nНасколько близок источник")
+            print(event.get("source_closeness_ru", event["source_type"]))
+            duplicate = event["duplicate_check"]
+            print("\nПроверка дубля")
+            if duplicate["status"] == "clear":
+                print("В used_finds.csv совпадений не найдено.")
+            else:
+                print(f"{duplicate['status']}: {duplicate['reason']}")
+            print("\nСлужебные данные")
+            print(
+                f"Файл: {event['filename']}; стр.: {_page_label(event)}; "
+                f"chunk: {event['chunk_id']}"
+            )
+            print(f"Путь: {event['path']}")
+            print("-----")
+        return
+    for number, event in enumerate(rows, start=1):
+        print(f"\n{number}. {event['title']}")
+        print("Что произошло (дословный локальный фрагмент):")
+        print(event["what_happened"])
+        print(f"Почему интересно: {event['why_interesting']}")
+        print(f"Источник: {event['source']}")
+        print(f"Тип: {event['source_type']}")
+        print(f"Файл: {event['filename']}")
+        print(f"Путь: {event['path']}")
+        print(f"Страница: {_page_label(event)}; chunk_id: {event['chunk_id']}")
+        print(f"Проверка контекста: {event['verified_context']['status'].upper()}")
+        duplicate = event["duplicate_check"]
+        print(f"Проверка дублей: {duplicate['status']} — {duplicate['reason']}")
+        print("-----")
+
+
+USED_FIELDS = [
+    "id", "type", "persons", "topics", "short_description", "source", "date_used"
+]
+
+
+def mark_used_from_json(json_path: Path, used_path: Path) -> tuple[int, int]:
+    payload = json.loads(json_path.read_text(encoding="utf-8-sig"))
+    events = payload.get("final") if isinstance(payload, dict) else None
+    if not isinstance(events, list):
+        raise ValueError(f"{json_path}: ожидается объект daily-five с массивом final")
+    return append_used(events, used_path)
+
+
+def mark_used_chunk(
+    connection: sqlite3.Connection,
+    chunk_id: str,
+    used_path: Path,
+    *,
+    context_function: Callable[..., list[dict[str, Any]]],
+) -> tuple[int, int]:
+    rows = context_function(connection, chunk_id, 0, 0)
+    if not rows:
+        raise ValueError(f"Chunk не найден: {chunk_id}")
+    row = rows[0]
+    event = {
+        "chunk_id": row["chunk_id"],
+        "person": row["people"],
+        "topics": row["topics"],
+        "what_happened": normalize_text(row["text"])[:500],
+        "source": row["source"],
+    }
+    return append_used([event], used_path)
+
+
+def append_used(events: list[dict[str, Any]], used_path: Path) -> tuple[int, int]:
+    existing = load_used_finds(used_path)
+    existing_ids = {record["id"] for record in existing if record["id"]}
+    rows: list[dict[str, str]] = []
+    skipped = 0
+    for event in events:
+        chunk_id = normalize_text(str(event.get("chunk_id", "")))
+        if not chunk_id or chunk_id in existing_ids:
+            skipped += 1
+            continue
+        people = event.get("person", [])
+        topics = event.get("topics", [])
+        rows.append(
+            {
+                "id": chunk_id,
+                "type": "event",
+                "persons": "; ".join(str(item) for item in people),
+                "topics": "; ".join(str(item) for item in topics),
+                "short_description": normalize_text(
+                    str(event.get("what_happened", event.get("title", "")))
+                )[:500],
+                "source": normalize_text(str(event.get("source", ""))),
+                "date_used": date.today().isoformat(),
+            }
+        )
+        existing_ids.add(chunk_id)
+    used_path.parent.mkdir(parents=True, exist_ok=True)
+    write_header = not used_path.exists() or used_path.stat().st_size == 0
+    with used_path.open("a", encoding="utf-8-sig", newline="") as stream:
+        writer = csv.DictWriter(stream, fieldnames=USED_FIELDS)
+        if write_header:
+            writer.writeheader()
+        writer.writerows(rows)
+    return len(rows), skipped

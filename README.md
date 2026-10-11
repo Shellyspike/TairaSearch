@@ -1,0 +1,93 @@
+# TairaSearch
+
+TairaSearch is a local research pipeline for indexing a multilingual historical
+corpus, searching it with SQLite FTS5/BM25, selecting candidate findings, and
+giving a Codex automation verified context for short historical news cards.
+
+The project intentionally combines two layers:
+
+- deterministic Python code for extraction, chunking, indexing, search,
+  context retrieval, duplicate checks, and candidate selection;
+- Codex automations for discovering possible new sources, reviewing retrieved
+  context, comparing scholarship, and writing the final cards.
+
+The public repository contains only source code and a small synthetic sample.
+It does not contain the author's personal library, production SQLite database,
+search exports, publication journal, or active automation configuration.
+
+## Current release status
+
+This working copy is the preparation branch for version 0.1. It is not yet a
+published release. The first completed safety milestone is an exact release
+allowlist with tests that reject private/generated data and absolute local
+paths.
+
+## Quick local run
+
+Python 3.11 is the initial supported version for release 0.1.
+
+```powershell
+python -m venv .venv
+.venv\Scripts\python -m pip install -r requirements.txt
+.venv\Scripts\python build_index.py sample_corpus --db work/demo.sqlite3 --drive-csv work/demo.csv --drive-jsonl work/demo.jsonl --log work/demo.log --rebuild
+.venv\Scripts\python taira_search.py search --db work/demo.sqlite3 --query "維盛" --json
+```
+
+On POSIX systems, replace `.venv\Scripts\python` with `.venv/bin/python`.
+
+## Public release safety
+
+`release_manifest.toml` lists every file allowed into the public archive.
+Files not listed there are ignored, even if they are present in the project
+directory.
+
+Validate the source set without creating an archive:
+
+```powershell
+python make_release.py --check-only
+```
+
+Build a deterministic ZIP:
+
+```powershell
+python make_release.py
+```
+
+The builder rejects database files, generated exports, publication journals,
+private-data directories, symlinks, path traversal, oversized files, and
+absolute local paths in public text files.
+
+## AI workflow
+
+The AI-assisted part is a first-class part of TairaSearch, while the searchable
+index remains local and deterministic. See [docs/ai-workflow.md](docs/ai-workflow.md)
+and the sanitized prompt templates under `examples/codex/`.
+
+The templates are documentation only. Installing or running this repository
+does not create, modify, start, or stop any Codex automation.
+
+## Private corpora
+
+Users may index their own local documents by passing an explicit corpus path.
+The program does not require licence metadata for local indexing. Responsibility
+for acquiring, sharing, or publishing source documents remains with the user.
+
+Never add a personal corpus, generated index, extracted text, search export, or
+publication journal to `release_manifest.toml`.
+
+## Tests
+
+The release-safety tests use only the Python standard library:
+
+```powershell
+python -m unittest tests.test_release_safety -v
+```
+
+The complete integration suite additionally exercises PDF parsing and requires
+the dependencies from `requirements.txt`.
+
+## Licence
+
+A code licence will be selected before the first public release. The synthetic
+sample corpus will receive an explicit data notice separately.
+
