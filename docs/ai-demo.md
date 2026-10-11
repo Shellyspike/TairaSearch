@@ -26,9 +26,16 @@ Run every command below from the repository root.
 Release 0.1 targets Python 3.11. On Windows PowerShell:
 
 ```powershell
-py -3.11 -m venv .venv
+python --version
+python -m venv .venv
+.venv\Scripts\python -c "import sys; print(sys.version); print(sys.prefix)"
 .venv\Scripts\python -m pip install -r requirements.txt
 ```
+
+The first command must report Python 3.11, and the printed `sys.prefix` must end
+in this checkout's `.venv`. A version-specific Windows `py` launcher command is
+an equivalent alternative only when `py --list-paths` actually lists Python
+3.11; do not assume the launcher is configured merely because `python` works.
 
 On macOS or Linux:
 
@@ -39,6 +46,14 @@ python3.11 -m venv .venv
 
 Only `pypdf` is installed. The Python stage makes no network request after the
 dependency has been installed.
+
+Known Windows limitation: some Python installations under a non-ASCII user
+profile can create a nominal virtual environment whose launcher falls back to
+the base interpreter (the diagnostic above may show a garbled path or a prefix
+outside `.venv`). Do not continue with that environment. Use a Python 3.11
+installation and checkout path that the launcher represents correctly, then
+recreate `.venv`. This host-specific launcher problem must be checked again
+before the public release; it is not repaired by TairaSearch code.
 
 ## 2. Build the index and five candidates
 
@@ -100,6 +115,13 @@ codex exec --ephemeral --sandbox read-only --output-last-message work/demo/ai-ca
 The same command works in Bash. `codex exec` is the supported non-interactive
 mode, and `--output-last-message` saves the final answer; see the official
 [non-interactive mode documentation](https://developers.openai.com/codex/non-interactive-mode).
+
+Run the command from a normal user terminal. A nested or managed sandbox may
+forbid Codex from starting its child app-server and fail before it reads the
+prompt (for example, with `failed to initialize in-process app-server client:
+Access denied`). In that case, repeat the unchanged command in ordinary
+PowerShell or Terminal; increasing TairaSearch permissions is neither required
+nor appropriate.
 
 No existing chat, automation, schedule, or saved thread is used. For an
 interactive run, start `codex` in the repository and paste the quoted

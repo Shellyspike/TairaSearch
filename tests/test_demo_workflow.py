@@ -230,6 +230,7 @@ class DemoWorkflowTests(unittest.TestCase):
         )
         for required in (
             "run_demo.py",
+            "python -m venv .venv",
             "work/demo/ai-input.json",
             "examples/codex/daily-news-prompt.md",
             "codex exec --ephemeral --sandbox read-only",
@@ -238,6 +239,7 @@ class DemoWorkflowTests(unittest.TestCase):
             "What Python and AI each do",
         ):
             self.assertIn(required, documentation)
+        self.assertNotIn("py -3.11 -m venv .venv", documentation)
         self.assertIn("only source evidence", request)
         self.assertIn("Do not browse the web", request)
         self.assertIn("exactly five", request)
