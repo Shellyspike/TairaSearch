@@ -23,7 +23,7 @@ from metadata_utils import (
     load_people,
     load_source_types,
 )
-from parsers import chunk_units, parse_file
+from parsers import PdfProcessingError, chunk_units, ensure_pdf_support, parse_file
 from search_schema import FTS_MODE, ensure_search_schema, upsert_fts_chunk
 from text_utils import (
     derive_source,
@@ -447,6 +447,14 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
             "total_size": sum(stat.st_size for stat in file_stats.values()),
         }
 
+    pdf_count = sum(path.suffix.casefold() == ".pdf" for path in supported)
+    if pdf_count:
+        pdf_version = ensure_pdf_support()
+        print(
+            f"PDF: найдено {pdf_count}; pypdf {pdf_version} готов к обработке.",
+            flush=True,
+        )
+
     print("Начинаю индексацию...", flush=True)
     print("Этап 2/3: индексация содержимого...", flush=True)
     aliases = load_mapping(aliases_path, "aliases.json")
@@ -762,7 +770,10 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
                 connection.rollback()
             errors += 1
             message = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
-            log_error("FILE_ERROR", path, message)
+            error_kind = (
+                exc.error_code if isinstance(exc, PdfProcessingError) else "FILE_ERROR"
+            )
+            log_error(error_kind, path, message)
             delete_chunks_for_path(connection, relative_path)
             if path in file_stats:
                 upsert_file(

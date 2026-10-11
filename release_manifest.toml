@@ -3,6 +3,7 @@ version = 1
 files = [
   ".gitignore",
   "README.md",
+  "ROADMAP.md",
   "aliases.json",
   "build_index.py",
   "daily_five.py",
@@ -33,6 +34,7 @@ files = [
   "source_types.json",
   "taira_search.py",
   "tests/test_release_safety.py",
+  "tests/test_pdf_handling.py",
   "tests/test_taira_search.py",
   "text_utils.py",
   "topics.json",

@@ -20,7 +20,8 @@ search exports, publication journal, or active automation configuration.
 This working copy is the preparation branch for version 0.1. It is not yet a
 published release. The first completed safety milestone is an exact release
 allowlist with tests that reject private/generated data and absolute local
-paths.
+paths. PDF dependency preflight and error diagnostics are also covered by the
+test suite. See [ROADMAP.md](ROADMAP.md) for the remaining isolated stages.
 
 ## Quick local run
 
@@ -34,6 +35,13 @@ python -m venv .venv
 ```
 
 On POSIX systems, replace `.venv\Scripts\python` with `.venv/bin/python`.
+
+`requirements.txt` pins the tested `pypdf` version. When the corpus contains at
+least one PDF, the builder checks this dependency before it opens the SQLite
+index or creates logs and exports. A missing dependency therefore fails with an
+installation hint without changing an existing index. Valid PDFs without an
+extractable text layer receive the `pdf_no_text` status; unreadable containers
+are reported as `PDF_READ_ERROR`. OCR is not included in release 0.1.
 
 ## Public release safety
 
@@ -85,6 +93,10 @@ python -m unittest tests.test_release_safety -v
 
 The complete integration suite additionally exercises PDF parsing and requires
 the dependencies from `requirements.txt`.
+
+```powershell
+.venv\Scripts\python -m unittest discover -s tests -v
+```
 
 ## Licence
 

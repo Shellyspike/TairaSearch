@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from importlib import import_module
 from pathlib import Path
+from types import ModuleType
 from typing import Callable
 
 from text_utils import clean_original_text, split_text
@@ -47,6 +49,70 @@ class ParsedDocument:
     pdf_without_text: bool = False
     warnings: tuple[str, ...] = ()
     page_count: int | None = None
+
+
+class PdfProcessingError(RuntimeError):
+    """Base error with a stable diagnostic code for PDF failures."""
+
+    error_code = "PDF_ERROR"
+
+
+class PdfDependencyError(PdfProcessingError):
+    """The supported pypdf dependency is unavailable."""
+
+    error_code = "PDF_DEPENDENCY_ERROR"
+
+
+class PdfReadError(PdfProcessingError):
+    """The PDF container cannot be opened or its page tree cannot be read."""
+
+    error_code = "PDF_READ_ERROR"
+
+
+class PdfEncryptedError(PdfProcessingError):
+    """The PDF requires a password before text can be extracted."""
+
+    error_code = "PDF_ENCRYPTED"
+
+
+def _load_pypdf() -> tuple[ModuleType, str]:
+    try:
+        module = import_module("pypdf")
+    except ModuleNotFoundError as exc:
+        if exc.name != "pypdf":
+            raise
+        raise PdfDependencyError(
+            "Поддержка PDF недоступна: пакет pypdf не установлен. "
+            "Активируйте виртуальное окружение и выполните "
+            "`python -m pip install -r requirements.txt`."
+        ) from exc
+
+    version = str(getattr(module, "__version__", "unknown"))
+    match = re.match(r"^(\d+)", version)
+    if match and not 5 <= int(match.group(1)) < 7:
+        raise PdfDependencyError(
+            f"Установлена неподдерживаемая версия pypdf {version}; "
+            "требуется pypdf>=5.0,<7. "
+            "Выполните `python -m pip install -r requirements.txt`."
+        )
+    if not hasattr(module, "PdfReader"):
+        raise PdfDependencyError(
+            "Установленный пакет pypdf не содержит PdfReader. "
+            "Переустановите зависимости из requirements.txt."
+        )
+    return module, version
+
+
+def ensure_pdf_support() -> str:
+    """Validate the PDF backend without opening or changing an index."""
+
+    _, version = _load_pypdf()
+    return version
+
+
+def _pdf_error_detail(exc: Exception) -> str:
+    detail = str(exc).strip()
+    return f"{type(exc).__name__}: {detail}" if detail else type(exc).__name__
 
 
 def decode_text_bytes(data: bytes) -> str:
@@ -112,24 +178,41 @@ def parse_pdf(
     path: Path,
     progress_callback: Callable[[int, int], None] | None = None,
 ) -> ParsedDocument:
+    module, _ = _load_pypdf()
     try:
-        from pypdf import PdfReader
-    except ImportError as exc:  # pragma: no cover - depends on installation
-        raise RuntimeError("Для PDF установите зависимости: pip install -r requirements.txt") from exc
+        reader = module.PdfReader(str(path), strict=False)
+        if reader.is_encrypted:
+            try:
+                unlocked = reader.decrypt("")
+            except Exception as exc:
+                raise PdfEncryptedError(
+                    f"PDF защищён паролем и не может быть прочитан: {path.name} "
+                    f"({_pdf_error_detail(exc)})"
+                ) from exc
+            if not unlocked:
+                raise PdfEncryptedError(
+                    f"PDF защищён паролем и не может быть прочитан: {path.name}"
+                )
+        page_count = len(reader.pages)
+    except PdfProcessingError:
+        raise
+    except Exception as exc:
+        raise PdfReadError(
+            f"Не удалось прочитать PDF {path.name}: {_pdf_error_detail(exc)}"
+        ) from exc
 
-    reader = PdfReader(str(path), strict=False)
-    page_count = len(reader.pages)
     if progress_callback:
         progress_callback(0, page_count)
     progress_step = max(25, round(page_count / 250) * 25)
     units: list[TextUnit] = []
     warnings: list[str] = []
     total_nonspace = 0
-    for page_no, page in enumerate(reader.pages, start=1):
+    for page_no in range(1, page_count + 1):
         try:
+            page = reader.pages[page_no - 1]
             text = clean_original_text(page.extract_text() or "")
         except Exception as exc:  # a broken page must not hide the rest of the PDF
-            warnings.append(f"Страница {page_no}: {exc}")
+            warnings.append(f"Страница {page_no}: {_pdf_error_detail(exc)}")
             text = ""
         useful = len(re.sub(r"\s+", "", text))
         if useful:
