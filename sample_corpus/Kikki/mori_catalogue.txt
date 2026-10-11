@@ -1,0 +1,1 @@
+Synthetic ambiguity fixture. Mori is a modern catalogue label here and not a reference to any person in the configured historical list.

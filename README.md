@@ -36,6 +36,21 @@ python -m venv .venv
 
 On POSIX systems, replace `.venv\Scripts\python` with `.venv/bin/python`.
 
+For the complete offline demonstration, run one command after installing the
+dependency:
+
+```powershell
+.venv\Scripts\python run_demo.py
+```
+
+It rebuilds `work/demo/index.sqlite3` only from the public `sample_corpus`, runs
+a multilingual FTS5/BM25 search into `work/demo/search.jsonl`, and writes five
+verified candidates to `work/demo/candidates.json`. The demo resets only its
+own empty publication-history fixture. It does not read the personal library,
+the production SQLite database or publication journal, and it makes no network
+or OpenAI API calls. The candidates are input for the later Codex demonstration;
+this command does not perform AI analysis.
+
 `requirements.txt` pins the tested `pypdf` version. When the corpus contains at
 least one PDF, the builder checks this dependency before it opens the SQLite
 index or creates logs and exports. A missing dependency therefore fails with an
@@ -116,6 +131,10 @@ the dependencies from `requirements.txt`.
 ```powershell
 .venv\Scripts\python -m unittest discover -s tests -v
 ```
+
+`tests/test_demo_workflow.py` compares multilingual searches, duplicates,
+ambiguous names, neighbouring chunks, and the five selected candidates against
+`examples/demo/expected_results.json`.
 
 ## Licence
 
