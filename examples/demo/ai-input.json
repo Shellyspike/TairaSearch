@@ -1,0 +1,200 @@
+{
+  "schema_version": 1,
+  "demo": true,
+  "material_status": "synthetic_demo_not_historical_evidence",
+  "notice_ru": "Все тексты и события вымышлены для демонстрации TairaSearch; их нельзя представлять как реальные исторические сведения.",
+  "source_note_ru": "Названия папок имитируют типы источников только для проверки классификации и не означают, что фрагменты взяты из этих произведений.",
+  "candidate_count": 5,
+  "candidates": [
+    {
+      "ordinal": 1,
+      "material_status": "synthetic_demo_not_historical_evidence",
+      "chunk_id": "ch_3b39818e3652f04460690a93",
+      "relative_path": "吉記/русская_музыка.txt",
+      "source": "吉記",
+      "source_group": "吉記",
+      "source_type": "contemporary_diary",
+      "index_source_type": "historical",
+      "people": ["重盛"],
+      "primary_topic": "music",
+      "topics": ["music"],
+      "date": "治承三年",
+      "place": "京都",
+      "source_excerpt": "Синтетическая русская запись для проверки многоязычного поиска; это не историческая цитата. 治承三年、平重盛は京都で琵琶を играл перед небольшим собранием. Русский пересказ сообщает, что Сигэмори участвовал в музыкальном вечере.",
+      "why_interesting_hint": "Показывает культурную и церемониальную сторону жизни, не сводимую к политике и войне.",
+      "verification": {
+        "status": "ok",
+        "evidence_terms": ["平重盛", "琵琶"],
+        "max_term_gap_chars": 4,
+        "context_chunks": [
+          {
+            "target": true,
+            "chunk_id": "ch_3b39818e3652f04460690a93",
+            "chunk_no": 1,
+            "page_start": null,
+            "page_end": null,
+            "text": "Синтетическая русская запись для проверки многоязычного поиска; это не историческая цитата.\n治承三年、平重盛は京都で琵琶を играл перед небольшим собранием. Русский пересказ сообщает, что Сигэмори участвовал в музыкальном вечере."
+          }
+        ]
+      },
+      "duplicate_check": {
+        "status": "clear",
+        "confidence": 0.0,
+        "reason": "not found in used_finds.csv",
+        "matched_id": null
+      }
+    },
+    {
+      "ordinal": 2,
+      "material_status": "synthetic_demo_not_historical_evidence",
+      "chunk_id": "ch_b47aa27981b8a752c47e73f6",
+      "relative_path": "平家物語/宴.txt",
+      "source": "平家物語",
+      "source_group": "平家物語",
+      "source_type": "war_tale",
+      "index_source_type": "literary",
+      "people": ["宗盛"],
+      "primary_topic": "feast",
+      "topics": ["feast"],
+      "date": "寿永二年",
+      "place": "福原",
+      "source_excerpt": "これは検索試験のための合成文であり、文学作品からの引用ではない。 寿永二年、平宗盛は福原で酒宴を開き、客と宴の酒を酌み交わした。",
+      "why_interesting_hint": "Даёт бытовой или церемониальный эпизод вокруг еды, питья и собрания.",
+      "verification": {
+        "status": "ok",
+        "evidence_terms": ["平宗盛", "酒宴"],
+        "max_term_gap_chars": 4,
+        "context_chunks": [
+          {
+            "target": true,
+            "chunk_id": "ch_b47aa27981b8a752c47e73f6",
+            "chunk_no": 1,
+            "page_start": null,
+            "page_end": null,
+            "text": "これは検索試験のための合成文であり、文学作品からの引用ではない。\n寿永二年、平宗盛は福原で酒宴を開き、客と宴の酒を酌み交わした。"
+          }
+        ]
+      },
+      "duplicate_check": {
+        "status": "clear",
+        "confidence": 0.0,
+        "reason": "not found in used_finds.csv",
+        "matched_id": null
+      }
+    },
+    {
+      "ordinal": 3,
+      "material_status": "synthetic_demo_not_historical_evidence",
+      "chunk_id": "ch_64ad1a8c15358427306b1b1a",
+      "relative_path": "吾妻鏡/пленение.txt",
+      "source": "吾妻鏡",
+      "source_group": "吾妻鏡",
+      "source_type": "later_chronicle",
+      "index_source_type": "historical",
+      "people": ["時忠"],
+      "primary_topic": "captivity",
+      "topics": ["captivity"],
+      "date": "文治元年",
+      "place": "京都",
+      "source_excerpt": "これは検索試験のための合成文であり、史料からの引用ではない。 文治元年、平時忠は京都で捕らえられ、しばらく囚われた後に配流された。",
+      "why_interesting_hint": "Даёт локально подтверждённый эпизод плена, задержания или ссылки.",
+      "verification": {
+        "status": "ok",
+        "evidence_terms": ["平時忠", "配流"],
+        "max_term_gap_chars": 20,
+        "context_chunks": [
+          {
+            "target": true,
+            "chunk_id": "ch_64ad1a8c15358427306b1b1a",
+            "chunk_no": 1,
+            "page_start": null,
+            "page_end": null,
+            "text": "これは検索試験のための合成文であり、史料からの引用ではない。\n文治元年、平時忠は京都で捕らえられ、しばらく囚われた後に配流された。"
+          }
+        ]
+      },
+      "duplicate_check": {
+        "status": "clear",
+        "confidence": 0.0,
+        "reason": "not found in used_finds.csv",
+        "matched_id": null
+      }
+    },
+    {
+      "ordinal": 4,
+      "material_status": "synthetic_demo_not_historical_evidence",
+      "chunk_id": "ch_fec810decc8cc4d78773fd36",
+      "relative_path": "源平盛衰記/пожар.txt",
+      "source": "源平盛衰記",
+      "source_group": "源平盛衰記",
+      "source_type": "war_tale",
+      "index_source_type": "literary",
+      "people": ["知盛"],
+      "primary_topic": "fire",
+      "topics": ["fire"],
+      "date": "治承四年",
+      "place": "京都",
+      "source_excerpt": "これは検索試験のための合成文であり、文学作品からの引用ではない。 治承四年、平知盛は京都の火事を知り、焼失した館から人を助けた。",
+      "why_interesting_hint": "Локальный эпизод позволяет увидеть материальную среду и реакцию на бедствие.",
+      "verification": {
+        "status": "ok",
+        "evidence_terms": ["平知盛", "火事"],
+        "max_term_gap_chars": 4,
+        "context_chunks": [
+          {
+            "target": true,
+            "chunk_id": "ch_fec810decc8cc4d78773fd36",
+            "chunk_no": 1,
+            "page_start": null,
+            "page_end": null,
+            "text": "これは検索試験のための合成文であり、文学作品からの引用ではない。\n治承四年、平知盛は京都の火事を知り、焼失した館から人を助けた。"
+          }
+        ]
+      },
+      "duplicate_check": {
+        "status": "clear",
+        "confidence": 0.0,
+        "reason": "not found in used_finds.csv",
+        "matched_id": null
+      }
+    },
+    {
+      "ordinal": 5,
+      "material_status": "synthetic_demo_not_historical_evidence",
+      "chunk_id": "ch_9944270a0fca336332309762",
+      "relative_path": "玉葉/772049_0000002.txt",
+      "source": "玉葉",
+      "source_group": "玉葉",
+      "source_type": "contemporary_diary",
+      "index_source_type": "historical",
+      "people": ["清盛"],
+      "primary_topic": "illness",
+      "topics": ["illness"],
+      "date": null,
+      "place": null,
+      "source_excerpt": "平清盛は所労により参内せず。人々は病の重さを案じた。",
+      "why_interesting_hint": "Показывает телесный опыт, лечение и повседневную уязвимость представителей Тайра.",
+      "verification": {
+        "status": "ok",
+        "evidence_terms": ["平清盛", "所労"],
+        "max_term_gap_chars": 1,
+        "context_chunks": [
+          {
+            "target": true,
+            "chunk_id": "ch_9944270a0fca336332309762",
+            "chunk_no": 1,
+            "page_start": 2,
+            "page_end": 2,
+            "text": "平清盛は所労により参内せず。人々は病の重さを案じた。"
+          }
+        ]
+      },
+      "duplicate_check": {
+        "status": "clear",
+        "confidence": 0.0,
+        "reason": "not found in used_finds.csv",
+        "matched_id": null
+      }
+    }
+  ]
+}

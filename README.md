@@ -45,11 +45,16 @@ dependency:
 
 It rebuilds `work/demo/index.sqlite3` only from the public `sample_corpus`, runs
 a multilingual FTS5/BM25 search into `work/demo/search.jsonl`, and writes five
-verified candidates to `work/demo/candidates.json`. The demo resets only its
-own empty publication-history fixture. It does not read the personal library,
-the production SQLite database or publication journal, and it makes no network
-or OpenAI API calls. The candidates are input for the later Codex demonstration;
-this command does not perform AI analysis.
+verified candidates to `work/demo/candidates.json` plus a path-safe Codex
+handoff at `work/demo/ai-input.json`. The demo resets only its own empty
+publication-history fixture. It does not read the personal library, the
+production SQLite database or publication journal, and it makes no network or
+OpenAI API calls. The command itself does not perform AI analysis.
+
+The complete optional Codex step, its exact CLI command, a frozen input, and an
+example five-card result are documented in [docs/ai-demo.md](docs/ai-demo.md).
+It uses the existing sanitized prompt without requiring the author's active
+automations or chat history.
 
 `requirements.txt` pins the tested `pypdf` version. When the corpus contains at
 least one PDF, the builder checks this dependency before it opens the SQLite
@@ -103,7 +108,8 @@ absolute local paths in public text files.
 
 The AI-assisted part is a first-class part of TairaSearch, while the searchable
 index remains local and deterministic. See [docs/ai-workflow.md](docs/ai-workflow.md)
-and the sanitized prompt templates under `examples/codex/`.
+for the architecture, [docs/ai-demo.md](docs/ai-demo.md) for the reproducible
+walkthrough, and the sanitized prompt templates under `examples/codex/`.
 
 The templates are documentation only. Installing or running this repository
 does not create, modify, start, or stop any Codex automation.

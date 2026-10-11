@@ -17,6 +17,58 @@ PROJECT_DIR = Path(__file__).resolve().parent
 SAMPLE_CORPUS = PROJECT_DIR / "sample_corpus"
 
 
+def make_ai_input(payload: dict) -> dict:
+    """Return a stable, path-safe handoff containing only verified demo evidence."""
+
+    final = payload.get("final", [])
+    if not isinstance(final, list) or len(final) != 5:
+        raise ValueError("AI demo requires exactly five selected candidates")
+    candidates = []
+    for ordinal, item in enumerate(final, start=1):
+        verified = item.get("verified_context", {})
+        candidates.append(
+            {
+                "ordinal": ordinal,
+                "material_status": "synthetic_demo_not_historical_evidence",
+                "chunk_id": item["chunk_id"],
+                "relative_path": item["relative_path"],
+                "source": item["source"],
+                "source_group": item["source_group"],
+                "source_type": item["source_type"],
+                "index_source_type": item["index_source_type"],
+                "people": item["person"],
+                "primary_topic": item["primary_topic"],
+                "topics": item["topics"],
+                "date": item.get("date"),
+                "place": item.get("place"),
+                "source_excerpt": item.get("source_quote") or item["what_happened"],
+                "why_interesting_hint": item["why_interesting"],
+                "verification": {
+                    "status": verified.get("status"),
+                    "evidence_terms": verified.get("evidence_terms", []),
+                    "max_term_gap_chars": verified.get("max_term_gap_chars"),
+                    "context_chunks": verified.get("chunks", []),
+                },
+                "duplicate_check": item["duplicate_check"],
+            }
+        )
+    return {
+        "schema_version": 1,
+        "demo": True,
+        "material_status": "synthetic_demo_not_historical_evidence",
+        "notice_ru": (
+            "Все тексты и события вымышлены для демонстрации TairaSearch; "
+            "их нельзя представлять как реальные исторические сведения."
+        ),
+        "source_note_ru": (
+            "Названия папок имитируют типы источников только для проверки "
+            "классификации и не означают, что фрагменты взяты из этих произведений."
+        ),
+        "candidate_count": len(candidates),
+        "candidates": candidates,
+    }
+
+
 def make_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Построить демо-индекс, выполнить поиск и выбрать пять кандидатов"
@@ -38,6 +90,7 @@ def main(argv: list[str] | None = None) -> int:
     database = work_dir / "index.sqlite3"
     search_output = work_dir / "search.jsonl"
     candidates_output = work_dir / "candidates.json"
+    ai_input_output = work_dir / "ai-input.json"
     used_finds = work_dir / "demo_used_finds.csv"
     used_finds.write_text(
         "id,type,persons,topics,short_description,source,date_used\n",
@@ -109,8 +162,13 @@ def main(argv: list[str] | None = None) -> int:
         return daily_code
 
     payload = json.loads(candidates_output.read_text(encoding="utf-8"))
+    ai_input_output.write_text(
+        json.dumps(make_ai_input(payload), ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
     print(f"\nГотово: {len(payload['final'])} кандидатов сохранены в {candidates_output}")
-    print("AI-анализ не запускался; candidates.json предназначен для следующего этапа Codex.")
+    print(f"Безопасный вход для Codex: {ai_input_output}")
+    print("AI-анализ не запускался; следующий шаг описан в docs/ai-demo.md.")
     return 0
 
 

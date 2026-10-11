@@ -37,9 +37,10 @@ public test corpus and the sanitized prompts already in `examples/codex/`:
 5. produce five example news cards with source references.
 
 Steps 1 and 2 now have an offline, one-command fixture in `run_demo.py`, backed
-by multilingual golden results. Steps 3–5 remain the next separate stage and
-will use the sanitized Codex prompts without rewriting the project around an
-API or multi-agent framework.
+by multilingual golden results. Steps 3–5 are documented in `docs/ai-demo.md`
+and include a stable Codex handoff, an exact read-only CLI command, and a saved
+five-card example. The live prose remains variable and human-reviewed; no API
+or multi-agent framework was added.
 
 The demonstration should explain the boundary between deterministic Python and
 Codex, and provide fixtures or redacted example outputs where an automation

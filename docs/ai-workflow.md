@@ -59,3 +59,8 @@ and candidate selection. Final prose can vary between model runs, so AI output
 is demonstrated through documented inputs and expected editorial constraints,
 not treated as a byte-for-byte deterministic build artifact.
 
+The complete public walkthrough is in [ai-demo.md](ai-demo.md). It uses an
+ephemeral, read-only `codex exec` run with the existing sanitized daily-news
+prompt, plus a committed input and example output. It does not depend on an
+active automation or previous conversation.
+

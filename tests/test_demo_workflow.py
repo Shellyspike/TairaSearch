@@ -181,6 +181,67 @@ class DemoWorkflowTests(unittest.TestCase):
             [item["chunk_id"] for item in payload["final"]],
             [item["chunk_id"] for item in self.expected["daily_five"]],
         )
+        generated_ai_input = json.loads(
+            (demo_dir / "ai-input.json").read_text(encoding="utf-8")
+        )
+        committed_ai_input = json.loads(
+            (PROJECT / "examples" / "demo" / "ai-input.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(generated_ai_input, committed_ai_input)
+        serialized = json.dumps(generated_ai_input, ensure_ascii=False)
+        self.assertNotIn(str(PROJECT), serialized)
+        self.assertNotIn("generated_at_utc", serialized)
+        self.assertTrue(
+            all(
+                item["material_status"]
+                == "synthetic_demo_not_historical_evidence"
+                for item in generated_ai_input["candidates"]
+            )
+        )
+
+    def test_saved_ai_output_is_five_explicitly_synthetic_sourced_cards(self) -> None:
+        ai_input = json.loads(
+            (PROJECT / "examples" / "demo" / "ai-input.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        output = (PROJECT / "examples" / "demo" / "ai-output.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertEqual(output.count("[ДЕМО]"), 5)
+        self.assertEqual(
+            output.count("вымышленный тестовый эпизод, не историческое сведение"),
+            5,
+        )
+        for candidate in ai_input["candidates"]:
+            self.assertIn(candidate["relative_path"], output)
+            self.assertIn(candidate["chunk_id"], output)
+        windows_home_prefix = "C:" + "\\Users\\"
+        self.assertNotIn(windows_home_prefix, output)
+
+    def test_ai_demo_documentation_preserves_python_ai_boundary(self) -> None:
+        documentation = (PROJECT / "docs" / "ai-demo.md").read_text(
+            encoding="utf-8"
+        )
+        request = (PROJECT / "examples" / "demo" / "codex-request.md").read_text(
+            encoding="utf-8"
+        )
+        for required in (
+            "run_demo.py",
+            "work/demo/ai-input.json",
+            "examples/codex/daily-news-prompt.md",
+            "codex exec --ephemeral --sandbox read-only",
+            "work/demo/ai-cards.md",
+            "examples/demo/ai-output.md",
+            "What Python and AI each do",
+        ):
+            self.assertIn(required, documentation)
+        self.assertIn("only source evidence", request)
+        self.assertIn("Do not browse the web", request)
+        self.assertIn("exactly five", request)
+        self.assertIn("publication journal", request)
 
 
 if __name__ == "__main__":
