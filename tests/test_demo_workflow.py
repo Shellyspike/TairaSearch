@@ -210,14 +210,29 @@ class DemoWorkflowTests(unittest.TestCase):
         output = (PROJECT / "examples" / "demo" / "ai-output.md").read_text(
             encoding="utf-8"
         )
+        normalized_output = " ".join(output.split())
+        self.assertIn("Codex app output", output)
         self.assertEqual(output.count("[ДЕМО]"), 5)
         self.assertEqual(
             output.count("вымышленный тестовый эпизод, не историческое сведение"),
             5,
         )
+        for heading in (
+            "**Что случилось.**",
+            "**Почему это интересно.**",
+            "**Фрагмент.**",
+            "**Источник.**",
+        ):
+            self.assertEqual(output.count(heading), 5)
         for candidate in ai_input["candidates"]:
             self.assertIn(candidate["relative_path"], output)
             self.assertIn(candidate["chunk_id"], output)
+            self.assertIn(candidate["source_type"], output)
+            self.assertIn(" ".join(candidate["source_excerpt"].split()), normalized_output)
+            if candidate["date"]:
+                self.assertIn(candidate["date"], output)
+            if candidate["place"]:
+                self.assertIn(candidate["place"], output)
         windows_home_prefix = "C:" + "\\Users\\"
         self.assertNotIn(windows_home_prefix, output)
 
@@ -231,6 +246,7 @@ class DemoWorkflowTests(unittest.TestCase):
         for required in (
             "run_demo.py",
             "python -m venv .venv",
+            "Primary workflow: one Codex app request",
             "work/demo/ai-input.json",
             "examples/codex/daily-news-prompt.md",
             "codex exec --ephemeral --sandbox read-only",
@@ -244,6 +260,9 @@ class DemoWorkflowTests(unittest.TestCase):
         self.assertIn("Do not browse the web", request)
         self.assertIn("exactly five", request)
         self.assertIn("publication journal", request)
+        self.assertIn("work/demo/ai-cards.md", request)
+        self.assertIn("Optional alternative: Codex CLI", documentation)
+        self.assertIn("No nested", documentation)
 
 
 if __name__ == "__main__":

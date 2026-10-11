@@ -20,6 +20,8 @@ in input order. For every card:
 6. do not imply that the synthetic text really comes from the historical work
    named by its folder.
 
-Do not browse the web, edit repository files, publish anything, or update a
-publication journal. Return only the five cards and a short final note saying
-that a human must review model output before any real publication.
+Do not browse the web, edit tracked repository files, publish anything, or
+update a publication journal. When the calling request asks for a saved result,
+you may write only `work/demo/ai-cards.md`. Return only the five cards and a
+short final note saying that a human must review model output before any real
+publication.

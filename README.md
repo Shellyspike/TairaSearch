@@ -51,10 +51,10 @@ publication-history fixture. It does not read the personal library, the
 production SQLite database or publication journal, and it makes no network or
 OpenAI API calls. The command itself does not perform AI analysis.
 
-The complete optional Codex step, its exact CLI command, a frozen input, and an
-example five-card result are documented in [docs/ai-demo.md](docs/ai-demo.md).
-It uses the existing sanitized prompt without requiring the author's active
-automations or chat history.
+The complete Codex app workflow, a one-request prompt, an optional CLI
+alternative, a frozen input, and a five-card result are documented in
+[docs/ai-demo.md](docs/ai-demo.md). It uses the existing sanitized prompt
+without requiring the author's active automations or chat history.
 
 `requirements.txt` pins the tested `pypdf` version. When the corpus contains at
 least one PDF, the builder checks this dependency before it opens the SQLite

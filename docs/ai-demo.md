@@ -1,9 +1,14 @@
 # Reproducible AI demonstration
 
 This walkthrough reproduces the public TairaSearch pipeline from the synthetic
-sample corpus through five Codex-written cards. It does not need the author's
-private library, production database, publication history, active automations,
-or an OpenAI API integration in the Python project.
+sample corpus through five Codex-written cards. The primary workflow uses one
+Codex app chat in the local repository: Codex runs the deterministic Python
+stage, reads its handoff, writes the cards, and verifies the result. It does not
+start a second model process.
+
+The demonstration does not need the author's private library, production
+database, publication history, active automations, chat history, or an OpenAI
+API integration in the Python project.
 
 > **Demonstration data only:** every event and excerpt in `sample_corpus` is
 > fictional test material. Historical-looking directory names exercise source
@@ -13,17 +18,17 @@ or an OpenAI API integration in the Python project.
 
 - `sample_corpus/`: public synthetic Russian, Japanese, and English documents;
 - `run_demo.py`: deterministic index, search, selection, and AI-input builder;
-- `examples/codex/daily-news-prompt.md`: the existing sanitized editorial prompt;
-- `examples/demo/codex-request.md`: demo-only constraints and output format;
-- `work/demo/ai-input.json`: generated handoff containing the five candidates;
+- `examples/codex/daily-news-prompt.md`: sanitized editorial baseline;
+- `examples/demo/codex-request.md`: demo-only evidence and output constraints;
+- `work/demo/ai-input.json`: generated five-candidate handoff for Codex;
 - `examples/demo/ai-input.json`: committed copy of the expected handoff;
-- `examples/demo/ai-output.md`: committed example of a valid Codex result.
-
-Run every command below from the repository root.
+- `examples/demo/ai-output.md`: committed result produced in a Codex app chat.
 
 ## 1. Install the Python dependency
 
-Release 0.1 targets Python 3.11. On Windows PowerShell:
+Release 0.1 targets Python 3.11. Run commands from the repository root.
+
+On Windows PowerShell:
 
 ```powershell
 python --version
@@ -35,7 +40,7 @@ python -m venv .venv
 The first command must report Python 3.11, and the printed `sys.prefix` must end
 in this checkout's `.venv`. A version-specific Windows `py` launcher command is
 an equivalent alternative only when `py --list-paths` actually lists Python
-3.11; do not assume the launcher is configured merely because `python` works.
+3.11.
 
 On macOS or Linux:
 
@@ -49,28 +54,46 @@ dependency has been installed.
 
 Known Windows limitation: some Python installations under a non-ASCII user
 profile can create a nominal virtual environment whose launcher falls back to
-the base interpreter (the diagnostic above may show a garbled path or a prefix
-outside `.venv`). Do not continue with that environment. Use a Python 3.11
+the base interpreter. If the diagnostic shows a garbled path or a prefix
+outside `.venv`, do not continue with that environment. Use a Python 3.11
 installation and checkout path that the launcher represents correctly, then
-recreate `.venv`. This host-specific launcher problem must be checked again
-before the public release; it is not repaired by TairaSearch code.
+recreate `.venv`. This host-specific limitation must be checked again before
+the public release.
 
-## 2. Build the index and five candidates
+## 2. Primary workflow: one Codex app request
 
-Windows PowerShell:
+Open this repository as a local project in the Codex app and start a chat whose
+working directory is the repository root. The official
+[projects documentation](https://learn.chatgpt.com/docs/projects?surface=app)
+explains that a local project gives Codex access to the attached folder and its
+working tree.
 
-```powershell
-.venv\Scripts\python run_demo.py
+Send this single request:
+
+```text
+Выполни публичную AI-демонстрацию TairaSearch в текущей рабочей копии.
+
+1. Запусти run_demo.py интерпретатором из .venv и убедись, что он успешно создал work/demo/ai-input.json ровно с пятью кандидатами.
+2. Прочитай examples/codex/daily-news-prompt.md, examples/demo/codex-request.md и сгенерированный work/demo/ai-input.json.
+3. Используй ai-input.json как единственный источник сведений. Не ищи информацию в интернете и не обращайся к другим корпусам.
+4. Создай ровно пять русскоязычных Markdown-карточек в порядке входных кандидатов. Каждый заголовок должен начинаться с [ДЕМО], а каждая карточка должна быть явно названа вымышленным тестовым материалом, содержать разделы «Что случилось», «Почему это интересно», «Фрагмент» и «Источник» и ссылаться на relative_path и chunk_id.
+5. Сохрани результат только в work/demo/ai-cards.md. Не изменяй отслеживаемые файлы репозитория, не публикуй карточки и не обновляй журнал находок.
+6. Проверь число карточек, маркировку [ДЕМО], все пять relative_path и chunk_id и сообщи результат проверки.
 ```
 
-macOS or Linux:
+Codex performs both roles in the same chat: it invokes Python for retrieval and
+then uses the generated, path-safe handoff as model context. No nested
+`codex exec`, OpenAI SDK code, API key in the repository, personal automation,
+or previous chat is required. The human still reviews the final file.
 
-```bash
-.venv/bin/python run_demo.py
-```
+The checked-in `examples/demo/ai-output.md` was produced with this division of
+work in the current Codex app session. It is a reviewable example, not a
+byte-for-byte golden model response.
 
-The command rebuilds only `work/demo/index.sqlite3` from `sample_corpus`, runs
-one multilingual SQLite FTS5/BM25 search, and applies the existing deterministic
+## 3. What the Python command produces
+
+`run_demo.py` rebuilds only `work/demo/index.sqlite3` from `sample_corpus`, runs
+a multilingual SQLite FTS5/BM25 search, and applies the existing deterministic
 candidate rules. It creates:
 
 - `work/demo/search.jsonl`: example search result;
@@ -78,56 +101,19 @@ candidate rules. It creates:
 - `work/demo/ai-input.json`: stable, path-safe five-candidate handoff for Codex;
 - local CSV/JSONL diagnostics and an empty demo-only publication-history file.
 
-The generated AI input deliberately omits absolute paths, timestamps, private
-data, credentials, and automation identifiers. It must match the committed
+The generated AI input omits absolute paths, timestamps, private data,
+credentials, and automation identifiers. It must match the committed
 `examples/demo/ai-input.json` fixture.
 
-## 3. Install and sign in to Codex
-
-Install the Codex CLI with npm and confirm that it is available:
+To run only this deterministic stage manually:
 
 ```powershell
-npm install -g @openai/codex@latest
-codex --version
+.venv\Scripts\python run_demo.py
 ```
 
-Run `codex` once from the repository and choose **Sign in with ChatGPT** (or
-another sign-in method offered by the CLI):
+On macOS or Linux, use `.venv/bin/python run_demo.py`.
 
-```powershell
-codex
-```
-
-This follows the official [Codex CLI quickstart](https://developers.openai.com/codex/cli).
-The repository does not read or store the resulting credentials. No API key is
-required by TairaSearch, and this demonstration does not add OpenAI SDK code.
-
-## 4. Ask Codex to create the cards
-
-The command below starts a new non-interactive, ephemeral Codex run. The model
-can read the checkout but cannot edit it; the CLI itself writes only the final
-message to `work/demo/ai-cards.md`.
-
-```powershell
-codex exec --ephemeral --sandbox read-only --output-last-message work/demo/ai-cards.md "Read examples/codex/daily-news-prompt.md and examples/demo/codex-request.md. Use work/demo/ai-input.json as the only source evidence. Return exactly five Markdown cards. Do not edit files."
-```
-
-The same command works in Bash. `codex exec` is the supported non-interactive
-mode, and `--output-last-message` saves the final answer; see the official
-[non-interactive mode documentation](https://developers.openai.com/codex/non-interactive-mode).
-
-Run the command from a normal user terminal. A nested or managed sandbox may
-forbid Codex from starting its child app-server and fail before it reads the
-prompt (for example, with `failed to initialize in-process app-server client:
-Access denied`). In that case, repeat the unchanged command in ordinary
-PowerShell or Terminal; increasing TairaSearch permissions is neither required
-nor appropriate.
-
-No existing chat, automation, schedule, or saved thread is used. For an
-interactive run, start `codex` in the repository and paste the quoted
-instruction from the command above. Keep the three referenced files unchanged.
-
-## 5. Inspect and verify the result
+## 4. Inspect and verify the result
 
 Open `work/demo/ai-cards.md`. A valid result has all of these properties:
 
@@ -143,17 +129,33 @@ Open `work/demo/ai-cards.md`. A valid result has all of these properties:
   historical work;
 - no publication or `used_finds.csv` update is claimed.
 
-Model wording is not byte-for-byte deterministic. Compare the structure and
+Model wording is not byte-for-byte deterministic. Compare structure and
 evidence use with `examples/demo/ai-output.md`, not exact prose. The committed
-example lets readers inspect the complete demonstration without installing or
-accessing Codex.
+example lets readers inspect the complete demonstration without access to
+Codex.
 
-Run the local automated checks with:
+Run the automated checks with:
 
 ```powershell
 .venv\Scripts\python -m unittest tests.test_demo_workflow -v
 python make_release.py --check-only
 ```
+
+## 5. Optional alternative: Codex CLI
+
+Users who prefer a separate non-interactive process can install and sign in to
+the Codex CLI, then run:
+
+```powershell
+codex exec --ephemeral --sandbox read-only --output-last-message work/demo/ai-cards.md "Read examples/codex/daily-news-prompt.md and examples/demo/codex-request.md. Use work/demo/ai-input.json as the only source evidence. Return exactly five Markdown cards. Do not edit tracked files."
+```
+
+On Windows, `codex.cmd` can be used instead of `codex` when PowerShell blocks
+the `codex.ps1` wrapper. This CLI route is optional and requires the terminal's
+network route to reach Codex. It is not needed when the current Codex app chat
+already has the repository open. See the official
+[non-interactive mode documentation](https://learn.chatgpt.com/docs/non-interactive-mode)
+for the CLI flags.
 
 ## What Python and AI each do
 
@@ -165,8 +167,8 @@ python make_release.py --check-only
 | Removal of volatile/private handoff fields | Python | `ai-input.json` |
 | Concise Russian prose and explanation of interest | Codex | Five Markdown cards |
 | Preservation of uncertainty and demo labels | Codex, checked by a human | Reviewable draft |
-| Authentication, command launch, and final approval | Human | Controlled local workflow |
+| Command launch and final approval | Human | Controlled local workflow |
 
-Python does not generate the final prose. Codex does not rebuild the index,
-change retrieval rules, publish cards, or update a journal. A human remains
-responsible for reviewing any model output before real publication.
+Python does not generate the final prose. Codex does not change retrieval
+rules, publish cards, or update a journal. A human remains responsible for
+reviewing model output before real publication.
