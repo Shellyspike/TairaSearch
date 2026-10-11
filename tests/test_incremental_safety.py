@@ -205,6 +205,9 @@ class IncrementalSafetyTests(unittest.TestCase):
         ):
             stats, stdout = self.build("--rebuild")
 
+        self.assertEqual(stats["build_status"], "completed_with_errors")
+        self.assertEqual(stats["problematic_files"], 1)
+        self.assertEqual(stats["problems"][0]["kind"], "WALK_ERROR")
         self.assertEqual(stats["missing_kept"], 1)
         self.assertEqual(
             self.document_snapshot("mounted-library/document.txt"), before

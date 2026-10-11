@@ -14,8 +14,8 @@ workflow visible as two cooperating parts of the project.
   document fails during a later incremental run.
 - [ ] Add a separate missing-document cleanup command with a mandatory preview;
   ordinary indexing and `--rebuild` intentionally never prune unseen files.
-- [ ] Give interrupted and failed builds truthful persisted statuses and make
-  recovery behaviour explicit.
+- [x] Give successful, partially successful, interrupted, and failed builds
+  truthful statuses and make recovery behaviour explicit.
 - [ ] Make publication-journal updates minimal, atomic, and idempotent after a
   Codex automation has successfully published a card.
 - [ ] Complete packaging, the small CI workflow, licence selection, and the

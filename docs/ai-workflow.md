@@ -35,6 +35,23 @@ materials, or active schedules. They are not executable automation settings.
 The active automation remains a user-owned local configuration and is not part
 of the GitHub release.
 
+## Index-build contract for automation
+
+The current sanitized Codex prompts do not rebuild the index, so the new build
+exit codes do not change their present behaviour. If a future automation adds
+an indexing step, it must check the process exit code before retrieval:
+
+- exit code 0 means `succeeded` and the pipeline may continue;
+- exit code 1 means either `completed_with_errors` or `failed`; stop the
+  automatic pipeline and inspect the final report and log;
+- exit code 130 means the user interrupted the build; do not continue.
+
+For a completed build, the exact status is also stored as `build_status` in the
+SQLite `meta` table. A critical failure may happen before SQLite can be opened,
+so automation must treat the process exit code as authoritative. It must not
+publish cards merely because an older index remains searchable after a failed
+or partially successful refresh.
+
 ## Reproducibility boundary
 
 The sample corpus can reproduce parsing, indexing, search, context retrieval,

@@ -52,6 +52,10 @@ DEFAULT_SOURCE_TYPES = PROJECT_DIR / "source_types.json"
 SUPPORTED_EXTENSIONS = {".txt", ".md", ".json", ".pdf"}
 SCHEMA_VERSION = "1"
 INDEX_FORMAT_VERSION = "2026-09-22.1"
+BUILD_SUCCEEDED = "succeeded"
+BUILD_COMPLETED_WITH_ERRORS = "completed_with_errors"
+BUILD_FAILED = "failed"
+BUILD_INTERRUPTED = "interrupted"
 
 
 def configure_console() -> None:
@@ -545,6 +549,16 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
     paired_json = 0
     interrupted = False
     completed = 0
+    problems: list[dict[str, Any]] = [
+        {
+            "kind": kind,
+            "path": str(path),
+            "reason": message,
+            "last_good_kept": False,
+        }
+        for kind, path, message in discovery_errors
+        if kind == "WALK_ERROR"
+    ]
     reporter = ProgressReporter(len(supported), args.progress_every, args.verbose)
 
     def progress_counts() -> dict[str, int]:
@@ -584,19 +598,45 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
         savepoint_active = False
         existing: sqlite3.Row | None = None
         try:
+            existing = connection.execute(
+                "SELECT size, mtime_ns, status FROM files WHERE relative_path=?",
+                (relative_path,),
+            ).fetchone()
             stat = file_stats.get(path)
             if stat is None:
                 errors += 1
+                last_good_kept = bool(
+                    existing
+                    and existing[2] in {"ok", "empty", "pdf_no_text", "paired_json"}
+                )
+                reason = next(
+                    (
+                        message
+                        for kind, error_path, message in discovery_errors
+                        if kind == "STAT_ERROR" and error_path == path
+                    ),
+                    "Не удалось прочитать metadata файла.",
+                )
+                problems.append(
+                    {
+                        "kind": "STAT_ERROR",
+                        "path": relative_path,
+                        "reason": reason,
+                        "last_good_kept": last_good_kept,
+                    }
+                )
+                if last_good_kept:
+                    log_error(
+                        "LAST_GOOD_KEPT",
+                        path,
+                        "Metadata файла недоступны; последняя корректная версия "
+                        "документа и её FTS-записи сохранены.",
+                    )
                 completed += 1
                 reporter.verbose_result("", "ОШИБКА stat", time.monotonic() - file_started)
                 if completed % args.progress_every == 0 or completed == len(supported):
                     reporter.summary(completed, relative_path, progress_counts())
                 continue
-
-            existing = connection.execute(
-                "SELECT size, mtime_ns, status FROM files WHERE relative_path=?",
-                (relative_path,),
-            ).fetchone()
 
             if path.suffix.casefold() == ".json" and (
                 str(path.parent).casefold(), path.stem.casefold()
@@ -791,7 +831,10 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
             )
             log_error(error_kind, path, message)
             last_good_statuses = {"ok", "empty", "pdf_no_text", "paired_json"}
-            if existing is not None and existing[2] in last_good_statuses:
+            last_good_kept = bool(
+                existing is not None and existing[2] in last_good_statuses
+            )
+            if last_good_kept:
                 log_error(
                     "LAST_GOOD_KEPT",
                     path,
@@ -807,6 +850,14 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
                     "error",
                     str(exc),
                 )
+            problems.append(
+                {
+                    "kind": error_kind,
+                    "path": relative_path,
+                    "reason": str(exc) or type(exc).__name__,
+                    "last_good_kept": last_good_kept,
+                }
+            )
             connection.commit()
             completed += 1
             reporter.verbose_result(
@@ -857,6 +908,19 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
         "SELECT COUNT(*) FROM files WHERE status='paired_json'"
     ).fetchone()[0]
     skipped = len(all_files) - processed_current
+    unsupported_files = max(len(all_files) - len(supported), 0)
+    unattempted_files = max(len(supported) - completed, 0)
+    skipped_this_run = unchanged + paired_json + unsupported_files + unattempted_files
+    problem_count = len(problems)
+    previous_versions_kept = sum(
+        1 for problem in problems if problem["last_good_kept"]
+    )
+    if interrupted:
+        build_status = BUILD_INTERRUPTED
+    elif problem_count:
+        build_status = BUILD_COMPLETED_WITH_ERRORS
+    else:
+        build_status = BUILD_SUCCEEDED
 
     now = datetime.now(timezone.utc).isoformat()
     metadata = {
@@ -872,14 +936,18 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
         "duplicates": str(exact_duplicates + paired_current),
         "extensions_json": json.dumps(dict(sorted(extensions.items())), ensure_ascii=False),
         "fts_mode": fts_mode,
-        "build_status": "interrupted" if interrupted else "complete",
+        "build_status": build_status,
+        "successful_files": str(processed_this_run),
+        "skipped_files": str(skipped_this_run),
+        "problematic_files": str(problem_count),
+        "previous_versions_kept": str(previous_versions_kept),
         "missing_files_kept": str(len(missing_kept)),
     }
+    exported = write_drive_exports(connection, drive_csv, drive_jsonl)
     connection.executemany(
         "INSERT OR REPLACE INTO meta(key, value) VALUES(?, ?)", metadata.items()
     )
     connection.commit()
-    exported = write_drive_exports(connection, drive_csv, drive_jsonl)
     connection.close()
     log_stream.close()
 
@@ -887,7 +955,12 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
         **metadata,
         "processed_this_run": processed_this_run,
         "unchanged": unchanged,
-        "errors": errors,
+        "errors": problem_count,
+        "problems": problems,
+        "successful_files": processed_this_run,
+        "skipped_files": skipped_this_run,
+        "problematic_files": problem_count,
+        "previous_versions_kept": previous_versions_kept,
         "paired_json": paired_json,
         "exact_duplicates": exact_duplicates,
         "exported": exported,
@@ -904,15 +977,18 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def print_stats(stats: dict[str, Any]) -> None:
-    if stats.get("interrupted"):
-        print("\nЧастичный индекс TairaSearch сохранён.")
-    else:
-        print("\nИндекс TairaSearch построен/обновлён.")
+    print(f"\nСтатус сборки: {stats['build_status']}")
+    print(f"Успешно обработано: {stats['successful_files']}")
+    print(f"Пропущено в этом запуске: {stats['skipped_files']}")
+    print(f"Проблемных файлов/путей: {stats['problematic_files']}")
+    print(
+        "Сохранена предыдущая корректная версия: "
+        f"{stats['previous_versions_kept']}"
+    )
     print(f"Файлов найдено: {stats['files_found']}")
     print(f"Обработано в текущем индексе: {stats['files_processed']}")
     print(f"Обработано заново в этом запуске: {stats['processed_this_run']}")
     print(f"Без изменений: {stats['unchanged']}")
-    print(f"Пропущено: {stats['files_skipped']}")
     print(f"Не найдено при сканировании, сохранено: {stats['missing_kept']}")
     print(f"PDF без текста: {stats['pdf_without_text']}")
     print(f"Chunk'ов (без дублей): {stats['chunks']}")
@@ -923,6 +999,16 @@ def print_stats(stats: dict[str, Any]) -> None:
     print(f"CSV: {stats['drive_csv']}")
     print(f"JSONL: {stats['drive_jsonl']}")
     print(f"Лог: {stats['log_path']}")
+    if stats["problems"]:
+        print("\nПричины проблем:")
+        for problem in stats["problems"]:
+            reason = " ".join(str(problem["reason"]).splitlines())
+            kept = (
+                " — сохранена предыдущая корректная версия"
+                if problem["last_good_kept"]
+                else ""
+            )
+            print(f"- [{problem['kind']}] {problem['path']}: {reason}{kept}")
 
 
 def make_parser() -> argparse.ArgumentParser:
@@ -985,10 +1071,14 @@ def main(argv: list[str] | None = None) -> int:
     try:
         stats = build_index(args)
     except KeyboardInterrupt:
-        print("\nОперация остановлена пользователем. База не изменена.", file=sys.stderr)
+        print(f"\nСтатус сборки: {BUILD_INTERRUPTED}", file=sys.stderr)
+        print("Операция остановлена пользователем. База не изменена.", file=sys.stderr)
         return 130
     except Exception as exc:
-        print(f"Ошибка: {exc}", file=sys.stderr)
+        print(f"Статус сборки: {BUILD_FAILED}", file=sys.stderr)
+        print("Проблемных файлов/путей: 1", file=sys.stderr)
+        reason = " ".join(str(exc).splitlines())
+        print(f"- [CRITICAL_ERROR] {reason}", file=sys.stderr)
         return 1
     if stats.get("scan_only"):
         return 0
@@ -1002,6 +1092,19 @@ def main(argv: list[str] | None = None) -> int:
         print("Результат сохранён.")
         print("Для продолжения запустите build_index.py снова.")
         return 130
+    if stats["build_status"] == BUILD_COMPLETED_WITH_ERRORS:
+        print(
+            "\nИндексация завершена с ошибками отдельных файлов. "
+            "Проверьте причины выше и журнал.",
+            file=sys.stderr,
+        )
+        return 1
+    if stats["build_status"] != BUILD_SUCCEEDED:
+        print(
+            f"\nНеожиданный статус сборки: {stats['build_status']}",
+            file=sys.stderr,
+        )
+        return 1
     return 0
 
 

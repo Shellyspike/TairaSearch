@@ -57,7 +57,9 @@ class TairaSearchIntegrationTests(unittest.TestCase):
         cls.drive_csv = cls.root / "drive_index.csv"
         cls.drive_jsonl = cls.root / "drive_index.jsonl"
         cls.log = cls.root / "index_errors.log"
-        with contextlib.redirect_stdout(io.StringIO()):
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(
+            io.StringIO()
+        ):
             code = build_index.main(
                 [
                     str(cls.corpus),
@@ -72,8 +74,11 @@ class TairaSearchIntegrationTests(unittest.TestCase):
                     "--rebuild",
                 ]
             )
-        if code != 0:
-            raise RuntimeError("Не удалось построить тестовый индекс")
+        if code != 1:
+            raise RuntimeError(
+                "Тестовый индекс с намеренно повреждённым JSON должен "
+                "завершаться со статусом completed_with_errors"
+            )
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -813,8 +818,12 @@ class TairaSearchIntegrationTests(unittest.TestCase):
             completed_before_resume = connection.execute(
                 "SELECT COUNT(*) FROM files WHERE status='ok'"
             ).fetchone()[0]
+            interrupted_status = connection.execute(
+                "SELECT value FROM meta WHERE key='build_status'"
+            ).fetchone()[0]
             integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
         self.assertEqual(completed_before_resume, 2)
+        self.assertEqual(interrupted_status, "interrupted")
         self.assertEqual(integrity, "ok")
 
         second_output = io.StringIO()

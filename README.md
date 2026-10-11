@@ -50,6 +50,18 @@ seen during a scan are retained because a local or mounted corpus directory may
 be temporarily unavailable. `--rebuild` forces reprocessing of visible files;
 it does not prune missing files.
 
+The index command reports one of these build statuses:
+
+- `succeeded`: every supported document was handled; exit code 0;
+- `completed_with_errors`: individual documents failed but safe results and any
+  previous good versions were retained; exit code 1;
+- `failed`: a critical error prevented a completed build; exit code 1.
+
+User interruption retains exit code 130, and `--scan-only` retains exit code 0.
+The final report lists successful, skipped, and problematic files, short error
+reasons, and how many previous versions were preserved. Local indexing does not
+require or evaluate licence metadata.
+
 ## Public release safety
 
 `release_manifest.toml` lists every file allowed into the public archive.
