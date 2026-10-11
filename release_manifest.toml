@@ -33,6 +33,7 @@ files = [
   "source_notes.json",
   "source_types.json",
   "taira_search.py",
+  "tests/test_incremental_safety.py",
   "tests/test_release_safety.py",
   "tests/test_pdf_handling.py",
   "tests/test_taira_search.py",

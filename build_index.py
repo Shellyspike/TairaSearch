@@ -23,7 +23,13 @@ from metadata_utils import (
     load_people,
     load_source_types,
 )
-from parsers import PdfProcessingError, chunk_units, ensure_pdf_support, parse_file
+from parsers import (
+    PdfPartialReadError,
+    PdfProcessingError,
+    chunk_units,
+    ensure_pdf_support,
+    parse_file,
+)
 from search_schema import FTS_MODE, ensure_search_schema, upsert_fts_chunk
 from text_utils import (
     derive_source,
@@ -149,13 +155,6 @@ def table_exists(connection: sqlite3.Connection, name: str) -> bool:
         ).fetchone()
         is not None
     )
-
-
-def clear_index(connection: sqlite3.Connection) -> None:
-    if table_exists(connection, "chunks_fts"):
-        connection.execute("DELETE FROM chunks_fts")
-    connection.execute("DELETE FROM chunks")
-    connection.execute("DELETE FROM files")
 
 
 def discover_files(root: Path, log_error: Any) -> list[Path]:
@@ -493,8 +492,6 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
     full_rebuild = bool(args.rebuild)
     if prior_schema and prior_schema[0] != SCHEMA_VERSION:
         full_rebuild = True
-    if full_rebuild:
-        clear_index(connection)
     migration = ensure_search_schema(
         connection,
         db_path,
@@ -523,12 +520,18 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
     connection.commit()
 
     relative_supported = {relative_posix(path, corpus) for path in supported}
-
-    for row in connection.execute("SELECT relative_path FROM files").fetchall():
-        if row[0] not in relative_supported:
-            delete_chunks_for_path(connection, row[0])
-            connection.execute("DELETE FROM files WHERE relative_path=?", (row[0],))
-    connection.commit()
+    indexed_paths = {
+        str(row[0])
+        for row in connection.execute("SELECT relative_path FROM files").fetchall()
+    }
+    missing_kept = sorted(indexed_paths - relative_supported, key=str.casefold)
+    if missing_kept:
+        message = (
+            "В индексе сохранено документов, не найденных при текущем "
+            f"сканировании: {len(missing_kept)}. Автоматическое удаление отключено."
+        )
+        print(message, flush=True)
+        log_error("MISSING_FILES_KEPT", corpus, message)
 
     text_stems = {
         (str(path.parent).casefold(), path.stem.casefold())
@@ -566,10 +569,12 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
             "pdf_no_text": connection.execute(
                 "SELECT COUNT(*) FROM files WHERE status='pdf_no_text'"
             ).fetchone()[0],
-            "errors": connection.execute(
-                "SELECT COUNT(*) FROM files WHERE status='error'"
-            ).fetchone()[0]
-            + sum(1 for kind, _path, _message in discovery_errors if kind == "STAT_ERROR"),
+            "errors": errors
+            + sum(
+                1
+                for kind, _path, _message in discovery_errors
+                if kind == "WALK_ERROR"
+            ),
         }
 
     for index, path in enumerate(supported, start=1):
@@ -577,6 +582,7 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
         reporter.before_file(index, relative_path)
         file_started = time.monotonic()
         savepoint_active = False
+        existing: sqlite3.Row | None = None
         try:
             stat = file_stats.get(path)
             if stat is None:
@@ -587,10 +593,17 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
                     reporter.summary(completed, relative_path, progress_counts())
                 continue
 
+            existing = connection.execute(
+                "SELECT size, mtime_ns, status FROM files WHERE relative_path=?",
+                (relative_path,),
+            ).fetchone()
+
             if path.suffix.casefold() == ".json" and (
                 str(path.parent).casefold(), path.stem.casefold()
             ) in text_stems:
                 paired_json += 1
+                connection.execute("SAVEPOINT one_file")
+                savepoint_active = True
                 delete_chunks_for_path(connection, relative_path)
                 upsert_file(
                     connection,
@@ -600,6 +613,8 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
                     "paired_json",
                     "Пропущен: рядом есть одноимённый TXT OCR.",
                 )
+                connection.execute("RELEASE one_file")
+                savepoint_active = False
                 connection.commit()
                 completed += 1
                 reporter.verbose_result(
@@ -611,10 +626,6 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
                     reporter.summary(completed, relative_path, progress_counts())
                 continue
 
-            existing = connection.execute(
-                "SELECT size, mtime_ns, status FROM files WHERE relative_path=?",
-                (relative_path,),
-            ).fetchone()
             if (
                 not full_rebuild
                 and existing
@@ -647,6 +658,11 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
             )
             for warning in parsed.warnings:
                 log_error("PDF_PAGE_ERROR", path, warning)
+            if path.suffix.casefold() == ".pdf" and parsed.warnings:
+                raise PdfPartialReadError(
+                    "PDF прочитан не полностью: ошибок страниц — "
+                    f"{len(parsed.warnings)}. Неполная версия не записана в индекс."
+                )
             chunks = chunk_units(parsed.units)
             connection.execute("SAVEPOINT one_file")
             savepoint_active = True
@@ -774,8 +790,15 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
                 exc.error_code if isinstance(exc, PdfProcessingError) else "FILE_ERROR"
             )
             log_error(error_kind, path, message)
-            delete_chunks_for_path(connection, relative_path)
-            if path in file_stats:
+            last_good_statuses = {"ok", "empty", "pdf_no_text", "paired_json"}
+            if existing is not None and existing[2] in last_good_statuses:
+                log_error(
+                    "LAST_GOOD_KEPT",
+                    path,
+                    "Ошибка повторной обработки; последняя корректная версия "
+                    "документа и её FTS-записи сохранены.",
+                )
+            elif path in file_stats:
                 upsert_file(
                     connection,
                     relative_path,
@@ -850,6 +873,7 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
         "extensions_json": json.dumps(dict(sorted(extensions.items())), ensure_ascii=False),
         "fts_mode": fts_mode,
         "build_status": "interrupted" if interrupted else "complete",
+        "missing_files_kept": str(len(missing_kept)),
     }
     connection.executemany(
         "INSERT OR REPLACE INTO meta(key, value) VALUES(?, ?)", metadata.items()
@@ -875,6 +899,7 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
         "interrupted": interrupted,
         "completed": completed,
         "supported_files": len(supported),
+        "missing_kept": len(missing_kept),
     }
 
 
@@ -888,6 +913,7 @@ def print_stats(stats: dict[str, Any]) -> None:
     print(f"Обработано заново в этом запуске: {stats['processed_this_run']}")
     print(f"Без изменений: {stats['unchanged']}")
     print(f"Пропущено: {stats['files_skipped']}")
+    print(f"Не найдено при сканировании, сохранено: {stats['missing_kept']}")
     print(f"PDF без текста: {stats['pdf_without_text']}")
     print(f"Chunk'ов (без дублей): {stats['chunks']}")
     print(f"Дублей: {stats['duplicates']}")

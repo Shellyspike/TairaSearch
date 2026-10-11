@@ -43,6 +43,13 @@ installation hint without changing an existing index. Valid PDFs without an
 extractable text layer receive the `pdf_no_text` status; unreadable containers
 are reported as `PDF_READ_ERROR`. OCR is not included in release 0.1.
 
+Incremental updates keep the last successfully indexed chunks and FTS rows when
+parsing or database writes fail. A PDF with one or more unreadable pages is
+treated as incomplete and cannot replace a complete indexed version. Files not
+seen during a scan are retained because a local or mounted corpus directory may
+be temporarily unavailable. `--rebuild` forces reprocessing of visible files;
+it does not prune missing files.
+
 ## Public release safety
 
 `release_manifest.toml` lists every file allowed into the public archive.

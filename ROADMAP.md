@@ -10,8 +10,10 @@ workflow visible as two cooperating parts of the project.
 - [x] Pin the PDF dependency, validate it before opening the index, distinguish
   unreadable PDFs from PDFs without a text layer, and cover the failure modes
   with tests.
-- [ ] Preserve the last successfully indexed chunks and metadata when any
+- [x] Preserve the last successfully indexed chunks and metadata when any
   document fails during a later incremental run.
+- [ ] Add a separate missing-document cleanup command with a mandatory preview;
+  ordinary indexing and `--rebuild` intentionally never prune unseen files.
 - [ ] Give interrupted and failed builds truthful persisted statuses and make
   recovery behaviour explicit.
 - [ ] Make publication-journal updates minimal, atomic, and idempotent after a
@@ -38,3 +40,13 @@ The demonstration should explain the boundary between deterministic Python and
 Codex, and provide fixtures or redacted example outputs where an automation
 cannot be executed by a repository checkout alone. It does not require an
 OpenAI API rewrite or a separate multi-agent framework.
+
+## Public-release environment check
+
+Before the public release, verify standard Windows `venv` creation and command
+execution from a user profile whose path contains non-ASCII characters. On the
+current development host the Windows launcher resolves the environment's
+`python.exe` to the base interpreter, so local verification uses `python -I`
+with the project environment's `site-packages`. This host-specific workaround
+must not be presented as proof that the normal public `venv` instructions work
+on every Windows installation.

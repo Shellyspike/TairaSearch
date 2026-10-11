@@ -75,6 +75,12 @@ class PdfEncryptedError(PdfProcessingError):
     error_code = "PDF_ENCRYPTED"
 
 
+class PdfPartialReadError(PdfProcessingError):
+    """At least one PDF page failed, so the extracted document is incomplete."""
+
+    error_code = "PDF_PARTIAL_READ"
+
+
 def _load_pypdf() -> tuple[ModuleType, str]:
     try:
         module = import_module("pypdf")
