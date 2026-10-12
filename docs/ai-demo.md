@@ -97,7 +97,8 @@ or previous chat is required. The human still reviews the final file.
 
 The checked-in `examples/demo/ai-output.md` was produced with this division of
 work in the current Codex app session. It is a reviewable example, not a
-byte-for-byte golden model response.
+byte-for-byte golden model response. `run_demo.py`, the automated tests, and
+the GitHub Actions workflow do not call a model or regenerate this file.
 
 ## 3. What the Python command produces
 

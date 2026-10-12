@@ -17,11 +17,11 @@ search exports, publication journal, or active automation configuration.
 
 ## Current release status
 
-This working copy is the preparation branch for version 0.1. It is not yet a
-published release. The first completed safety milestone is an exact release
-allowlist with tests that reject private/generated data and absolute local
-paths. PDF dependency preflight and error diagnostics are also covered by the
-test suite. See [ROADMAP.md](ROADMAP.md) for the remaining isolated stages.
+This working copy is the release candidate for version 0.1. It is not yet a
+published release. The repository includes an exact public-release allowlist,
+an offline synthetic demonstration, recovery-safe indexing and publication
+logging, and tests for private/generated data, local paths, and common secret
+formats. See [ROADMAP.md](ROADMAP.md) for post-0.1 work.
 
 ## Quick local run
 
@@ -70,6 +70,10 @@ alternative, a frozen input, and a five-card result are documented in
 [docs/ai-demo.md](docs/ai-demo.md). It uses the existing sanitized prompt
 without requiring the author's active automations or chat history.
 
+`examples/demo/ai-output.md` is a checked-in example created during a reviewed
+Codex app session. Neither `run_demo.py` nor the test suite or GitHub Actions
+invokes a model or regenerates that prose automatically.
+
 `requirements.txt` pins the tested `pypdf` version. When the corpus contains at
 least one PDF, the builder checks this dependency before it opens the SQLite
 index or creates logs and exports. A missing dependency therefore fails with an
@@ -115,8 +119,15 @@ python make_release.py
 ```
 
 The builder rejects database files, generated exports, publication journals,
-private-data directories, symlinks, path traversal, oversized files, and
-absolute local paths in public text files.
+private-data directories, symlinks, path traversal, oversized files, absolute
+local paths, and common secret formats in public text files.
+
+## Continuous integration
+
+`.github/workflows/ci.yml` is configured to run on Windows and Linux with
+Python 3.11. It installs `requirements.txt`, runs the complete test suite and
+synthetic demo, and builds and verifies the allowlisted public ZIP. CI does not
+call Codex, publish a release, or upload repository data.
 
 ## AI workflow
 
@@ -175,6 +186,7 @@ ambiguous names, neighbouring chunks, and the five selected candidates against
 
 ## Licence
 
-A code licence will be selected before the first public release. The synthetic
-sample corpus will receive an explicit data notice separately.
+The code, documentation, sanitized prompt examples, and synthetic sample
+fixtures are released under the [MIT License](LICENSE). The repository does not
+grant rights to documents from a user's separately maintained private corpus.
 

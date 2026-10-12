@@ -15,3 +15,5 @@ do not claim that the synthetic sentences occur in those works. Expected search
 and five-candidate results are recorded in
 `examples/demo/expected_results.json`.
 
+These synthetic fixtures are distributed under the repository's MIT License.
+

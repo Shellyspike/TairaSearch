@@ -49,6 +49,14 @@ TEXT_SUFFIXES = {
 }
 WINDOWS_ABSOLUTE_RE = re.compile(r"(?<![A-Za-z0-9])[A-Za-z]:\\")
 POSIX_HOME_RE = re.compile(r"/(?:Users|home)/[^/\s]+/")
+SECRET_PATTERNS = {
+    "OpenAI-style API key": re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b"),
+    "GitHub token": re.compile(r"\bgh[pousr]_[A-Za-z0-9]{20,}\b"),
+    "AWS access key": re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
+    "private key": re.compile(
+        r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"
+    ),
+}
 
 
 class ReleaseError(RuntimeError):
@@ -160,6 +168,9 @@ def _audit_text(name: str, data: bytes) -> None:
         raise ReleaseError(f"Public text file is not UTF-8: {name}") from exc
     if WINDOWS_ABSOLUTE_RE.search(text) or POSIX_HOME_RE.search(text):
         raise ReleaseError(f"Absolute local path found in public file: {name}")
+    for label, pattern in SECRET_PATTERNS.items():
+        if pattern.search(text):
+            raise ReleaseError(f"Possible {label} found in public file: {name}")
 
 
 def audit_source(

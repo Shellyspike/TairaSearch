@@ -12,18 +12,22 @@ workflow visible as two cooperating parts of the project.
   with tests.
 - [x] Preserve the last successfully indexed chunks and metadata when any
   document fails during a later incremental run.
-- [ ] Add a separate missing-document cleanup command with a mandatory preview;
-  ordinary indexing and `--rebuild` intentionally never prune unseen files.
 - [x] Give successful, partially successful, interrupted, and failed builds
   truthful statuses and make recovery behaviour explicit.
 - [x] Save the exact finalized cards locally and make publication-journal
   updates minimal, atomic, and idempotent before a Codex automation publishes
   them.
-- [ ] Complete packaging, the small CI workflow, licence selection, and the
-  reproducible public demo documentation.
+- [x] Complete allowlisted ZIP packaging, the small CI workflow, MIT licensing,
+  and the reproducible public demo documentation.
 
-Each unfinished item is a separate, reviewable change. Production migration
-must first be tested against a copy of the corpus and index.
+Production migration remains separate from the public release and must first
+be tested against a copy of the corpus and index.
+
+## Post-0.1
+
+- [ ] Add an optional missing-document cleanup command with a mandatory
+  preview. Ordinary indexing and `--rebuild` intentionally never prune unseen
+  files.
 
 ## Reproducible AI demonstration
 

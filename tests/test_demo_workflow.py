@@ -278,6 +278,8 @@ class DemoWorkflowTests(unittest.TestCase):
         self.assertIn("Produce up to five", daily_prompt)
         self.assertIn("returns zero candidates", daily_prompt)
         self.assertIn("A non-zero command\nexit is an error", daily_prompt)
+        self.assertIn("do not call a model", " ".join(documentation.split()))
+        self.assertIn("Neither `run_demo.py`", readme)
 
 
 if __name__ == "__main__":

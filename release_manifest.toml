@@ -1,7 +1,9 @@
 [release]
 version = 1
 files = [
+  ".github/workflows/ci.yml",
   ".gitignore",
+  "LICENSE",
   "README.md",
   "ROADMAP.md",
   "aliases.json",

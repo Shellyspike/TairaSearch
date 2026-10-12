@@ -88,6 +88,13 @@ class ReleaseSafetyTests(unittest.TestCase):
         with self.assertRaises(make_release.ReleaseError):
             make_release.build_release(self.root / "release.zip", self.root, manifest)
 
+    def test_secret_like_token_in_allowed_text_is_rejected(self) -> None:
+        fake_token = "sk-" + ("example" * 4)
+        (self.root / "public.txt").write_text(fake_token, encoding="utf-8")
+        manifest = self.write_manifest("public.txt")
+        with self.assertRaises(make_release.ReleaseError):
+            make_release.build_release(self.root / "release.zip", self.root, manifest)
+
     def test_missing_manifest_file_is_rejected(self) -> None:
         manifest = self.write_manifest("missing.txt")
         with self.assertRaises(make_release.ReleaseError):
@@ -99,12 +106,38 @@ class ReleaseSafetyTests(unittest.TestCase):
         make_release.verify_release(archive_path, PROJECT)
         with zipfile.ZipFile(archive_path) as archive:
             names = set(archive.namelist())
+            self.assertIn(".github/workflows/ci.yml", names)
+            self.assertIn("LICENSE", names)
             self.assertIn("build_index.py", names)
             self.assertIn("docs/ai-workflow.md", names)
             self.assertIn("sample_corpus/玉葉/772049_0000001.txt", names)
             self.assertNotIn("used_finds.csv", names)
             self.assertFalse(any(name.endswith(".sqlite3") for name in names))
             self.assertFalse(any(name.startswith("new_sources/") for name in names))
+
+    def test_ci_runs_supported_release_checks_without_publishing(self) -> None:
+        workflow = (PROJECT / ".github" / "workflows" / "ci.yml").read_text(
+            encoding="utf-8"
+        )
+        for required in (
+            "ubuntu-latest",
+            "windows-latest",
+            'python-version: "3.11"',
+            "python -m pip install -r requirements.txt",
+            "python -m unittest discover -s tests -v",
+            "python run_demo.py",
+            "python make_release.py --output work/TairaSearch.zip",
+        ):
+            self.assertIn(required, workflow)
+        lowered = workflow.casefold()
+        self.assertNotIn("codex", lowered)
+        self.assertNotIn("upload-artifact", lowered)
+        used_actions = "\n".join(
+            line
+            for line in lowered.splitlines()
+            if line.lstrip().startswith("uses:")
+        )
+        self.assertNotIn("release", used_actions)
 
 
 if __name__ == "__main__":
