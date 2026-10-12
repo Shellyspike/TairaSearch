@@ -1,7 +1,9 @@
 # TairaSearch public AI demo request
 
-Use `examples/codex/daily-news-prompt.md` as the editorial baseline and
-`work/demo/ai-input.json` as the only source evidence.
+Use only the editorial and evidence rules from
+`examples/codex/daily-news-prompt.md` as the baseline and use
+`work/demo/ai-input.json` as the only source evidence. This demo request
+overrides the baseline's publication, manifest, and journal instructions.
 
 This is a public demonstration, not a publication run. Every input event and
 source excerpt is synthetic. The historical-looking folder names exist only to

@@ -8,8 +8,10 @@ reasoning.
 
 1. Python queries the local SQLite FTS5 index and ranks matches with BM25.
 2. `daily-five` applies source, topic, person, quality, duplicate, and diversity
-   rules and retrieves neighbouring chunks.
-3. A Codex automation reads those candidates and their context.
+   rules, retrieves neighbouring chunks, and returns up to five candidates.
+3. If it returns one to five candidates, a Codex automation reads those
+   candidates and their context. Zero candidates is a successful empty result:
+   no cards or publication manifest are created and the journal is unchanged.
 4. Codex distinguishes primary, literary, and scholarly sources, checks the
    available evidence, and writes concise cards with citations.
 5. Codex saves the exact finalized cards to a local publication manifest and
@@ -20,6 +22,11 @@ The Python retrieval command does not publish a message or silently update the
 publication journal. Publication and editorial synthesis belong to the Codex
 workflow. The separate `record-publication` command is the explicit boundary
 between finalized editorial output and the local journal.
+
+An empty result means that no new finding passed the current filters; it does
+not establish that the corpus contains no other material. Search, index,
+configuration, and data-reading errors remain failures with a non-zero exit
+code and must not be converted into an empty news batch.
 
 ## Publication journal and recovery
 
@@ -84,8 +91,10 @@ and candidate selection. Final prose can vary between model runs, so AI output
 is demonstrated through documented inputs and expected editorial constraints,
 not treated as a byte-for-byte deterministic build artifact.
 
-The complete public walkthrough is in [ai-demo.md](ai-demo.md). It uses an
-ephemeral, read-only `codex exec` run with the existing sanitized daily-news
-prompt, plus a committed input and example output. It does not depend on an
-active automation or previous conversation.
+The complete public walkthrough is in [ai-demo.md](ai-demo.md). Its primary
+route is one Codex app chat that runs Python, reads the generated handoff, and
+writes the demonstration cards. An ephemeral, read-only `codex exec` command
+is documented only as an optional alternative. Both routes use a committed
+input and example output and do not depend on an active automation or previous
+conversation.
 

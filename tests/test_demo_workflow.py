@@ -237,12 +237,19 @@ class DemoWorkflowTests(unittest.TestCase):
         self.assertNotIn(windows_home_prefix, output)
 
     def test_ai_demo_documentation_preserves_python_ai_boundary(self) -> None:
+        readme = (PROJECT / "README.md").read_text(encoding="utf-8")
         documentation = (PROJECT / "docs" / "ai-demo.md").read_text(
+            encoding="utf-8"
+        )
+        workflow = (PROJECT / "docs" / "ai-workflow.md").read_text(
             encoding="utf-8"
         )
         request = (PROJECT / "examples" / "demo" / "codex-request.md").read_text(
             encoding="utf-8"
         )
+        daily_prompt = (
+            PROJECT / "examples" / "codex" / "daily-news-prompt.md"
+        ).read_text(encoding="utf-8")
         for required in (
             "run_demo.py",
             "python -m venv .venv",
@@ -256,13 +263,21 @@ class DemoWorkflowTests(unittest.TestCase):
         ):
             self.assertIn(required, documentation)
         self.assertNotIn("py -3.11 -m venv .venv", documentation)
+        self.assertIn("assert sys.prefix != sys.base_prefix", documentation)
+        self.assertIn("assert sys.prefix != sys.base_prefix", readme)
         self.assertIn("only source evidence", request)
         self.assertIn("Do not browse the web", request)
         self.assertIn("exactly five", request)
         self.assertIn("publication journal", request)
+        self.assertIn("overrides", request)
         self.assertIn("work/demo/ai-cards.md", request)
         self.assertIn("Optional alternative: Codex CLI", documentation)
         self.assertIn("No nested", documentation)
+        self.assertIn("primary\nroute is one Codex app chat", workflow)
+        self.assertIn("returns up to five candidates", workflow)
+        self.assertIn("Produce up to five", daily_prompt)
+        self.assertIn("returns zero candidates", daily_prompt)
+        self.assertIn("A non-zero command\nexit is an error", daily_prompt)
 
 
 if __name__ == "__main__":

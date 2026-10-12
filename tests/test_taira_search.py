@@ -424,6 +424,99 @@ class TairaSearchIntegrationTests(unittest.TestCase):
             after_payload["stats"]["rejected"].get("used_duplicate", 0), 5
         )
 
+        partial_output = root / "partial.json"
+        partial = subprocess.run(
+            [
+                sys.executable, str(PROJECT / "taira_search.py"), "daily-five",
+                "--db", str(db), "--used-finds", str(used), "--json",
+                "--top-per-topic", "10", "--pool-size", "60",
+                "--output", str(partial_output),
+            ],
+            cwd=PROJECT, text=True, encoding="utf-8", capture_output=True, check=False,
+        )
+        self.assertEqual(partial.returncode, 0, partial.stderr)
+        partial_payload = json.loads(partial.stdout)
+        self.assertGreaterEqual(len(partial_payload["final"]), 1)
+        self.assertLessEqual(len(partial_payload["final"]), 4)
+        self.assertEqual(
+            partial_payload["stats"]["final_count"],
+            len(partial_payload["final"]),
+        )
+        self.assertTrue(partial_output.is_file())
+
+        partial_text = subprocess.run(
+            [
+                sys.executable, str(PROJECT / "taira_search.py"), "daily-five",
+                "--db", str(db), "--used-finds", str(used),
+                "--top-per-topic", "10", "--pool-size", "60",
+                "--output", str(root / "partial-text.json"),
+            ],
+            cwd=PROJECT, text=True, encoding="utf-8", capture_output=True, check=False,
+        )
+        self.assertEqual(partial_text.returncode, 0, partial_text.stderr)
+        self.assertIn("Найдено подходящих новых находок", partial_text.stdout)
+        self.assertIn("не дополнен до пяти домыслами", partial_text.stdout)
+
+        marked_partial = subprocess.run(
+            [
+                sys.executable, str(PROJECT / "taira_search.py"), "mark-used",
+                str(partial_output), "--db", str(db), "--used-finds", str(used),
+            ],
+            cwd=PROJECT, text=True, encoding="utf-8", capture_output=True, check=False,
+        )
+        self.assertEqual(marked_partial.returncode, 0, marked_partial.stderr)
+
+        used_before_empty_run = used.read_bytes()
+        empty_output = root / "empty.json"
+        empty = subprocess.run(
+            [
+                sys.executable, str(PROJECT / "taira_search.py"), "daily-five",
+                "--db", str(db), "--used-finds", str(used), "--json",
+                "--top-per-topic", "10", "--pool-size", "60",
+                "--output", str(empty_output),
+            ],
+            cwd=PROJECT, text=True, encoding="utf-8", capture_output=True, check=False,
+        )
+        self.assertEqual(empty.returncode, 0, empty.stderr)
+        empty_payload = json.loads(empty.stdout)
+        self.assertEqual(empty_payload["final"], [])
+        self.assertEqual(empty_payload["stats"]["final_count"], 0)
+        self.assertTrue(empty_output.is_file())
+        self.assertEqual(used.read_bytes(), used_before_empty_run)
+
+        empty_text = subprocess.run(
+            [
+                sys.executable, str(PROJECT / "taira_search.py"), "daily-five",
+                "--db", str(db), "--used-finds", str(used),
+                "--top-per-topic", "10", "--pool-size", "60",
+                "--output", str(root / "empty-text.json"),
+            ],
+            cwd=PROJECT, text=True, encoding="utf-8", capture_output=True, check=False,
+        )
+        self.assertEqual(empty_text.returncode, 0, empty_text.stderr)
+        self.assertIn(
+            "По текущим фильтрам подходящих новых находок не найдено.",
+            empty_text.stdout,
+        )
+        self.assertNotIn("###", empty_text.stdout)
+        self.assertEqual(used.read_bytes(), used_before_empty_run)
+
+        broken_db = root / "broken.sqlite3"
+        broken_db.write_bytes(b"not a SQLite database")
+        broken_output = root / "broken-result.json"
+        broken = subprocess.run(
+            [
+                sys.executable, str(PROJECT / "taira_search.py"), "daily-five",
+                "--db", str(broken_db), "--used-finds", str(used), "--json",
+                "--output", str(broken_output),
+            ],
+            cwd=PROJECT, text=True, encoding="utf-8", capture_output=True, check=False,
+        )
+        self.assertNotEqual(broken.returncode, 0)
+        self.assertIn("Ошибка:", broken.stderr)
+        self.assertFalse(broken_output.exists())
+        self.assertEqual(used.read_bytes(), used_before_empty_run)
+
         marked_again = subprocess.run(
             [
                 sys.executable, str(PROJECT / "taira_search.py"), "mark-used",

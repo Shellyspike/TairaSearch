@@ -566,11 +566,6 @@ def build_daily_five(
         )
     )
     final = [] if dry_run else _select_diverse(verified, 5)
-    if not dry_run and len(final) != 5:
-        raise RuntimeError(
-            f"После проверки осталось только {len(final)} надёжных разнообразных событий; "
-            "ровно пять без домыслов выбрать нельзя. Запустите --dry-run для диагностики."
-        )
     final_ids = {item["chunk_id"] for item in final}
     alternates = [item for item in verified if item["chunk_id"] not in final_ids][
         : (20 if dry_run else 15)
@@ -782,6 +777,14 @@ def print_daily_result(result: dict[str, Any], *, json_output: bool) -> None:
         rows = result["alternates"]
     else:
         rows = result["final"]
+        if not rows:
+            print("По текущим фильтрам подходящих новых находок не найдено.")
+            return
+        if len(rows) < 5:
+            print(
+                f"Найдено подходящих новых находок: {len(rows)}; "
+                "результат не дополнен до пяти домыслами."
+            )
         for number, event in enumerate(rows, start=1):
             print(f"\n### {number}. {event.get('title_ru', event['title'])}")
             print("\nЧто случилось")

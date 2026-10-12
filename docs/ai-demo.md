@@ -33,14 +33,16 @@ On Windows PowerShell:
 ```powershell
 python --version
 python -m venv .venv
-.venv\Scripts\python -c "import sys; print(sys.version); print(sys.prefix)"
+.venv\Scripts\python -c "import sys; assert sys.prefix != sys.base_prefix, 'Broken virtual environment: stop before installing dependencies'; print(sys.version); print(sys.prefix)"
 .venv\Scripts\python -m pip install -r requirements.txt
+.venv\Scripts\python -c "import pypdf; print(pypdf.__version__)"
 ```
 
-The first command must report Python 3.11, and the printed `sys.prefix` must end
-in this checkout's `.venv`. A version-specific Windows `py` launcher command is
-an equivalent alternative only when `py --list-paths` actually lists Python
-3.11.
+The first command must report Python 3.11. The assertion must succeed, and the
+printed `sys.prefix` must point to this checkout's `.venv`. Do not continue to
+`pip install` if the assertion fails, because `pip` may then target the base
+interpreter. A version-specific Windows `py` launcher command is an equivalent
+alternative only when `py --list-paths` actually lists Python 3.11.
 
 On macOS or Linux:
 
@@ -52,13 +54,20 @@ python3.11 -m venv .venv
 Only `pypdf` is installed. The Python stage makes no network request after the
 dependency has been installed.
 
-Known Windows limitation: some Python installations under a non-ASCII user
-profile can create a nominal virtual environment whose launcher falls back to
-the base interpreter. If the diagnostic shows a garbled path or a prefix
-outside `.venv`, do not continue with that environment. Use a Python 3.11
-installation and checkout path that the launcher represents correctly, then
-recreate `.venv`. This host-specific limitation must be checked again before
-the public release.
+Known development-host limitation: inside the current Codex Windows sandbox,
+the virtual-environment launcher can fall back to the base interpreter even
+when `pyvenv.cfg` is valid. Testing with a short ASCII path did not fix it, so
+this is not attributed to a non-ASCII profile path and is not presented as a
+general Windows problem. If the assertion fails in Codex, run `run_demo.py` in
+a normal PowerShell session using a working Python 3.11 environment, then use
+the Codex app to read the generated `work/demo/ai-input.json`. The Python and
+AI stages do not have to run in separate model sessions.
+
+A Codex worktree is a separate checkout and may not contain ignored local
+dependencies such as `.venv`. Create and verify an environment for that
+checkout, or run the demo from the already prepared local checkout. Official
+[local-environment documentation](https://learn.chatgpt.com/docs/environments/local-environment)
+describes per-worktree setup scripts; release 0.1 does not require adding one.
 
 ## 2. Primary workflow: one Codex app request
 
@@ -74,7 +83,7 @@ Send this single request:
 Выполни публичную AI-демонстрацию TairaSearch в текущей рабочей копии.
 
 1. Запусти run_demo.py интерпретатором из .venv и убедись, что он успешно создал work/demo/ai-input.json ровно с пятью кандидатами.
-2. Прочитай examples/codex/daily-news-prompt.md, examples/demo/codex-request.md и сгенерированный work/demo/ai-input.json.
+2. Прочитай examples/codex/daily-news-prompt.md, examples/demo/codex-request.md и сгенерированный work/demo/ai-input.json. Из daily-news-prompt.md используй только редакционные правила и требования к доказательствам: для этой демонстрации codex-request.md отменяет инструкции о публикации, манифесте и журнале.
 3. Используй ai-input.json как единственный источник сведений. Не ищи информацию в интернете и не обращайся к другим корпусам.
 4. Создай ровно пять русскоязычных Markdown-карточек в порядке входных кандидатов. Каждый заголовок должен начинаться с [ДЕМО], а каждая карточка должна быть явно названа вымышленным тестовым материалом, содержать разделы «Что случилось», «Почему это интересно», «Фрагмент» и «Источник» и ссылаться на relative_path и chunk_id.
 5. Сохрани результат только в work/demo/ai-cards.md. Не изменяй отслеживаемые файлы репозитория, не публикуй карточки и не обновляй журнал находок.
@@ -147,7 +156,7 @@ Users who prefer a separate non-interactive process can install and sign in to
 the Codex CLI, then run:
 
 ```powershell
-codex exec --ephemeral --sandbox read-only --output-last-message work/demo/ai-cards.md "Read examples/codex/daily-news-prompt.md and examples/demo/codex-request.md. Use work/demo/ai-input.json as the only source evidence. Return exactly five Markdown cards. Do not edit tracked files."
+codex exec --ephemeral --sandbox read-only --output-last-message work/demo/ai-cards.md "Read examples/codex/daily-news-prompt.md and examples/demo/codex-request.md. Use only the editorial and evidence rules from the daily-news prompt; the demo request overrides its publication, manifest, and journal instructions. Use work/demo/ai-input.json as the only source evidence. Return exactly five Markdown cards. Do not edit tracked files."
 ```
 
 On Windows, `codex.cmd` can be used instead of `codex` when PowerShell blocks

@@ -39,9 +39,9 @@ public test corpus and the sanitized prompts already in `examples/codex/`:
 
 Steps 1 and 2 now have an offline, one-command fixture in `run_demo.py`, backed
 by multilingual golden results. Steps 3–5 are documented in `docs/ai-demo.md`
-and include a stable Codex handoff, an exact read-only CLI command, and a saved
-five-card example. The live prose remains variable and human-reviewed; no API
-or multi-agent framework was added.
+and include a stable Codex handoff, a one-request Codex app workflow, an
+optional read-only CLI command, and a saved five-card example. The live prose
+remains variable and human-reviewed; no API or multi-agent framework was added.
 
 The demonstration should explain the boundary between deterministic Python and
 Codex, and provide fixtures or redacted example outputs where an automation
@@ -51,9 +51,8 @@ OpenAI API rewrite or a separate multi-agent framework.
 ## Public-release environment check
 
 Before the public release, verify standard Windows `venv` creation and command
-execution from a user profile whose path contains non-ASCII characters. On the
-current development host the Windows launcher resolves the environment's
-`python.exe` to the base interpreter, so local verification uses `python -I`
-with the project environment's `site-packages`. This host-specific workaround
-must not be presented as proof that the normal public `venv` instructions work
-on every Windows installation.
+execution outside the current Codex sandbox. On the current development host
+the sandbox resolves the environment's `python.exe` to the base interpreter
+even with a valid `pyvenv.cfg`; a short ASCII path produces the same result.
+The documentation therefore uses a fail-fast prefix check and does not present
+this as a general Windows or non-ASCII-path defect.

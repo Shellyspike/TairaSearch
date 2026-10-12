@@ -29,12 +29,26 @@ Python 3.11 is the initial supported version for release 0.1.
 
 ```powershell
 python -m venv .venv
+.venv\Scripts\python -c "import sys; assert sys.prefix != sys.base_prefix, 'Broken virtual environment: stop before installing dependencies'"
 .venv\Scripts\python -m pip install -r requirements.txt
 .venv\Scripts\python build_index.py sample_corpus --db work/demo.sqlite3 --drive-csv work/demo.csv --drive-jsonl work/demo.jsonl --log work/demo.log --rebuild
 .venv\Scripts\python taira_search.py search --db work/demo.sqlite3 --query "維盛" --json
 ```
 
 On POSIX systems, replace `.venv\Scripts\python` with `.venv/bin/python`.
+Do not continue to `pip install` when the assertion fails: that command might
+otherwise install into the base interpreter instead of the intended virtual
+environment.
+
+On the current development host, the Windows sandbox used by the Codex app can
+launch the base interpreter when `.venv\Scripts\python` is requested even
+though `pyvenv.cfg` is valid. This has not been established as a general
+Windows or non-ASCII-path problem. If the assertion fails in Codex, run the
+deterministic Python stage in a normal PowerShell session and then let the
+Codex app read the generated `work/demo/ai-input.json`. A Codex worktree is a
+separate checkout and needs its own environment; ignored `.venv` directories
+are not assumed to be present there. See the official
+[local-environment documentation](https://learn.chatgpt.com/docs/environments/local-environment).
 
 For the complete offline demonstration, run one command after installing the
 dependency:
@@ -113,6 +127,12 @@ walkthrough, and the sanitized prompt templates under `examples/codex/`.
 
 The templates are documentation only. Installing or running this repository
 does not create, modify, start, or stop any Codex automation.
+
+`daily-five` returns between zero and five candidates. Zero means only that no
+new finding passed the current filters; it does not claim that the corpus is
+exhausted. A zero-result run writes its diagnostic result but creates no cards
+and does not update a publication journal. Search, index, configuration, and
+data-reading failures still return a non-zero exit code.
 
 For a real editorial run, save the exact finalized cards to an ignored local
 JSON file before publication, then update the duplicate journal atomically:
