@@ -37,5 +37,8 @@ jobs:
       - name: Run synthetic demo
         run: python run_demo.py
 
+      - name: Run universal research demos
+        run: python run_research_demo.py
+
       - name: Build and verify public release
         run: python make_release.py --output work/TairaSearch.zip

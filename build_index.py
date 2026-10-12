@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build or incrementally update the local TairaSearch SQLite index."""
+"""Build or incrementally update a local TairaSearch SQLite index."""
 
 from __future__ import annotations
 
@@ -1013,13 +1013,13 @@ def print_stats(stats: dict[str, Any]) -> None:
 
 def make_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Построить или обновить локальный поисковый индекс корпуса Тайра."
+        description="Построить или обновить локальный поисковый индекс корпуса."
     )
     parser.add_argument(
         "corpus",
         nargs="?",
         default=str(DEFAULT_CORPUS),
-        help=f"Папка корпуса (по умолчанию: {DEFAULT_CORPUS})",
+        help=f"Папка исследовательского корпуса (по умолчанию: {DEFAULT_CORPUS})",
     )
     parser.add_argument("--db", default=str(DEFAULT_DB), help="Путь к SQLite")
     parser.add_argument(
