@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 import re
 import sqlite3
+import tempfile
 from argparse import Namespace
 from collections import Counter, defaultdict
 from datetime import date, datetime, timezone
@@ -829,6 +831,7 @@ def print_daily_result(result: dict[str, Any], *, json_output: bool) -> None:
 USED_FIELDS = [
     "id", "type", "persons", "topics", "short_description", "source", "date_used"
 ]
+USED_TYPES = {"event", "interpretation"}
 
 
 def mark_used_from_json(json_path: Path, used_path: Path) -> tuple[int, int]:
@@ -837,6 +840,68 @@ def mark_used_from_json(json_path: Path, used_path: Path) -> tuple[int, int]:
     if not isinstance(events, list):
         raise ValueError(f"{json_path}: ожидается объект daily-five с массивом final")
     return append_used(events, used_path)
+
+
+def record_publication_from_json(
+    manifest_path: Path, used_path: Path
+) -> tuple[str, int, int]:
+    """Record the exact finalized cards stored in a durable local manifest."""
+    payload = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"{manifest_path}: ожидается JSON-объект")
+    publication_id = normalize_text(str(payload.get("publication_id", "")))
+    if not publication_id:
+        raise ValueError(f"{manifest_path}: отсутствует publication_id")
+    cards = payload.get("cards")
+    if not isinstance(cards, list) or not cards:
+        raise ValueError(f"{manifest_path}: ожидается непустой массив cards")
+
+    events: list[dict[str, Any]] = []
+    for index, card in enumerate(cards, start=1):
+        if not isinstance(card, dict):
+            raise ValueError(f"{manifest_path}: cards[{index}] должен быть объектом")
+        card_markdown = card.get("card_markdown")
+        if not isinstance(card_markdown, str) or not card_markdown.strip():
+            raise ValueError(
+                f"{manifest_path}: cards[{index}] должен содержать card_markdown"
+            )
+        finding_id = normalize_text(str(card.get("id") or card.get("chunk_id") or ""))
+        finding_type = normalize_text(str(card.get("type", ""))).casefold()
+        description = normalize_text(
+            str(
+                card.get("short_description")
+                or card.get("what_happened")
+                or card.get("title")
+                or ""
+            )
+        )
+        source = normalize_text(str(card.get("source", "")))
+        if not finding_id:
+            raise ValueError(f"{manifest_path}: cards[{index}] не содержит id")
+        if finding_type not in USED_TYPES:
+            raise ValueError(
+                f"{manifest_path}: cards[{index}].type должен быть event "
+                "или interpretation"
+            )
+        if not description:
+            raise ValueError(
+                f"{manifest_path}: cards[{index}] не содержит short_description"
+            )
+        if not source:
+            raise ValueError(f"{manifest_path}: cards[{index}] не содержит source")
+        events.append(
+            {
+                "chunk_id": finding_id,
+                "type": finding_type,
+                "person": card.get("persons") or card.get("person", []),
+                "topics": card.get("topics", []),
+                "what_happened": description,
+                "source": source,
+            }
+        )
+
+    added, skipped = append_used(events, used_path)
+    return publication_id, added, skipped
 
 
 def mark_used_chunk(
@@ -860,9 +925,67 @@ def mark_used_chunk(
     return append_used([event], used_path)
 
 
+def _read_used_rows(path: Path) -> list[dict[str, str]]:
+    if not path.exists() or path.stat().st_size == 0:
+        return []
+    with path.open(encoding="utf-8-sig", newline="") as stream:
+        reader = csv.DictReader(stream)
+        if reader.fieldnames != USED_FIELDS:
+            raise ValueError(
+                f"{path}: ожидаются столбцы {', '.join(USED_FIELDS)}"
+            )
+        rows: list[dict[str, str]] = []
+        seen_ids: set[str] = set()
+        for line_number, row in enumerate(reader, start=2):
+            if None in row:
+                raise ValueError(f"{path}:{line_number}: лишние столбцы CSV")
+            values = {field: row.get(field, "") or "" for field in USED_FIELDS}
+            if not any(value.strip() for value in values.values()):
+                continue
+            finding_id = normalize_text(values["id"])
+            if not finding_id:
+                raise ValueError(f"{path}:{line_number}: пустой id")
+            if finding_id in seen_ids:
+                raise ValueError(f"{path}:{line_number}: повторяющийся id {finding_id}")
+            seen_ids.add(finding_id)
+            rows.append(values)
+    return rows
+
+
+def _join_used_values(value: Any) -> str:
+    if isinstance(value, str):
+        return normalize_text(value)
+    if value is None:
+        return ""
+    if isinstance(value, (list, tuple, set)):
+        return "; ".join(
+            item for item in (normalize_text(str(item)) for item in value) if item
+        )
+    return normalize_text(str(value))
+
+
+def _atomic_write_used_rows(rows: list[dict[str, str]], path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temp_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+    )
+    temp_path = Path(temp_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8-sig", newline="") as stream:
+            writer = csv.DictWriter(stream, fieldnames=USED_FIELDS)
+            writer.writeheader()
+            writer.writerows(rows)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temp_path, path)
+    except BaseException:
+        temp_path.unlink(missing_ok=True)
+        raise
+
+
 def append_used(events: list[dict[str, Any]], used_path: Path) -> tuple[int, int]:
-    existing = load_used_finds(used_path)
-    existing_ids = {record["id"] for record in existing if record["id"]}
+    existing = _read_used_rows(used_path)
+    existing_ids = {normalize_text(record["id"]) for record in existing}
     rows: list[dict[str, str]] = []
     skipped = 0
     for event in events:
@@ -870,14 +993,17 @@ def append_used(events: list[dict[str, Any]], used_path: Path) -> tuple[int, int
         if not chunk_id or chunk_id in existing_ids:
             skipped += 1
             continue
-        people = event.get("person", [])
-        topics = event.get("topics", [])
+        finding_type = normalize_text(str(event.get("type", "event"))).casefold()
+        if finding_type not in USED_TYPES:
+            raise ValueError(
+                f"{chunk_id}: type должен быть event или interpretation"
+            )
         rows.append(
             {
                 "id": chunk_id,
-                "type": "event",
-                "persons": "; ".join(str(item) for item in people),
-                "topics": "; ".join(str(item) for item in topics),
+                "type": finding_type,
+                "persons": _join_used_values(event.get("person", [])),
+                "topics": _join_used_values(event.get("topics", [])),
                 "short_description": normalize_text(
                     str(event.get("what_happened", event.get("title", "")))
                 )[:500],
@@ -886,11 +1012,6 @@ def append_used(events: list[dict[str, Any]], used_path: Path) -> tuple[int, int
             }
         )
         existing_ids.add(chunk_id)
-    used_path.parent.mkdir(parents=True, exist_ok=True)
-    write_header = not used_path.exists() or used_path.stat().st_size == 0
-    with used_path.open("a", encoding="utf-8-sig", newline="") as stream:
-        writer = csv.DictWriter(stream, fieldnames=USED_FIELDS)
-        if write_header:
-            writer.writeheader()
-        writer.writerows(rows)
+    if rows:
+        _atomic_write_used_rows([*existing, *rows], used_path)
     return len(rows), skipped

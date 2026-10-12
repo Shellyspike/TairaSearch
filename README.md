@@ -114,6 +114,17 @@ walkthrough, and the sanitized prompt templates under `examples/codex/`.
 The templates are documentation only. Installing or running this repository
 does not create, modify, start, or stop any Codex automation.
 
+For a real editorial run, save the exact finalized cards to an ignored local
+JSON file before publication, then update the duplicate journal atomically:
+
+```powershell
+python taira_search.py record-publication work/publications/<publication-id>.json
+```
+
+The manifest remains available for recovery, and repeating the command does
+not add duplicate IDs. See [docs/ai-workflow.md](docs/ai-workflow.md) for the
+manifest fields and failure behaviour.
+
 ## Private corpora
 
 Users may index their own local documents by passing an explicit corpus path.

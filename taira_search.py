@@ -422,6 +422,12 @@ def make_parser() -> argparse.ArgumentParser:
     add_config_arguments(mark_parser)
     mark_parser.add_argument("target", help="Путь к daily-five JSON или chunk_id")
     mark_parser.add_argument("--used-finds", default=str(DEFAULT_USED_FINDS))
+    publication_parser = subparsers.add_parser(
+        "record-publication",
+        help="Атомарно записать выбранные карточки из локального JSON",
+    )
+    publication_parser.add_argument("manifest", help="JSON с готовыми карточками")
+    publication_parser.add_argument("--used-finds", default=str(DEFAULT_USED_FINDS))
     return parser
 
 
@@ -490,6 +496,23 @@ def main(argv: list[str] | None = None) -> int:
             parser.error("--pool-size должен быть от 10 до 500")
     connection: sqlite3.Connection | None = None
     try:
+        if args.command == "record-publication":
+            from daily_five import record_publication_from_json
+
+            manifest_path = Path(args.manifest).expanduser().resolve()
+            if not manifest_path.is_file():
+                raise ValueError(f"Манифест публикации не найден: {manifest_path}")
+            used_path = Path(args.used_finds).expanduser().resolve()
+            publication_id, added, skipped = record_publication_from_json(
+                manifest_path, used_path
+            )
+            print(f"Пакет публикации: {publication_id}")
+            print(f"Манифест для восстановления: {manifest_path}")
+            print(
+                f"Добавлено в {used_path}: {added}; уже было/пропущено: {skipped}"
+            )
+            return 0
+
         connection, topics, people = load_runtime(args)
         if args.command in {"search", "events"}:
             has_filter = any(

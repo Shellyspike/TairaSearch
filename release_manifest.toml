@@ -53,6 +53,7 @@ files = [
   "tests/test_incremental_safety.py",
   "tests/test_release_safety.py",
   "tests/test_pdf_handling.py",
+  "tests/test_publication_journal.py",
   "tests/test_taira_search.py",
   "text_utils.py",
   "topics.json",

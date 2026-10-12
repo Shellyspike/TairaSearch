@@ -12,12 +12,37 @@ reasoning.
 3. A Codex automation reads those candidates and their context.
 4. Codex distinguishes primary, literary, and scholarly sources, checks the
    available evidence, and writes concise cards with citations.
-5. After publication, the selected findings are recorded so later runs can
-   avoid repeats.
+5. Codex saves the exact finalized cards to a local publication manifest and
+   asks Python to record those selected findings before returning the cards in
+   chat. Later runs can then avoid repeats.
 
-The Python command does not publish a message and does not silently update the
+The Python retrieval command does not publish a message or silently update the
 publication journal. Publication and editorial synthesis belong to the Codex
-workflow.
+workflow. The separate `record-publication` command is the explicit boundary
+between finalized editorial output and the local journal.
+
+## Publication journal and recovery
+
+Before publication, save the complete finalized batch under the ignored
+`work/` directory, for example `work/publications/2026-10-12.json`. The JSON
+must contain a `publication_id` and a non-empty `cards` array. Every card must
+contain `id` or `chunk_id`, `type` (`event` or `interpretation`), `persons`,
+`topics`, `short_description`, `source`, and the exact final text in
+`card_markdown`.
+
+Then run:
+
+```powershell
+python taira_search.py record-publication work/publications/2026-10-12.json
+```
+
+The command validates the complete manifest and atomically replaces
+`used_finds.csv` only after the new CSV has been written successfully. Existing
+rows and the CSV schema are retained, and rerunning the same manifest does not
+create duplicates. Publish the cards only after exit code 0. If journal writing
+fails, or if chat delivery fails after the journal update, the unchanged local
+JSON contains the exact cards needed for a retry. Publication manifests are
+runtime data and must never be added to the public release allowlist.
 
 ## Discovery of new materials
 

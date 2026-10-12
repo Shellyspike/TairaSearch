@@ -1,0 +1,179 @@
+from __future__ import annotations
+
+import csv
+import json
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
+
+
+PROJECT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT))
+
+import daily_five  # noqa: E402
+
+
+class PublicationJournalTests(unittest.TestCase):
+    def setUp(self) -> None:
+        work_root = PROJECT / "work"
+        work_root.mkdir(exist_ok=True)
+        self.temp = tempfile.TemporaryDirectory(
+            prefix="taira-publication-test-", dir=work_root
+        )
+        self.root = Path(self.temp.name)
+        self.used_path = self.root / "used_finds.csv"
+        self.manifest_path = self.root / "ready-cards.json"
+
+    def tearDown(self) -> None:
+        self.temp.cleanup()
+
+    def write_existing_history(self, count: int = 70) -> list[dict[str, str]]:
+        rows = [
+            {
+                "id": f"ch_existing_{index:014d}",
+                "type": "event" if index < 28 else "interpretation",
+                "persons": f"Персонаж {index}",
+                "topics": "история; источник",
+                "short_description": f"Существующая находка {index}, без изменений.",
+                "source": f"Источник {index}",
+                "date_used": "2026-10-01",
+            }
+            for index in range(count)
+        ]
+        with self.used_path.open("w", encoding="utf-8-sig", newline="") as stream:
+            writer = csv.DictWriter(stream, fieldnames=daily_five.USED_FIELDS)
+            writer.writeheader()
+            writer.writerows(rows)
+        return rows
+
+    def write_manifest(self) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "publication_id": "2026-10-12-test-batch",
+            "cards": [
+                {
+                    "id": "ch_selected_event_000001",
+                    "type": "event",
+                    "persons": ["平清盛"],
+                    "topics": ["история", "болезнь"],
+                    "short_description": "Выбранное событие из тестового источника.",
+                    "source": "Тестовая хроника",
+                    "card_markdown": "### Карточка события\n\nТочный готовый текст.",
+                },
+                {
+                    "id": "ch_selected_study_000002",
+                    "type": "interpretation",
+                    "persons": ["平清盛"],
+                    "topics": ["исследование"],
+                    "short_description": "Выбранный вывод исследователя.",
+                    "source": "Тестовая научная статья",
+                    "card_markdown": "### Вывод исследователя\n\nТочный готовый текст.",
+                },
+            ],
+        }
+        self.manifest_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        return payload
+
+    def read_history(self) -> list[dict[str, str]]:
+        with self.used_path.open(encoding="utf-8-sig", newline="") as stream:
+            return list(csv.DictReader(stream))
+
+    def test_preserves_70_rows_records_both_types_and_is_idempotent(self) -> None:
+        original_rows = self.write_existing_history()
+        payload = self.write_manifest()
+        manifest_before = self.manifest_path.read_bytes()
+
+        publication_id, added, skipped = daily_five.record_publication_from_json(
+            self.manifest_path, self.used_path
+        )
+
+        self.assertEqual(publication_id, payload["publication_id"])
+        self.assertEqual((added, skipped), (2, 0))
+        rows = self.read_history()
+        self.assertEqual(rows[:70], original_rows)
+        self.assertEqual(len(rows), 72)
+        self.assertEqual([row["type"] for row in rows[-2:]], ["event", "interpretation"])
+        self.assertEqual(self.manifest_path.read_bytes(), manifest_before)
+        history_after_first_write = self.used_path.read_bytes()
+
+        publication_id, added, skipped = daily_five.record_publication_from_json(
+            self.manifest_path, self.used_path
+        )
+        self.assertEqual(publication_id, payload["publication_id"])
+        self.assertEqual((added, skipped), (0, 2))
+        self.assertEqual(self.read_history(), rows)
+        self.assertEqual(self.used_path.read_bytes(), history_after_first_write)
+
+    def test_atomic_replace_failure_keeps_history_and_recovery_json(self) -> None:
+        self.write_existing_history()
+        payload = self.write_manifest()
+        history_before = self.used_path.read_bytes()
+        manifest_before = self.manifest_path.read_bytes()
+
+        with mock.patch.object(
+            daily_five.os, "replace", side_effect=OSError("simulated replace failure")
+        ):
+            with self.assertRaisesRegex(OSError, "simulated replace failure"):
+                daily_five.record_publication_from_json(
+                    self.manifest_path, self.used_path
+                )
+
+        self.assertEqual(self.used_path.read_bytes(), history_before)
+        self.assertEqual(self.manifest_path.read_bytes(), manifest_before)
+        self.assertEqual(
+            json.loads(self.manifest_path.read_text(encoding="utf-8")), payload
+        )
+        self.assertEqual(list(self.root.glob(".used_finds.csv.*.tmp")), [])
+
+    def test_invalid_card_does_not_change_history(self) -> None:
+        self.write_existing_history()
+        payload = self.write_manifest()
+        cards = payload["cards"]
+        assert isinstance(cards, list)
+        assert isinstance(cards[1], dict)
+        cards[1]["type"] = "variant"
+        self.manifest_path.write_text(
+            json.dumps(payload, ensure_ascii=False), encoding="utf-8"
+        )
+        history_before = self.used_path.read_bytes()
+
+        with self.assertRaisesRegex(ValueError, "event или interpretation"):
+            daily_five.record_publication_from_json(
+                self.manifest_path, self.used_path
+            )
+
+        self.assertEqual(self.used_path.read_bytes(), history_before)
+        self.assertTrue(self.manifest_path.is_file())
+
+    def test_cli_records_manifest_without_sqlite_database(self) -> None:
+        self.write_existing_history(2)
+        payload = self.write_manifest()
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(PROJECT / "taira_search.py"),
+                "record-publication",
+                str(self.manifest_path),
+                "--used-finds",
+                str(self.used_path),
+            ],
+            cwd=PROJECT,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(str(payload["publication_id"]), result.stdout)
+        self.assertIn(str(self.manifest_path), result.stdout)
+        self.assertEqual(len(self.read_history()), 4)
+
+
+if __name__ == "__main__":
+    unittest.main()

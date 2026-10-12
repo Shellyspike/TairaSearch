@@ -16,8 +16,9 @@ workflow visible as two cooperating parts of the project.
   ordinary indexing and `--rebuild` intentionally never prune unseen files.
 - [x] Give successful, partially successful, interrupted, and failed builds
   truthful statuses and make recovery behaviour explicit.
-- [ ] Make publication-journal updates minimal, atomic, and idempotent after a
-  Codex automation has successfully published a card.
+- [x] Save the exact finalized cards locally and make publication-journal
+  updates minimal, atomic, and idempotent before a Codex automation publishes
+  them.
 - [ ] Complete packaging, the small CI workflow, licence selection, and the
   reproducible public demo documentation.
 
