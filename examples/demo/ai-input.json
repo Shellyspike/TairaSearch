@@ -1,39 +1,59 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "demo": true,
   "material_status": "synthetic_demo_not_historical_evidence",
   "notice_ru": "Все тексты и события вымышлены для демонстрации TairaSearch; их нельзя представлять как реальные исторические сведения.",
+  "notice_en": "All texts and events are fictional TairaSearch demonstration materials and must not be presented as historical claims.",
   "source_note_ru": "Названия папок имитируют типы источников только для проверки классификации и не означают, что фрагменты взяты из этих произведений.",
+  "source_note_en": "Historical-looking folder names test classification only; they do not claim that excerpts come from the named works.",
   "candidate_count": 5,
   "candidates": [
     {
       "ordinal": 1,
       "material_status": "synthetic_demo_not_historical_evidence",
-      "chunk_id": "ch_3b39818e3652f04460690a93",
-      "relative_path": "吉記/русская_музыка.txt",
-      "source": "吉記",
-      "source_group": "吉記",
-      "source_type": "contemporary_diary",
-      "index_source_type": "historical",
-      "people": ["重盛"],
-      "primary_topic": "music",
-      "topics": ["music"],
-      "date": "治承三年",
-      "place": "京都",
-      "source_excerpt": "Синтетическая русская запись для проверки многоязычного поиска; это не историческая цитата. 治承三年、平重盛は京都で琵琶を играл перед небольшим собранием. Русский пересказ сообщает, что Сигэмори участвовал в музыкальном вечере.",
-      "why_interesting_hint": "Показывает культурную и церемониальную сторону жизни, не сводимую к политике и войне.",
+      "chunk_id": "ch_b47aa27981b8a752c47e73f6",
+      "relative_path": "平家物語/宴.txt",
+      "source": "平家物語",
+      "source_group": "平家物語",
+      "source_type": "war_tale",
+      "index_source_type": "literary",
+      "people": [
+        "宗盛"
+      ],
+      "primary_topic": "feast",
+      "topics": [
+        "feast"
+      ],
+      "date": "寿永二年",
+      "place": "福原",
+      "source_excerpt": "これは検索試験のための合成文であり、文学作品からの引用ではない。 寿永二年、平宗盛は福原で酒宴を開き、客と宴の酒を酌み交わした。合成された物語では、雨にぬれた使者が庭に着くと、宗盛は杯を置き、台所に残っていた温かい料理を門番と使者にも運ばせた。 Вымышленный рассказ намеренно подаёт перемену от пира к заботе о людях как литературно выстроенную сцену, а не как доказанный факт.",
+      "why_interesting_hint": "Даёт бытовой или церемониальный эпизод вокруг еды, питья и собрания.",
+      "why_interesting_hint_en": "The scene turns hospitality into a literary test of how status and care are distributed.",
+      "related_scholarship": [
+        {
+          "material_status": "synthetic_demo_not_historical_evidence",
+          "relative_path": "Статьи/пир_исследование.md",
+          "chunk_id": "ch_7d25b19c175f0db6bfc5a761",
+          "source": "Статьи",
+          "index_source_type": "scholarship",
+          "source_excerpt": "# Синтетическая исследовательская заметка о пире\n\nЭто вымышленный вторичный текст для демонстрации, а не научная публикация.\nВ тестовой сцене 平宗盛 и 酒宴 резкий переход от общей чаши к мокрому посланцу устроен как нравственный поворот рассказа. Исследовательская версия предлагает читать раздачу тёплой еды как литературный приём, характеризующий хозяина; она не превращает сцену в установленный исторический факт."
+        }
+      ],
       "verification": {
         "status": "ok",
-        "evidence_terms": ["平重盛", "琵琶"],
+        "evidence_terms": [
+          "平宗盛",
+          "酒宴"
+        ],
         "max_term_gap_chars": 4,
         "context_chunks": [
           {
             "target": true,
-            "chunk_id": "ch_3b39818e3652f04460690a93",
+            "chunk_id": "ch_b47aa27981b8a752c47e73f6",
             "chunk_no": 1,
             "page_start": null,
             "page_end": null,
-            "text": "Синтетическая русская запись для проверки многоязычного поиска; это не историческая цитата.\n治承三年、平重盛は京都で琵琶を играл перед небольшим собранием. Русский пересказ сообщает, что Сигэмори участвовал в музыкальном вечере."
+            "text": "これは検索試験のための合成文であり、文学作品からの引用ではない。\n寿永二年、平宗盛は福原で酒宴を開き、客と宴の酒を酌み交わした。合成された物語では、雨にぬれた使者が庭に着くと、宗盛は杯を置き、台所に残っていた温かい料理を門番と使者にも運ばせた。\nВымышленный рассказ намеренно подаёт перемену от пира к заботе о людях как литературно выстроенную сцену, а не как доказанный факт."
           }
         ]
       },
@@ -47,31 +67,49 @@
     {
       "ordinal": 2,
       "material_status": "synthetic_demo_not_historical_evidence",
-      "chunk_id": "ch_b47aa27981b8a752c47e73f6",
-      "relative_path": "平家物語/宴.txt",
-      "source": "平家物語",
-      "source_group": "平家物語",
+      "chunk_id": "ch_fec810decc8cc4d78773fd36",
+      "relative_path": "源平盛衰記/пожар.txt",
+      "source": "源平盛衰記",
+      "source_group": "源平盛衰記",
       "source_type": "war_tale",
       "index_source_type": "literary",
-      "people": ["宗盛"],
-      "primary_topic": "feast",
-      "topics": ["feast"],
-      "date": "寿永二年",
-      "place": "福原",
-      "source_excerpt": "これは検索試験のための合成文であり、文学作品からの引用ではない。 寿永二年、平宗盛は福原で酒宴を開き、客と宴の酒を酌み交わした。",
-      "why_interesting_hint": "Даёт бытовой или церемониальный эпизод вокруг еды, питья и собрания.",
+      "people": [
+        "知盛"
+      ],
+      "primary_topic": "fire",
+      "topics": [
+        "fire"
+      ],
+      "date": "治承四年",
+      "place": "京都",
+      "source_excerpt": "これは検索試験のための合成文であり、文学作品からの引用ではない。 治承四年、平知盛は京都の火事を知り、焼失した館から人を助けた。合成された物語では、知盛は門を開けさせ、井戸から手渡しで水桶を送り、名もない奉公人が文の入った小箱を取りに戻るのを止めた。 Эта вымышленная литературная версия делает заметными ворота, колодец, цепочку вёдер и цену попытки спасти вещи.",
+      "why_interesting_hint": "Локальный эпизод позволяет увидеть материальную среду и реакцию на бедствие.",
+      "why_interesting_hint_en": "Gates, a well, buckets, and letters make the material risks of an urban fire visible.",
+      "related_scholarship": [
+        {
+          "material_status": "synthetic_demo_not_historical_evidence",
+          "relative_path": "Статьи/пожар_исследование.md",
+          "chunk_id": "ch_977f4d44d4e923ebad4ecb84",
+          "source": "Статьи",
+          "index_source_type": "scholarship",
+          "source_excerpt": "# Синтетическая исследовательская заметка о пожаре\n\nЭто вымышленный вторичный текст для демонстрации, а не научная публикация.\nСцена 平知盛 и 火事 существует здесь в двух уровнях: краткое сообщение о помощи и литературное увеличение с воротами, колодцем и коробкой писем. Заметка трактует эти предметы как способ показать материальную среду бедствия, не выдавая литературную разработку за независимое свидетельство."
+        }
+      ],
       "verification": {
         "status": "ok",
-        "evidence_terms": ["平宗盛", "酒宴"],
+        "evidence_terms": [
+          "平知盛",
+          "火事"
+        ],
         "max_term_gap_chars": 4,
         "context_chunks": [
           {
             "target": true,
-            "chunk_id": "ch_b47aa27981b8a752c47e73f6",
+            "chunk_id": "ch_fec810decc8cc4d78773fd36",
             "chunk_no": 1,
             "page_start": null,
             "page_end": null,
-            "text": "これは検索試験のための合成文であり、文学作品からの引用ではない。\n寿永二年、平宗盛は福原で酒宴を開き、客と宴の酒を酌み交わした。"
+            "text": "これは検索試験のための合成文であり、文学作品からの引用ではない。\n治承四年、平知盛は京都の火事を知り、焼失した館から人を助けた。合成された物語では、知盛は門を開けさせ、井戸から手渡しで水桶を送り、名もない奉公人が文の入った小箱を取りに戻るのを止めた。\nЭта вымышленная литературная версия делает заметными ворота, колодец, цепочку вёдер и цену попытки спасти вещи."
           }
         ]
       },
@@ -91,17 +129,35 @@
       "source_group": "吾妻鏡",
       "source_type": "later_chronicle",
       "index_source_type": "historical",
-      "people": ["時忠"],
+      "people": [
+        "時忠"
+      ],
       "primary_topic": "captivity",
-      "topics": ["captivity"],
+      "topics": [
+        "captivity"
+      ],
       "date": "文治元年",
       "place": "京都",
-      "source_excerpt": "これは検索試験のための合成文であり、史料からの引用ではない。 文治元年、平時忠は京都で捕らえられ、しばらく囚われた後に配流された。",
+      "source_excerpt": "これは検索試験のための合成文であり、史料からの引用ではない。 文治元年、平時忠は京都で捕らえられ、しばらく囚われた後に配流された。合成された記事では、時忠は離ればなれになった従者の名を書き留める紙を番人に求め、その紙を袖にしまってから出発した。 Синтетическая деталь со списком переводит внимание с формулы о ссылке на людей, которых административное решение разлучило.",
       "why_interesting_hint": "Даёт локально подтверждённый эпизод плена, задержания или ссылки.",
+      "why_interesting_hint_en": "A list of separated attendants gives an administrative act a personal and social scale.",
+      "related_scholarship": [
+        {
+          "material_status": "synthetic_demo_not_historical_evidence",
+          "relative_path": "Статьи/плен_исследование.md",
+          "chunk_id": "ch_e97a3d2c1ea828c7201bed3e",
+          "source": "Статьи",
+          "index_source_type": "scholarship",
+          "source_excerpt": "# Синтетическая исследовательская заметка о плене\n\nЭто вымышленный вторичный текст для демонстрации, а не научная публикация.\nВ тестовом сообщении о 平時忠 рядом с формулой 配流 появляется список разлучённых слуг. Заметка предлагает рассматривать бумагу в рукаве как приём поздней хроники, который придаёт административной записи личный масштаб; достоверность детали здесь не устанавливается."
+        }
+      ],
       "verification": {
         "status": "ok",
-        "evidence_terms": ["平時忠", "配流"],
-        "max_term_gap_chars": 20,
+        "evidence_terms": [
+          "時忠",
+          "配流"
+        ],
+        "max_term_gap_chars": 14,
         "context_chunks": [
           {
             "target": true,
@@ -109,7 +165,7 @@
             "chunk_no": 1,
             "page_start": null,
             "page_end": null,
-            "text": "これは検索試験のための合成文であり、史料からの引用ではない。\n文治元年、平時忠は京都で捕らえられ、しばらく囚われた後に配流された。"
+            "text": "これは検索試験のための合成文であり、史料からの引用ではない。\n文治元年、平時忠は京都で捕らえられ、しばらく囚われた後に配流された。合成された記事では、時忠は離ればなれになった従者の名を書き留める紙を番人に求め、その紙を袖にしまってから出発した。\nСинтетическая деталь со списком переводит внимание с формулы о ссылке на людей, которых административное решение разлучило."
           }
         ]
       },
@@ -123,31 +179,49 @@
     {
       "ordinal": 4,
       "material_status": "synthetic_demo_not_historical_evidence",
-      "chunk_id": "ch_fec810decc8cc4d78773fd36",
-      "relative_path": "源平盛衰記/пожар.txt",
-      "source": "源平盛衰記",
-      "source_group": "源平盛衰記",
-      "source_type": "war_tale",
-      "index_source_type": "literary",
-      "people": ["知盛"],
-      "primary_topic": "fire",
-      "topics": ["fire"],
-      "date": "治承四年",
-      "place": "京都",
-      "source_excerpt": "これは検索試験のための合成文であり、文学作品からの引用ではない。 治承四年、平知盛は京都の火事を知り、焼失した館から人を助けた。",
-      "why_interesting_hint": "Локальный эпизод позволяет увидеть материальную среду и реакцию на бедствие.",
+      "chunk_id": "ch_9944270a0fca336332309762",
+      "relative_path": "玉葉/772049_0000002.txt",
+      "source": "玉葉",
+      "source_group": "玉葉",
+      "source_type": "contemporary_diary",
+      "index_source_type": "historical",
+      "people": [
+        "清盛"
+      ],
+      "primary_topic": "illness",
+      "topics": [
+        "illness"
+      ],
+      "date": null,
+      "place": null,
+      "source_excerpt": "これは検索試験のための合成文であり、日記からの引用ではない。平清盛は所労により参内せず。人々は病の重さを案じた。合成された記録では、返事を待つ使者が門外に残り、翌日の儀礼の席順だけが書き直された。診断、日付、場所は記されていない。",
+      "why_interesting_hint": "Показывает телесный опыт, лечение и повседневную уязвимость представителей Тайра.",
+      "why_interesting_hint_en": "An unexplained absence shows how illness could disrupt messengers and ceremonial planning without revealing a diagnosis.",
+      "related_scholarship": [
+        {
+          "material_status": "synthetic_demo_not_historical_evidence",
+          "relative_path": "Статьи/болезнь_исследование.md",
+          "chunk_id": "ch_ab775beadfb095596ff36ac3",
+          "source": "Статьи",
+          "index_source_type": "scholarship",
+          "source_excerpt": "# Синтетическая исследовательская заметка о болезни\n\nЭто вымышленный вторичный текст для демонстрации, а не научная публикация.\nТестовая запись связывает 平清盛 и 所労 с отсутствием при дворе, ожиданием посланца и изменением церемониального порядка. Исследовательская версия подчёркивает институциональные последствия неопределённости; она не позволяет восстановить диагноз, дату или место."
+        }
+      ],
       "verification": {
         "status": "ok",
-        "evidence_terms": ["平知盛", "火事"],
-        "max_term_gap_chars": 4,
+        "evidence_terms": [
+          "平清盛",
+          "所労"
+        ],
+        "max_term_gap_chars": 1,
         "context_chunks": [
           {
             "target": true,
-            "chunk_id": "ch_fec810decc8cc4d78773fd36",
+            "chunk_id": "ch_9944270a0fca336332309762",
             "chunk_no": 1,
-            "page_start": null,
-            "page_end": null,
-            "text": "これは検索試験のための合成文であり、文学作品からの引用ではない。\n治承四年、平知盛は京都の火事を知り、焼失した館から人を助けた。"
+            "page_start": 2,
+            "page_end": 2,
+            "text": "これは検索試験のための合成文であり、日記からの引用ではない。平清盛は所労により参内せず。人々は病の重さを案じた。合成された記録では、返事を待つ使者が門外に残り、翌日の儀礼の席順だけが書き直された。診断、日付、場所は記されていない。"
           }
         ]
       },
@@ -161,31 +235,49 @@
     {
       "ordinal": 5,
       "material_status": "synthetic_demo_not_historical_evidence",
-      "chunk_id": "ch_9944270a0fca336332309762",
-      "relative_path": "玉葉/772049_0000002.txt",
-      "source": "玉葉",
-      "source_group": "玉葉",
+      "chunk_id": "ch_3b39818e3652f04460690a93",
+      "relative_path": "吉記/русская_музыка.txt",
+      "source": "吉記",
+      "source_group": "吉記",
       "source_type": "contemporary_diary",
       "index_source_type": "historical",
-      "people": ["清盛"],
-      "primary_topic": "illness",
-      "topics": ["illness"],
-      "date": null,
-      "place": null,
-      "source_excerpt": "平清盛は所労により参内せず。人々は病の重さを案じた。",
-      "why_interesting_hint": "Показывает телесный опыт, лечение и повседневную уязвимость представителей Тайра.",
+      "people": [
+        "重盛"
+      ],
+      "primary_topic": "music",
+      "topics": [
+        "music"
+      ],
+      "date": "治承三年",
+      "place": "京都",
+      "source_excerpt": "Синтетическая русская запись для проверки многоязычного поиска; это не историческая цитата. 治承三年、平重盛は京都で琵琶を играл перед небольшим собранием. Перед началом молодой служитель поправил шнур инструмента, а после последнего звука гости несколько мгновений молчали. Русский пересказ сообщает, что Сигэмори положил плектр рядом с лампой и только затем возобновил разговор. Этот вымышленный эпизод позволяет показать музыку как часть придворного этикета и общения, а не как декоративную подробность.",
+      "why_interesting_hint": "Показывает культурную и церемониальную сторону жизни, не сводимую к политике и войне.",
+      "why_interesting_hint_en": "A small performance reveals courtly etiquette through silence, objects, and the order of conversation.",
+      "related_scholarship": [
+        {
+          "material_status": "synthetic_demo_not_historical_evidence",
+          "relative_path": "Статьи/музыка_исследование.md",
+          "chunk_id": "ch_b301f307412ef02b2e42e307",
+          "source": "Статьи",
+          "index_source_type": "scholarship",
+          "source_excerpt": "# Синтетическая исследовательская заметка о музыке\n\nЭто вымышленный вторичный текст для демонстрации, а не научная публикация.\nСопоставляя тестовые версии эпизода 平重盛 и 琵琶, автор заметки обращает внимание не на виртуозность исполнения, а на паузу гостей, положение плектра и порядок возобновления разговора. Такая интерпретация показывает, как музыкальная сцена может описывать придворный этикет, но не подтверждает, что событие происходило в реальности."
+        }
+      ],
       "verification": {
         "status": "ok",
-        "evidence_terms": ["平清盛", "所労"],
-        "max_term_gap_chars": 1,
+        "evidence_terms": [
+          "平重盛",
+          "琵琶"
+        ],
+        "max_term_gap_chars": 4,
         "context_chunks": [
           {
             "target": true,
-            "chunk_id": "ch_9944270a0fca336332309762",
+            "chunk_id": "ch_3b39818e3652f04460690a93",
             "chunk_no": 1,
-            "page_start": 2,
-            "page_end": 2,
-            "text": "平清盛は所労により参内せず。人々は病の重さを案じた。"
+            "page_start": null,
+            "page_end": null,
+            "text": "Синтетическая русская запись для проверки многоязычного поиска; это не историческая цитата.\n治承三年、平重盛は京都で琵琶を играл перед небольшим собранием. Перед началом молодой служитель поправил шнур инструмента, а после последнего звука гости несколько мгновений молчали. Русский пересказ сообщает, что Сигэмори положил плектр рядом с лампой и только затем возобновил разговор.\nЭтот вымышленный эпизод позволяет показать музыку как часть придворного этикета и общения, а не как декоративную подробность."
           }
         ]
       },

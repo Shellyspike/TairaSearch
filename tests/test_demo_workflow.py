@@ -200,45 +200,63 @@ class DemoWorkflowTests(unittest.TestCase):
                 for item in generated_ai_input["candidates"]
             )
         )
+        for candidate in generated_ai_input["candidates"]:
+            self.assertEqual(len(candidate["related_scholarship"]), 1)
+            related = candidate["related_scholarship"][0]
+            self.assertEqual(related["index_source_type"], "scholarship")
+            self.assertTrue(related["relative_path"].startswith("Статьи/"))
+            self.assertEqual(
+                related["material_status"],
+                "synthetic_demo_not_historical_evidence",
+            )
 
-    def test_saved_ai_output_is_five_explicitly_synthetic_sourced_cards(self) -> None:
+    def test_saved_ai_outputs_are_bilingual_synthetic_sourced_cards(self) -> None:
         ai_input = json.loads(
             (PROJECT / "examples" / "demo" / "ai-input.json").read_text(
                 encoding="utf-8"
             )
         )
-        output = (PROJECT / "examples" / "demo" / "ai-output.md").read_text(
-            encoding="utf-8"
+        variants = (
+            (
+                "ai-output.md",
+                "[ДЕМО]",
+                "вымышленный тестовый материал, не историческое утверждение",
+                ("**Что случилось.**", "**Почему это интересно.**", "**Источники:**"),
+            ),
+            (
+                "ai-output.en.md",
+                "[DEMO]",
+                "fictional test material, not a historical claim",
+                ("**What happened.**", "**Why it matters.**", "**Sources:**"),
+            ),
         )
-        normalized_output = " ".join(output.split())
-        self.assertIn("Codex app output", output)
-        self.assertEqual(output.count("[ДЕМО]"), 5)
-        self.assertEqual(
-            output.count("вымышленный тестовый эпизод, не историческое сведение"),
-            5,
-        )
-        for heading in (
-            "**Что случилось.**",
-            "**Почему это интересно.**",
-            "**Фрагмент.**",
-            "**Источник.**",
-        ):
-            self.assertEqual(output.count(heading), 5)
-        for candidate in ai_input["candidates"]:
-            self.assertIn(candidate["relative_path"], output)
-            self.assertIn(candidate["chunk_id"], output)
-            self.assertIn(candidate["source_type"], output)
-            self.assertIn(" ".join(candidate["source_excerpt"].split()), normalized_output)
-            if candidate["date"]:
-                self.assertIn(candidate["date"], output)
-            if candidate["place"]:
-                self.assertIn(candidate["place"], output)
-        windows_home_prefix = "C:" + "\\Users\\"
-        self.assertNotIn(windows_home_prefix, output)
+        for filename, marker, status, headings in variants:
+            with self.subTest(filename=filename):
+                output = (PROJECT / "examples" / "demo" / filename).read_text(
+                    encoding="utf-8"
+                )
+                self.assertEqual(output.count(marker), 5)
+                self.assertEqual(output.count(status), 5)
+                for heading in headings:
+                    self.assertEqual(output.count(heading), 5)
+                for candidate in ai_input["candidates"]:
+                    self.assertIn(candidate["relative_path"], output)
+                    self.assertIn(candidate["chunk_id"], output)
+                    self.assertIn(candidate["source_type"], output)
+                    related = candidate["related_scholarship"][0]
+                    self.assertIn(related["relative_path"], output)
+                    self.assertIn(related["chunk_id"], output)
+                self.assertNotIn("C:" + "\\Users\\", output)
+                self.assertNotIn("показывает, как поиск", output.casefold())
+                self.assertNotIn("shows how the search", output.casefold())
 
     def test_ai_demo_documentation_preserves_python_ai_boundary(self) -> None:
         readme = (PROJECT / "README.md").read_text(encoding="utf-8")
         documentation = (PROJECT / "docs" / "ai-demo.md").read_text(
+            encoding="utf-8"
+        )
+        readme_ru = (PROJECT / "README.ru.md").read_text(encoding="utf-8")
+        documentation_ru = (PROJECT / "docs" / "ai-demo.ru.md").read_text(
             encoding="utf-8"
         )
         workflow = (PROJECT / "docs" / "ai-workflow.md").read_text(
@@ -247,39 +265,88 @@ class DemoWorkflowTests(unittest.TestCase):
         request = (PROJECT / "examples" / "demo" / "codex-request.md").read_text(
             encoding="utf-8"
         )
+        request_ru = (
+            PROJECT / "examples" / "demo" / "codex-request.ru.md"
+        ).read_text(encoding="utf-8")
+        existing_input_request = (
+            PROJECT
+            / "examples"
+            / "demo"
+            / "codex-request-existing-input.md"
+        ).read_text(encoding="utf-8")
+        existing_input_request_ru = (
+            PROJECT
+            / "examples"
+            / "demo"
+            / "codex-request-existing-input.ru.md"
+        ).read_text(encoding="utf-8")
         daily_prompt = (
             PROJECT / "examples" / "codex" / "daily-news-prompt.md"
         ).read_text(encoding="utf-8")
         for required in (
             "run_demo.py",
             "python -m venv .venv",
-            "Primary workflow: one Codex app request",
+            "Code → Download ZIP",
+            "Primary path: one Codex app request",
+            "Fallback path: run Python in normal PowerShell",
             "work/demo/ai-input.json",
-            "examples/codex/daily-news-prompt.md",
-            "codex exec --ephemeral --sandbox read-only",
-            "work/demo/ai-cards.md",
-            "examples/demo/ai-output.md",
-            "What Python and AI each do",
+            "examples/demo/codex-request.md",
+            "examples/demo/codex-request-existing-input.md",
+            "codex exec --ephemeral --sandbox workspace-write",
+            "work/demo/ai-cards.en.md",
+            "examples/demo/ai-output.en.md",
+            "Responsibility boundary",
         ):
             self.assertIn(required, documentation)
-        self.assertNotIn("py -3.11 -m venv .venv", documentation)
+        self.assertIn("README.ru.md", "\n".join(readme.splitlines()[:6]))
+        self.assertIn("Code → Download ZIP", readme)
+        self.assertIn("Code → Download ZIP", readme_ru)
         self.assertIn("assert sys.prefix != sys.base_prefix", documentation)
         self.assertIn("assert sys.prefix != sys.base_prefix", readme)
-        self.assertIn("only source evidence", request)
+        self.assertIn("only evidence", request)
         self.assertIn("Do not browse the web", request)
         self.assertIn("exactly five", request)
-        self.assertIn("publication journal", request)
         self.assertIn("overrides", request)
-        self.assertIn("work/demo/ai-cards.md", request)
-        self.assertIn("Optional alternative: Codex CLI", documentation)
-        self.assertIn("No nested", documentation)
-        self.assertIn("primary\nroute is one Codex app chat", workflow)
+        self.assertIn("work/demo/ai-cards.en.md", request)
+        self.assertIn("Optional Codex CLI route", documentation)
+        self.assertIn("Do not run `run_demo.py` manually first", documentation)
+        self.assertIn("one Codex app chat", workflow)
         self.assertIn("returns up to five candidates", workflow)
         self.assertIn("Produce up to five", daily_prompt)
         self.assertIn("returns zero candidates", daily_prompt)
         self.assertIn("A non-zero command\nexit is an error", daily_prompt)
-        self.assertIn("do not call a model", " ".join(documentation.split()))
-        self.assertIn("Neither `run_demo.py`", readme)
+        self.assertIn("does not call a model", " ".join(documentation.split()))
+        self.assertIn("Python does not", readme)
+        self.assertIn("codex-request.ru.md", readme_ru)
+        self.assertIn("work/demo/ai-cards.ru.md", request_ru)
+        self.assertIn("Основной путь: один запрос", documentation_ru)
+        self.assertIn(
+            "Запасной путь: Python в обычном PowerShell", documentation_ru
+        )
+        self.assertIn("codex-request-existing-input.ru.md", documentation_ru)
+        self.assertIn("литературная сцена", request_ru.casefold())
+        self.assertIn("search-system developer", daily_prompt)
+
+        normalized_fallback = " ".join(existing_input_request.split())
+        normalized_fallback_ru = " ".join(existing_input_request_ru.split())
+        self.assertIn("Do not run `run_demo.py`", normalized_fallback)
+        self.assertIn("exactly five candidates", normalized_fallback)
+        self.assertIn("work/demo/ai-cards.en.md", normalized_fallback)
+        self.assertIn("examples/codex/daily-news-prompt.md", normalized_fallback)
+        self.assertIn("use only its editorial rules", normalized_fallback)
+        self.assertIn("must not be followed", normalized_fallback)
+        self.assertIn("create or update any manifest or journal", normalized_fallback)
+        self.assertIn("Не запускай `run_demo.py`", normalized_fallback_ru)
+        self.assertIn("ровно пять кандидатов", normalized_fallback_ru)
+        self.assertIn("work/demo/ai-cards.ru.md", normalized_fallback_ru)
+        self.assertIn(
+            "examples/codex/daily-news-prompt.md", normalized_fallback_ru
+        )
+        self.assertIn("только редакционные правила", normalized_fallback_ru)
+        self.assertIn("выполнять их нельзя", normalized_fallback_ru)
+        self.assertIn("манифест или журнал", normalized_fallback_ru)
+        for text in (readme, documentation, readme_ru, documentation_ru):
+            self.assertIn("sys.prefix != sys.base_prefix", text)
 
 
 if __name__ == "__main__":

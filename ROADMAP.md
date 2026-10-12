@@ -1,62 +1,44 @@
-# TairaSearch 0.1 roadmap
+# TairaSearch roadmap
 
-This roadmap keeps the local deterministic search pipeline and the real Codex
-workflow visible as two cooperating parts of the project.
+TairaSearch keeps deterministic local retrieval and Codex editorial reasoning
+as two visible, separately testable parts.
 
-## Release 0.1
+## 0.1 — published foundation
 
-- [x] Build public archives from an exact allowlist and test them for private or
-  generated data.
-- [x] Pin the PDF dependency, validate it before opening the index, distinguish
-  unreadable PDFs from PDFs without a text layer, and cover the failure modes
-  with tests.
-- [x] Preserve the last successfully indexed chunks and metadata when any
-  document fails during a later incremental run.
-- [x] Give successful, partially successful, interrupted, and failed builds
-  truthful statuses and make recovery behaviour explicit.
-- [x] Save the exact finalized cards locally and make publication-journal
-  updates minimal, atomic, and idempotent before a Codex automation publishes
-  them.
-- [x] Complete allowlisted ZIP packaging, the small CI workflow, MIT licensing,
-  and the reproducible public demo documentation.
+- [x] Exact public-release allowlist and leak checks.
+- [x] PDF dependency diagnostics and recovery-safe document replacement.
+- [x] Truthful build statuses and non-zero exits for processing failures.
+- [x] Offline multilingual corpus, five-candidate demo, and Codex walkthrough.
+- [x] Atomic, idempotent CSV journal update from durable card JSON.
+- [x] Python 3.11 Windows/Linux CI, README, and MIT licence.
 
-Production migration remains separate from the public release and must first
-be tested against a copy of the corpus and index.
+## 0.1.1 — independent-review fixes
 
-## Post-0.1
+- [x] Read-only SQLite search that follows committed WAL updates instead of
+  treating a mutable index as immutable.
+- [x] Windows/Linux interprocess locking for the complete publication-journal
+  read/check/write cycle.
+- [x] One-request Codex app quick starts in Russian and English.
+- [x] Richer synthetic event and scholarship fixtures plus improved AI cards.
+- [x] Editorial prompts that favour supported human-scale stories and clearly
+  separate source report, literary narrative, scholarship, and inference.
+- [ ] Review the separate daily-automation proposal on real open-source
+  material before changing any active automation.
 
-- [ ] Add an optional missing-document cleanup command with a mandatory
-  preview. Ordinary indexing and `--rebuild` intentionally never prune unseen
-  files.
+## 0.2 — research before changing compatibility
 
-## Reproducible AI demonstration
+- [ ] Design content versioning without changing the current position-based
+  `chunk_id` format prematurely.
+- [ ] Evaluate semantic deduplication that can distinguish an OCR correction of
+  the same episode from a genuinely new finding.
+- [ ] Define migration and backward compatibility for existing
+  `used_finds.csv` histories before adopting any new identifier.
+- [ ] Add an explicit missing-document cleanup command with a mandatory
+  preview. Ordinary indexing and `--rebuild` must continue to preserve unseen
+  documents.
+- [ ] Add retrieval/editorial quality fixtures and repeatable human review
+  criteria; do not treat variable model prose as a byte-for-byte artifact.
 
-After the reliability milestones, add a documented demonstration that uses the
-public test corpus and the sanitized prompts already in `examples/codex/`:
-
-1. build the SQLite FTS5 index;
-2. retrieve and select candidates with the Python tools;
-3. pass the retrieved source context to Codex using the documented automation
-   prompts;
-4. analyse and cross-check the sources in Codex;
-5. produce five example news cards with source references.
-
-Steps 1 and 2 now have an offline, one-command fixture in `run_demo.py`, backed
-by multilingual golden results. Steps 3–5 are documented in `docs/ai-demo.md`
-and include a stable Codex handoff, a one-request Codex app workflow, an
-optional read-only CLI command, and a saved five-card example. The live prose
-remains variable and human-reviewed; no API or multi-agent framework was added.
-
-The demonstration should explain the boundary between deterministic Python and
-Codex, and provide fixtures or redacted example outputs where an automation
-cannot be executed by a repository checkout alone. It does not require an
-OpenAI API rewrite or a separate multi-agent framework.
-
-## Public-release environment check
-
-Before the public release, verify standard Windows `venv` creation and command
-execution outside the current Codex sandbox. On the current development host
-the sandbox resolves the environment's `python.exe` to the base interpreter
-even with a valid `pyvenv.cfg`; a short ASCII path produces the same result.
-The documentation therefore uses a fail-fast prefix check and does not present
-this as a general Windows or non-ASCII-path defect.
+Production migration remains separate from public development. Any switch must
+first be tested against copies of the corpus and index, comparing document
+membership and search availability before and after the change.

@@ -108,8 +108,17 @@ class ReleaseSafetyTests(unittest.TestCase):
             names = set(archive.namelist())
             self.assertIn(".github/workflows/ci.yml", names)
             self.assertIn("LICENSE", names)
+            self.assertIn("README.ru.md", names)
             self.assertIn("build_index.py", names)
             self.assertIn("docs/ai-workflow.md", names)
+            self.assertIn("docs/ai-demo.ru.md", names)
+            self.assertIn("docs/daily-automation-proposal.md", names)
+            self.assertIn("examples/demo/ai-output.en.md", names)
+            self.assertIn("examples/demo/codex-request.ru.md", names)
+            self.assertIn("examples/demo/codex-request-existing-input.md", names)
+            self.assertIn(
+                "examples/demo/codex-request-existing-input.ru.md", names
+            )
             self.assertIn("sample_corpus/玉葉/772049_0000001.txt", names)
             self.assertNotIn("used_finds.csv", names)
             self.assertFalse(any(name.endswith(".sqlite3") for name in names))

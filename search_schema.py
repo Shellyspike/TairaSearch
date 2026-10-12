@@ -67,10 +67,9 @@ def chunk_columns(connection: sqlite3.Connection) -> set[str]:
 def search_schema_is_current(connection: sqlite3.Connection) -> bool:
     """Return whether searches can run without changing the database.
 
-    Search commands normally need only read access.  Keeping this check
-    separate from ``ensure_search_schema`` lets an up-to-date index be opened
-    with SQLite's immutable mode, which does not create journal files next to
-    the database.
+    Search commands normally need only read access. Keeping this check
+    separate from ``ensure_search_schema`` lets an up-to-date index stay in a
+    read-only connection while legacy indexes retain their migration path.
     """
     columns = chunk_columns(connection)
     if {"source_type", "people_json", "text_quality"} - columns:

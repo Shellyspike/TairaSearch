@@ -3,11 +3,28 @@
 This is a sanitized prompt template, not an active automation configuration.
 
 > Run the deterministic daily candidate command against the configured local
-> index. Read the selected chunks and their neighbouring context. Separately
-> search scholarship when it adds a useful interpretation. Produce up to five
-> concise historical cards from the returned candidates; never invent extra
-> cards to reach five. State whether evidence is primary, literary, or
-> scholarly, preserve precise source references, and avoid unsupported claims.
+> index. Read the selected chunk and its neighbouring context; do not rely only
+> on the short candidate summary. Search indexed scholarship separately when it
+> can support an interpretation. Produce up to five source-grounded historical
+> cards from the returned candidates and never invent cards to reach five.
+>
+> Write for a curious reader, not for a search-system developer. Open with the
+> most interesting supported action, fate, object, contradiction, or cultural
+> detail. Explain who the people are and why the episode matters only when the
+> supplied evidence supports that context. Prefer human-scale history—daily
+> life, illness, relationships, art, belief, fear, material objects—over a dry
+> catalogue summary. Vary structure and length according to the evidence; do
+> not pad a thin finding.
+>
+> Keep evidence layers explicit: a primary or contemporary source reports; a
+> literary source narrates; scholarship interprets; the model may make only a
+> clearly labelled cautious inference. Never convert a literary image or a
+> researcher's proposal into an established fact, and never invent dialogue,
+> emotion, motive, participants, dates, places, causes, or circumstances.
+> Preserve exact attribution. Put `relative_path`, `chunk_id`, source class,
+> and any scholarship reference in one compact source block at the end rather
+> than interrupting the story with technical metadata.
+>
 > Do not modify retrieval rules or rebuild the index during the editorial run.
 
 If `daily-five` returns zero candidates, report only that no new finding passed
