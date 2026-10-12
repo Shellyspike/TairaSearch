@@ -21,6 +21,8 @@ files = [
   "examples/demo/ai-output.md",
   "examples/demo/ai-output.en.md",
   "examples/demo/codex-request.md",
+  "examples/demo/codex-request-existing-input.md",
+  "examples/demo/codex-request-existing-input.ru.md",
   "examples/demo/codex-request.ru.md",
   "examples/demo/expected_results.json",
   "make_release.py",

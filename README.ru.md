@@ -16,20 +16,30 @@ TairaSearch — небольшой локальный AI-проект для п�
 
 ## Быстрый старт: пять AI-карточек
 
-Нужны Git, Python 3.11 и доступ к приложению Codex. Python сам не вызывает
-модель и не требует OpenAI API key. Codex нужен только для написания карточек.
+Нужны Python 3.11 и доступ к приложению Codex. Git необязателен: он нужен
+только разработчикам, которые хотят клонировать репозиторий. Python сам не
+вызывает модель и не требует OpenAI API key. Codex нужен только для написания
+карточек.
 
-### 1. Скачайте проект и установите зависимость
+### 1. Скачайте проект без Git и установите зависимость
 
-В PowerShell:
+На странице репозитория нажмите **Code → Download ZIP**, распакуйте архив и
+откройте PowerShell в распакованной папке (обычно `TairaSearch-main`). Затем:
 
 ```powershell
-git clone https://github.com/Shellyspike/TairaSearch.git
-cd TairaSearch
 python -m venv .venv
 .venv\Scripts\python -c "import sys; assert sys.prefix != sys.base_prefix, 'Сломанное виртуальное окружение'; print(sys.version); print(sys.prefix)"
 .venv\Scripts\python -m pip install -r requirements.txt
 ```
+
+Разработчики вместо ZIP могут использовать Git:
+
+```powershell
+git clone https://github.com/Shellyspike/TairaSearch.git
+cd TairaSearch
+```
+
+После клонирования выполните те же команды создания и проверки `.venv`.
 
 Проверьте, что это Python 3.11, а `sys.prefix` заканчивается на `.venv`. Если
 проверка завершилась ошибкой, не устанавливайте зависимости: иначе `pip` может
@@ -49,9 +59,24 @@ python3.11 -m venv .venv
 Codex сам запустит `run_demo.py`, прочитает созданный
 `work/demo/ai-input.json`, сохранит ровно пять русских карточек `[ДЕМО]` в
 `work/demo/ai-cards.ru.md` и проверит ссылки на источники. Отдельно запускать
-`run_demo.py` перед запросом не нужно. Официальная
+`run_demo.py` перед этим основным запросом не нужно. Официальная
 [инструкция по проектам Codex](https://learn.chatgpt.com/docs/projects?surface=app)
 объясняет, как дать локальному чату доступ к папке.
+
+### 3. Запасной путь, если Python не запускается внутри Codex
+
+В обычном PowerShell, открытом в папке проекта, выполните:
+
+```powershell
+.venv\Scripts\python run_demo.py
+```
+
+Команда должна создать `work/demo/ai-input.json`. Затем вернитесь в чат Codex
+и целиком вставьте короткий запрос из
+[examples/demo/codex-request-existing-input.ru.md](examples/demo/codex-request-existing-input.ru.md).
+Он прямо запрещает повторно запускать Python: Codex читает уже готовый JSON и
+создаёт карточки. Не запускайте `pip` через системный Python, если проверка
+`.venv` из шага 1 не прошла.
 
 ## Только Python, без Codex
 

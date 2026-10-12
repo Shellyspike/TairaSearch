@@ -11,11 +11,17 @@ test material. Historical-looking folder names test classification only.
 
 ## Prerequisites
 
-- Git;
 - Python 3.11;
-- the Codex desktop app for the AI stage.
+- the Codex desktop app for the AI stage;
+- Git only if you prefer cloning to a ZIP download.
 
-From the repository root on Windows:
+## Get the project and install
+
+The simplest route needs no Git: on GitHub, choose **Code → Download ZIP**,
+extract the archive, and open PowerShell in its root folder. Developers may
+instead run `git clone https://github.com/Shellyspike/TairaSearch.git`.
+
+From the downloaded project root on Windows:
 
 ```powershell
 python -m venv .venv
@@ -56,6 +62,25 @@ Do not run `run_demo.py` manually first in this path. Codex runs Python and then
 uses the generated handoff in the same chat—there is no nested model process.
 The official [projects guide](https://learn.chatgpt.com/docs/projects?surface=app)
 describes local project access.
+
+## Fallback path: run Python in normal PowerShell
+
+If Codex cannot launch the verified `.venv`, do not install dependencies into
+the system Python. Open a normal PowerShell window in the project folder and
+first confirm that the `sys.prefix` check from the installation section passes.
+Then run:
+
+```powershell
+.venv\Scripts\python run_demo.py
+```
+
+On macOS/Linux use `.venv/bin/python run_demo.py`.
+
+Confirm that `work/demo/ai-input.json` now exists. Return to the same Codex
+project and paste the ready-made short request from
+`examples/demo/codex-request-existing-input.md`. It tells Codex to read the
+existing JSON and write `work/demo/ai-cards.en.md` without running
+`run_demo.py`, Python, or dependency installation again.
 
 ## Python-only path
 
@@ -106,10 +131,11 @@ Run deterministic checks with:
 ## Optional Codex CLI route
 
 The desktop app is the primary path. Users who deliberately want a separate
-non-interactive process may first run the Python-only command, then use:
+non-interactive process may first run the Python-only command, then use the
+same prepared-input request as the desktop fallback:
 
 ```powershell
-codex exec --ephemeral --sandbox workspace-write "Read examples/demo/codex-request.md. run_demo.py has already been run, so use work/demo/ai-input.json and write only work/demo/ai-cards.en.md. Do not modify tracked files or any journal."
+codex exec --ephemeral --sandbox workspace-write "Follow examples/demo/codex-request-existing-input.md exactly."
 ```
 
 This optional route requires Codex CLI sign-in and network access. It is not

@@ -11,11 +11,18 @@
 
 ## Что нужно
 
-- Git;
 - Python 3.11;
-- приложение Codex для AI-этапа.
+- приложение Codex для AI-этапа;
+- Git — только если вы предпочитаете клонирование вместо ZIP.
 
-В корне репозитория выполните в PowerShell:
+## Получение проекта и установка
+
+Самый простой способ не требует Git: на странице GitHub нажмите
+**Code → Download ZIP**, распакуйте архив и откройте PowerShell в его корневой
+папке. Разработчики могут вместо этого выполнить
+`git clone https://github.com/Shellyspike/TairaSearch.git`.
+
+В корне скачанного проекта выполните:
 
 ```powershell
 python -m venv .venv
@@ -53,6 +60,24 @@ PowerShell. Отдельному worktree нужно своё проверенн
 
 Не запускайте `run_demo.py` заранее в этом сценарии. Python-поиск и AI-анализ
 выполняются в одном чате, без вложенного запуска второй модели.
+
+## Запасной путь: Python в обычном PowerShell
+
+Если Codex не может запустить Python из `.venv`, не устанавливайте зависимости
+в системный Python. Откройте обычный PowerShell в папке проекта и сначала ещё
+раз убедитесь, что проверка `sys.prefix` из раздела установки проходит. Затем:
+
+```powershell
+.venv\Scripts\python run_demo.py
+```
+
+На macOS/Linux: `.venv/bin/python run_demo.py`.
+
+Убедитесь, что появился `work/demo/ai-input.json`. Вернитесь в тот же проект
+Codex и вставьте готовый короткий запрос
+`examples/demo/codex-request-existing-input.ru.md`. Этот запрос поручает Codex
+прочитать существующий JSON и создать `work/demo/ai-cards.ru.md`, не запуская
+`run_demo.py`, Python или установку зависимостей повторно.
 
 ## Только Python
 

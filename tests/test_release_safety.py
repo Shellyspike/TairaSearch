@@ -115,6 +115,10 @@ class ReleaseSafetyTests(unittest.TestCase):
             self.assertIn("docs/daily-automation-proposal.md", names)
             self.assertIn("examples/demo/ai-output.en.md", names)
             self.assertIn("examples/demo/codex-request.ru.md", names)
+            self.assertIn("examples/demo/codex-request-existing-input.md", names)
+            self.assertIn(
+                "examples/demo/codex-request-existing-input.ru.md", names
+            )
             self.assertIn("sample_corpus/玉葉/772049_0000001.txt", names)
             self.assertNotIn("used_finds.csv", names)
             self.assertFalse(any(name.endswith(".sqlite3") for name in names))

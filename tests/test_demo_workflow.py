@@ -268,15 +268,30 @@ class DemoWorkflowTests(unittest.TestCase):
         request_ru = (
             PROJECT / "examples" / "demo" / "codex-request.ru.md"
         ).read_text(encoding="utf-8")
+        existing_input_request = (
+            PROJECT
+            / "examples"
+            / "demo"
+            / "codex-request-existing-input.md"
+        ).read_text(encoding="utf-8")
+        existing_input_request_ru = (
+            PROJECT
+            / "examples"
+            / "demo"
+            / "codex-request-existing-input.ru.md"
+        ).read_text(encoding="utf-8")
         daily_prompt = (
             PROJECT / "examples" / "codex" / "daily-news-prompt.md"
         ).read_text(encoding="utf-8")
         for required in (
             "run_demo.py",
             "python -m venv .venv",
+            "Code → Download ZIP",
             "Primary path: one Codex app request",
+            "Fallback path: run Python in normal PowerShell",
             "work/demo/ai-input.json",
             "examples/demo/codex-request.md",
+            "examples/demo/codex-request-existing-input.md",
             "codex exec --ephemeral --sandbox workspace-write",
             "work/demo/ai-cards.en.md",
             "examples/demo/ai-output.en.md",
@@ -284,6 +299,8 @@ class DemoWorkflowTests(unittest.TestCase):
         ):
             self.assertIn(required, documentation)
         self.assertIn("README.ru.md", "\n".join(readme.splitlines()[:6]))
+        self.assertIn("Code → Download ZIP", readme)
+        self.assertIn("Code → Download ZIP", readme_ru)
         self.assertIn("assert sys.prefix != sys.base_prefix", documentation)
         self.assertIn("assert sys.prefix != sys.base_prefix", readme)
         self.assertIn("only evidence", request)
@@ -303,8 +320,23 @@ class DemoWorkflowTests(unittest.TestCase):
         self.assertIn("codex-request.ru.md", readme_ru)
         self.assertIn("work/demo/ai-cards.ru.md", request_ru)
         self.assertIn("Основной путь: один запрос", documentation_ru)
+        self.assertIn(
+            "Запасной путь: Python в обычном PowerShell", documentation_ru
+        )
+        self.assertIn("codex-request-existing-input.ru.md", documentation_ru)
         self.assertIn("литературная сцена", request_ru.casefold())
         self.assertIn("search-system developer", daily_prompt)
+
+        normalized_fallback = " ".join(existing_input_request.split())
+        normalized_fallback_ru = " ".join(existing_input_request_ru.split())
+        self.assertIn("Do not run `run_demo.py`", normalized_fallback)
+        self.assertIn("exactly five candidates", normalized_fallback)
+        self.assertIn("work/demo/ai-cards.en.md", normalized_fallback)
+        self.assertIn("Не запускай `run_demo.py`", normalized_fallback_ru)
+        self.assertIn("ровно пять кандидатов", normalized_fallback_ru)
+        self.assertIn("work/demo/ai-cards.ru.md", normalized_fallback_ru)
+        for text in (readme, documentation, readme_ru, documentation_ru):
+            self.assertIn("sys.prefix != sys.base_prefix", text)
 
 
 if __name__ == "__main__":

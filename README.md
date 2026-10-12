@@ -16,19 +16,31 @@ history.
 
 ## Quick start: get five AI cards
 
-You need Git, Python 3.11, and access to the Codex desktop app. Python does not
+You need Python 3.11 and access to the Codex desktop app. Git is optional and
+only needed by developers who prefer to clone the repository. Python does not
 call a model or require an OpenAI API key. Codex access is required only for
 the AI-written cards.
 
-### 1. Download and install
+### 1. Download without Git and install
+
+On the repository page, choose **Code → Download ZIP**, extract the archive,
+and open PowerShell in the extracted folder (normally `TairaSearch-main`). Then
+run:
 
 ```powershell
-git clone https://github.com/Shellyspike/TairaSearch.git
-cd TairaSearch
 python -m venv .venv
 .venv\Scripts\python -c "import sys; assert sys.prefix != sys.base_prefix, 'Broken virtual environment'; print(sys.version); print(sys.prefix)"
 .venv\Scripts\python -m pip install -r requirements.txt
 ```
+
+Developers may use Git instead:
+
+```powershell
+git clone https://github.com/Shellyspike/TairaSearch.git
+cd TairaSearch
+```
+
+After cloning, run the same `.venv` creation and verification commands above.
 
 The version check should report Python 3.11 and a prefix ending in `.venv`.
 Stop if the assertion fails: installing after that may target the base Python.
@@ -43,12 +55,28 @@ app, start a chat in that folder, and paste the complete request from
 
 Codex will run `run_demo.py`, read the resulting `work/demo/ai-input.json`,
 write exactly five English `[DEMO]` cards to `work/demo/ai-cards.en.md`, and
-check their source links. You do **not** run `run_demo.py` first. The official
+check their source links. You do **not** run `run_demo.py` first on this primary
+path. The official
 [Codex projects guide](https://learn.chatgpt.com/docs/projects?surface=app)
 explains how a local project gives a chat access to a folder.
 
 For Russian instructions, prompt, and output, use
 [README.ru.md](README.ru.md).
+
+### 3. Fallback when Python does not run inside Codex
+
+From a normal PowerShell window opened in the project folder, run:
+
+```powershell
+.venv\Scripts\python run_demo.py
+```
+
+This must create `work/demo/ai-input.json`. Return to the Codex project chat
+and paste the short request from
+[examples/demo/codex-request-existing-input.md](examples/demo/codex-request-existing-input.md).
+It explicitly tells Codex not to run Python again: Codex reads the prepared
+JSON and writes the cards. Never run `pip` against the system Python after a
+failed `.venv` verification.
 
 ## Python-only demo
 
