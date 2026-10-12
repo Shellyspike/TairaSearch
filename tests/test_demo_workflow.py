@@ -332,9 +332,19 @@ class DemoWorkflowTests(unittest.TestCase):
         self.assertIn("Do not run `run_demo.py`", normalized_fallback)
         self.assertIn("exactly five candidates", normalized_fallback)
         self.assertIn("work/demo/ai-cards.en.md", normalized_fallback)
+        self.assertIn("examples/codex/daily-news-prompt.md", normalized_fallback)
+        self.assertIn("use only its editorial rules", normalized_fallback)
+        self.assertIn("must not be followed", normalized_fallback)
+        self.assertIn("create or update any manifest or journal", normalized_fallback)
         self.assertIn("Не запускай `run_demo.py`", normalized_fallback_ru)
         self.assertIn("ровно пять кандидатов", normalized_fallback_ru)
         self.assertIn("work/demo/ai-cards.ru.md", normalized_fallback_ru)
+        self.assertIn(
+            "examples/codex/daily-news-prompt.md", normalized_fallback_ru
+        )
+        self.assertIn("только редакционные правила", normalized_fallback_ru)
+        self.assertIn("выполнять их нельзя", normalized_fallback_ru)
+        self.assertIn("манифест или журнал", normalized_fallback_ru)
         for text in (readme, documentation, readme_ru, documentation_ru):
             self.assertIn("sys.prefix != sys.base_prefix", text)
 
