@@ -1,29 +1,31 @@
-# TairaSearch public AI demo request
+# Ready-to-use Codex app request (English)
 
-Use only the editorial and evidence rules from
-`examples/codex/daily-news-prompt.md` as the baseline and use
-`work/demo/ai-input.json` as the only source evidence. This demo request
-overrides the baseline's publication, manifest, and journal instructions.
+Run the public TairaSearch AI demonstration in this local repository.
 
-This is a public demonstration, not a publication run. Every input event and
-source excerpt is synthetic. The historical-looking folder names exist only to
-exercise classification rules.
-
-Produce exactly five Russian-language Markdown cards, one for each candidate,
-in input order. For every card:
-
-1. begin the title with `[ДЕМО]`;
-2. state explicitly that the event is fictional test material and not a
-   historical claim;
-3. include `Что случилось`, `Почему это интересно`, `Фрагмент` and `Источник`;
-4. preserve the source excerpt without inventing missing details;
-5. cite `relative_path`, `chunk_id`, source classification, date and place when
-   they are present;
-6. do not imply that the synthetic text really comes from the historical work
-   named by its folder.
-
-Do not browse the web, edit tracked repository files, publish anything, or
-update a publication journal. When the calling request asks for a saved result,
-you may write only `work/demo/ai-cards.md`. Return only the five cards and a
-short final note saying that a human must review model output before any real
-publication.
+1. Use the repository's verified Python 3.11 environment to run `run_demo.py`.
+   Confirm that it creates `work/demo/ai-input.json` with exactly five
+   candidates. If Python or a dependency fails, report the real error instead
+   of treating it as an empty result.
+2. Read `examples/codex/daily-news-prompt.md` and the generated
+   `work/demo/ai-input.json`. Use the daily prompt only for its editorial and
+   evidence rules: this request overrides all publication, manifest, and
+   journal instructions.
+3. Treat `ai-input.json` as the only evidence. Do not browse the web or use
+   another corpus. Every input text is synthetic.
+4. Write exactly five English Markdown cards, in candidate order, to
+   `work/demo/ai-cards.en.md`. Begin every title with `[DEMO]` and state in
+   every card that it is fictional test material, not a historical claim.
+5. Make each card a compact, engaging story. Lead with the most vivid supported
+   detail and explain its human, historical, or cultural interest. Never talk
+   about search quality in the story. Vary the shape and length naturally.
+6. Clearly distinguish what the event source says, what the synthetic research
+   note interprets, and any cautious inference you make. A literary source is
+   a literary scene, not proof that an event happened. Invent no dialogue,
+   emotion, motive, person, cause, date, place, or circumstance.
+7. End each card with a compact source block containing the event
+   `relative_path`, `chunk_id`, classification, and the related scholarship
+   path and chunk when present. Do not imply that historical-looking folder
+   names identify real quotations.
+8. Do not edit tracked files, publish anything, or update `used_finds.csv`.
+   Verify the five demo labels and every path/chunk reference, then report the
+   result. Human review is still required.

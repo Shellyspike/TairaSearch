@@ -15,9 +15,59 @@ import taira_search
 
 PROJECT_DIR = Path(__file__).resolve().parent
 SAMPLE_CORPUS = PROJECT_DIR / "sample_corpus"
+WHY_INTERESTING_EN = {
+    "music": "A small performance reveals courtly etiquette through silence, objects, and the order of conversation.",
+    "feast": "The scene turns hospitality into a literary test of how status and care are distributed.",
+    "captivity": "A list of separated attendants gives an administrative act a personal and social scale.",
+    "fire": "Gates, a well, buckets, and letters make the material risks of an urban fire visible.",
+    "illness": "An unexplained absence shows how illness could disrupt messengers and ceremonial planning without revealing a diagnosis.",
+}
 
 
-def make_ai_input(payload: dict) -> dict:
+def find_related_scholarship(
+    item: dict,
+    connection,
+    topics: dict,
+    people: dict,
+) -> list[dict]:
+    """Find one deterministic synthetic research note for a demo candidate."""
+    args = argparse.Namespace(
+        query=None,
+        topic=[item["primary_topic"]],
+        person=list(item["person"]),
+        source_type=["scholarship"],
+        exclude_source_type=[],
+        source=[],
+        exclude_source=[],
+        quality=["good"],
+        top=1,
+        offset=0,
+        json=False,
+        include_duplicates=False,
+    )
+    matches = taira_search.search_database(
+        connection, args, topics, people, events_only=False
+    )
+    if not matches:
+        return []
+    match = matches[0]
+    context = taira_search.context_rows(
+        connection, match["chunk_id"], before=0, after=0
+    )
+    excerpt = context[0]["text"] if context else match["snippet"]
+    return [
+        {
+            "material_status": "synthetic_demo_not_historical_evidence",
+            "relative_path": match["relative_path"],
+            "chunk_id": match["chunk_id"],
+            "source": match["source"],
+            "index_source_type": match["source_type"],
+            "source_excerpt": excerpt,
+        }
+    ]
+
+
+def make_ai_input(payload: dict, connection, topics: dict, people: dict) -> dict:
     """Return a stable, path-safe handoff containing only verified demo evidence."""
 
     final = payload.get("final", [])
@@ -43,6 +93,13 @@ def make_ai_input(payload: dict) -> dict:
                 "place": item.get("place"),
                 "source_excerpt": item.get("source_quote") or item["what_happened"],
                 "why_interesting_hint": item["why_interesting"],
+                "why_interesting_hint_en": WHY_INTERESTING_EN.get(
+                    item["primary_topic"],
+                    "The episode connects a named person to a concrete social practice.",
+                ),
+                "related_scholarship": find_related_scholarship(
+                    item, connection, topics, people
+                ),
                 "verification": {
                     "status": verified.get("status"),
                     "evidence_terms": verified.get("evidence_terms", []),
@@ -53,16 +110,24 @@ def make_ai_input(payload: dict) -> dict:
             }
         )
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "demo": True,
         "material_status": "synthetic_demo_not_historical_evidence",
         "notice_ru": (
             "Все тексты и события вымышлены для демонстрации TairaSearch; "
             "их нельзя представлять как реальные исторические сведения."
         ),
+        "notice_en": (
+            "All texts and events are fictional TairaSearch demonstration "
+            "materials and must not be presented as historical claims."
+        ),
         "source_note_ru": (
             "Названия папок имитируют типы источников только для проверки "
             "классификации и не означают, что фрагменты взяты из этих произведений."
+        ),
+        "source_note_en": (
+            "Historical-looking folder names test classification only; they "
+            "do not claim that excerpts come from the named works."
         ),
         "candidate_count": len(candidates),
         "candidates": candidates,
@@ -162,9 +227,16 @@ def main(argv: list[str] | None = None) -> int:
         return daily_code
 
     payload = json.loads(candidates_output.read_text(encoding="utf-8"))
+    runtime_args = taira_search.make_parser().parse_args(
+        ["search", "--db", str(database), "--query", "demo"]
+    )
+    connection, topics, people = taira_search.load_runtime(runtime_args)
+    try:
+        ai_input = make_ai_input(payload, connection, topics, people)
+    finally:
+        connection.close()
     ai_input_output.write_text(
-        json.dumps(make_ai_input(payload), ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
+        json.dumps(ai_input, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
     print(f"\nГотово: {len(payload['final'])} кандидатов сохранены в {candidates_output}")
     print(f"Безопасный вход для Codex: {ai_input_output}")

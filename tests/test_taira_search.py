@@ -23,13 +23,18 @@ import make_release  # noqa: E402
 import search_index  # noqa: E402
 import taira_search  # noqa: E402
 from parsers import parse_file  # noqa: E402
+from search_schema import upsert_fts_chunk  # noqa: E402
 from text_utils import normalize_text, split_text  # noqa: E402
 
 
 class TairaSearchIntegrationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.temp = tempfile.TemporaryDirectory(prefix="Тайра-тест-")
+        work_root = PROJECT / "work"
+        work_root.mkdir(exist_ok=True)
+        cls.temp = tempfile.TemporaryDirectory(
+            prefix="Тайра-тест-", dir=work_root
+        )
         cls.root = Path(cls.temp.name)
         cls.corpus = cls.root / "Корпус с кириллицей"
         shutil.copytree(PROJECT / "sample_corpus", cls.corpus)
@@ -214,6 +219,132 @@ class TairaSearchIntegrationTests(unittest.TestCase):
                 connection.execute("CREATE TABLE should_not_be_created(id INTEGER)")
         finally:
             connection.close()
+
+    def test_read_only_runtime_sees_committed_wal_updates(self) -> None:
+        root = self.root / "wal-visibility"
+        corpus = root / "corpus"
+        corpus.mkdir(parents=True)
+        (corpus / "base.txt").write_text("平維盛と船", encoding="utf-8")
+        db = root / "index.sqlite3"
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(
+                build_index.main(
+                    [
+                        str(corpus),
+                        "--db", str(db),
+                        "--drive-csv", str(root / "drive.csv"),
+                        "--drive-jsonl", str(root / "drive.jsonl"),
+                        "--log", str(root / "errors.log"),
+                    ]
+                ),
+                0,
+            )
+
+        writer = sqlite3.connect(db)
+        writer.row_factory = sqlite3.Row
+        try:
+            writer.execute("PRAGMA journal_mode=WAL")
+            writer.execute("PRAGMA wal_autocheckpoint=0")
+            writer.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            source = writer.execute("SELECT * FROM chunks LIMIT 1").fetchone()
+            columns = [item[1] for item in writer.execute("PRAGMA table_info(chunks)")]
+            copied_columns = [name for name in columns if name != "id"]
+            values = {name: source[name] for name in copied_columns}
+            values.update(
+                {
+                    "chunk_id": "ch_committed_only_in_wal",
+                    "filename": "wal.txt",
+                    "relative_path": "wal/wal.txt",
+                    "original_text": "FreshWALMarker committed update",
+                    "normalized_text": "FreshWALMarker committed update",
+                    "preview": "FreshWALMarker committed update",
+                    "text_hash": "wal-marker-hash",
+                }
+            )
+            placeholders = ",".join("?" for _ in copied_columns)
+            writer.execute(
+                f"INSERT INTO chunks({','.join(copied_columns)}) VALUES({placeholders})",
+                [values[name] for name in copied_columns],
+            )
+            upsert_fts_chunk(
+                writer,
+                values["chunk_id"],
+                values["normalized_text"],
+                values["preview"],
+                values["aliases_json"],
+                values["topics_json"],
+            )
+            writer.commit()
+            wal_path = db.with_name(f"{db.name}-wal")
+            self.assertTrue(wal_path.is_file())
+            self.assertGreater(wal_path.stat().st_size, 0)
+
+            args = taira_search.make_parser().parse_args(
+                ["search", "--query", "FreshWALMarker", "--db", str(db)]
+            )
+            reader, topics, people = taira_search.load_runtime(args)
+            try:
+                rows = taira_search.search_database(
+                    reader, args, topics, people, events_only=False
+                )
+                self.assertEqual(rows[0]["chunk_id"], "ch_committed_only_in_wal")
+                with self.assertRaises(sqlite3.OperationalError):
+                    reader.execute("DELETE FROM chunks")
+            finally:
+                reader.close()
+        finally:
+            writer.close()
+
+    def test_read_only_runtime_handles_missing_wal_sidecars_after_checkpoint(self) -> None:
+        root = self.root / "wal-sidecars-absent"
+        corpus = root / "corpus"
+        corpus.mkdir(parents=True)
+        (corpus / "base.txt").write_text("平維盛と船", encoding="utf-8")
+        db = root / "index.sqlite3"
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(
+                build_index.main(
+                    [
+                        str(corpus),
+                        "--db", str(db),
+                        "--drive-csv", str(root / "drive.csv"),
+                        "--drive-jsonl", str(root / "drive.jsonl"),
+                        "--log", str(root / "errors.log"),
+                    ]
+                ),
+                0,
+            )
+        for suffix in ("-wal", "-shm"):
+            db.with_name(f"{db.name}{suffix}").unlink(missing_ok=True)
+
+        args = taira_search.make_parser().parse_args(
+            ["search", "--query", "維盛", "--db", str(db)]
+        )
+        connection, _topics, _people = taira_search.load_runtime(args)
+        try:
+            self.assertGreater(connection.execute("SELECT COUNT(*) FROM chunks").fetchone()[0], 0)
+        finally:
+            connection.close()
+
+    def test_read_only_runtime_reports_unavailable_wal_access(self) -> None:
+        args = taira_search.make_parser().parse_args(
+            ["search", "--query", "維盛", "--db", str(self.db)]
+        )
+        with mock.patch.object(
+            taira_search.sqlite3,
+            "connect",
+            side_effect=sqlite3.OperationalError("unable to open database file"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "WAL"):
+                taira_search.load_runtime(args)
+
+    def test_read_only_runtime_rejects_missing_database(self) -> None:
+        missing = self.root / "missing-index.sqlite3"
+        args = taira_search.make_parser().parse_args(
+            ["search", "--query", "維盛", "--db", str(missing)]
+        )
+        with self.assertRaisesRegex(RuntimeError, "Индекс не найден"):
+            taira_search.load_runtime(args)
 
     def test_fts_incremental_new_txt_without_rebuild(self) -> None:
         root = self.root / "fts-incremental"

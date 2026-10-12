@@ -453,11 +453,19 @@ def load_runtime(args: argparse.Namespace) -> tuple[
             "py_casefold", 1, lambda value: str(value).casefold(), deterministic=True
         )
 
-    # An up-to-date search index is read-only data.  Immutable mode prevents
-    # SQLite from trying to create a -journal file, which is important for
-    # scheduled/read-only runs and also makes accidental writes impossible.
-    connection = sqlite3.connect(f"{db_path.as_uri()}?immutable=1", uri=True)
+    # Search must remain read-only, but the index is not immutable: the builder
+    # uses WAL mode and a committed update may still live in the -wal sidecar.
+    # mode=ro makes SQLite follow that WAL while still rejecting writes.
+    try:
+        connection = sqlite3.connect(f"{db_path.as_uri()}?mode=ro", uri=True)
+    except sqlite3.Error as exc:
+        raise RuntimeError(
+            "Не удалось открыть индекс только для чтения с учётом SQLite WAL: "
+            f"{db_path}. Проверьте доступ к базе и файлам "
+            f"{db_path.name}-wal/{db_path.name}-shm: {exc}"
+        ) from exc
     configure(connection)
+    connection.execute("PRAGMA query_only=ON")
     if search_schema_is_current(connection):
         return connection, topics, people
 

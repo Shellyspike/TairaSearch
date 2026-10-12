@@ -15,5 +15,10 @@ do not claim that the synthetic sentences occur in those works. Expected search
 and five-candidate results are recorded in
 `examples/demo/expected_results.json`.
 
+Five event fixtures contain enough material for a small human-scale story. Each
+has a separate synthetic note under `Статьи/`, allowing the demo to distinguish
+an event or literary scene from a research interpretation. The notes are not
+real scholarship and cannot confirm the fictional episodes.
+
 These synthetic fixtures are distributed under the repository's MIT License.
 

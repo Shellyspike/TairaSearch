@@ -17,6 +17,7 @@ Thumbs.db
 *.sqlite3-*
 *.bak
 *.zip
+*.lock
 build/
 dist/
 work/

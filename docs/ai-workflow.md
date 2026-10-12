@@ -13,7 +13,9 @@ reasoning.
    candidates and their context. Zero candidates is a successful empty result:
    no cards or publication manifest are created and the journal is unchanged.
 4. Codex distinguishes primary, literary, and scholarly sources, checks the
-   available evidence, and writes concise cards with citations.
+   available evidence, and writes engaging human-scale cards with citations.
+   Historical or cultural interest belongs in the story; search-system
+   commentary does not. Card length follows the evidence rather than a quota.
 5. Codex saves the exact finalized cards to a local publication manifest and
    asks Python to record those selected findings before returning the cards in
    chat. Later runs can then avoid repeats.
@@ -43,13 +45,15 @@ Then run:
 python taira_search.py record-publication work/publications/2026-10-12.json
 ```
 
-The command validates the complete manifest and atomically replaces
-`used_finds.csv` only after the new CSV has been written successfully. Existing
-rows and the CSV schema are retained, and rerunning the same manifest does not
-create duplicates. Publish the cards only after exit code 0. If journal writing
-fails, or if chat delivery fails after the journal update, the unchanged local
-JSON contains the exact cards needed for a retry. Publication manifests are
-runtime data and must never be added to the public release allowlist.
+The command validates the complete manifest and takes a Windows/Linux
+interprocess lock around the full read, duplicate-check, and write cycle. It
+atomically replaces `used_finds.csv` only after the new CSV has been written
+successfully. Existing rows and the CSV schema are retained, and rerunning the
+same manifest does not create duplicates. Publish the cards only after exit
+code 0. If journal writing fails, or if chat delivery fails after the journal
+update, the unchanged local JSON contains the exact cards needed for a retry.
+Publication manifests and lock files are runtime data and must never be added
+to the public release allowlist.
 
 ## Discovery of new materials
 
@@ -91,10 +95,10 @@ and candidate selection. Final prose can vary between model runs, so AI output
 is demonstrated through documented inputs and expected editorial constraints,
 not treated as a byte-for-byte deterministic build artifact.
 
-The complete public walkthrough is in [ai-demo.md](ai-demo.md). Its primary
-route is one Codex app chat that runs Python, reads the generated handoff, and
-writes the demonstration cards. An ephemeral, read-only `codex exec` command
-is documented only as an optional alternative. Both routes use a committed
-input and example output and do not depend on an active automation or previous
-conversation.
+The complete English and Russian walkthroughs are in [ai-demo.md](ai-demo.md)
+and [ai-demo.ru.md](ai-demo.ru.md). Their primary route is one Codex app chat
+that runs Python, reads the generated handoff, and writes the demonstration
+cards. A separate `codex exec` process is documented only as an optional
+alternative. Both routes use committed inputs and example outputs and do not
+depend on an active automation or previous conversation.
 

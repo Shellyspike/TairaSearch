@@ -43,19 +43,9 @@
   },
   "daily_five": [
     {
-      "chunk_id": "ch_3b39818e3652f04460690a93",
-      "relative_path": "吉記/русская_музыка.txt",
-      "primary_topic": "music"
-    },
-    {
       "chunk_id": "ch_b47aa27981b8a752c47e73f6",
       "relative_path": "平家物語/宴.txt",
       "primary_topic": "feast"
-    },
-    {
-      "chunk_id": "ch_64ad1a8c15358427306b1b1a",
-      "relative_path": "吾妻鏡/пленение.txt",
-      "primary_topic": "captivity"
     },
     {
       "chunk_id": "ch_fec810decc8cc4d78773fd36",
@@ -63,9 +53,19 @@
       "primary_topic": "fire"
     },
     {
+      "chunk_id": "ch_64ad1a8c15358427306b1b1a",
+      "relative_path": "吾妻鏡/пленение.txt",
+      "primary_topic": "captivity"
+    },
+    {
       "chunk_id": "ch_9944270a0fca336332309762",
       "relative_path": "玉葉/772049_0000002.txt",
       "primary_topic": "illness"
+    },
+    {
+      "chunk_id": "ch_3b39818e3652f04460690a93",
+      "relative_path": "吉記/русская_музыка.txt",
+      "primary_topic": "music"
     }
   ]
 }

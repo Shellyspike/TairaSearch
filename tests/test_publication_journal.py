@@ -5,6 +5,7 @@ import json
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -78,6 +79,28 @@ class PublicationJournalTests(unittest.TestCase):
         )
         return payload
 
+    def write_single_card_manifest(self, path: Path, finding_id: str) -> None:
+        path.write_text(
+            json.dumps(
+                {
+                    "publication_id": f"publication-{finding_id}",
+                    "cards": [
+                        {
+                            "id": finding_id,
+                            "type": "event",
+                            "persons": ["平清盛"],
+                            "topics": ["история"],
+                            "short_description": f"Параллельная запись {finding_id}",
+                            "source": "Тестовый источник",
+                            "card_markdown": f"### Карточка {finding_id}",
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
     def read_history(self) -> list[dict[str, str]]:
         with self.used_path.open(encoding="utf-8-sig", newline="") as stream:
             return list(csv.DictReader(stream))
@@ -128,6 +151,80 @@ class PublicationJournalTests(unittest.TestCase):
             json.loads(self.manifest_path.read_text(encoding="utf-8")), payload
         )
         self.assertEqual(list(self.root.glob(".used_finds.csv.*.tmp")), [])
+
+        publication_id, added, skipped = daily_five.record_publication_from_json(
+            self.manifest_path, self.used_path
+        )
+        self.assertEqual(publication_id, payload["publication_id"])
+        self.assertEqual((added, skipped), (2, 0))
+
+    def test_two_processes_preserve_both_publications(self) -> None:
+        original_rows = self.write_existing_history(70)
+        manifests = [self.root / "publication-a.json", self.root / "publication-b.json"]
+        finding_ids = ["ch_parallel_a", "ch_parallel_b"]
+        ready_paths = [self.root / "ready-a", self.root / "ready-b"]
+        start_path = self.root / "start"
+        for manifest, finding_id in zip(manifests, finding_ids):
+            self.write_single_card_manifest(manifest, finding_id)
+
+        worker = r'''
+import pathlib
+import sys
+import time
+
+sys.path.insert(0, sys.argv[1])
+import daily_five
+
+manifest = pathlib.Path(sys.argv[2])
+used = pathlib.Path(sys.argv[3])
+ready = pathlib.Path(sys.argv[4])
+start = pathlib.Path(sys.argv[5])
+original_write = daily_five._atomic_write_used_rows
+
+def delayed_write(rows, path):
+    time.sleep(0.35)
+    original_write(rows, path)
+
+daily_five._atomic_write_used_rows = delayed_write
+ready.write_text("ready", encoding="utf-8")
+while not start.exists():
+    time.sleep(0.01)
+daily_five.record_publication_from_json(manifest, used)
+'''
+        processes = [
+            subprocess.Popen(
+                [
+                    sys.executable,
+                    "-c",
+                    worker,
+                    str(PROJECT),
+                    str(manifest),
+                    str(self.used_path),
+                    str(ready),
+                    str(start_path),
+                ],
+                cwd=PROJECT,
+                text=True,
+                encoding="utf-8",
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            for manifest, ready in zip(manifests, ready_paths)
+        ]
+        deadline = time.monotonic() + 10
+        while not all(path.exists() for path in ready_paths):
+            if time.monotonic() >= deadline:
+                self.fail("parallel publication workers did not become ready")
+            time.sleep(0.02)
+        start_path.write_text("start", encoding="utf-8")
+        results = [process.communicate(timeout=15) for process in processes]
+        for process, (stdout, stderr) in zip(processes, results):
+            self.assertEqual(process.returncode, 0, stdout + stderr)
+
+        rows = self.read_history()
+        self.assertEqual(rows[:70], original_rows)
+        self.assertEqual(len(rows), 72)
+        self.assertEqual({row["id"] for row in rows[-2:]}, set(finding_ids))
 
     def test_invalid_card_does_not_change_history(self) -> None:
         self.write_existing_history()

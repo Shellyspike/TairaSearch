@@ -8,6 +8,8 @@ import os
 import re
 import sqlite3
 import tempfile
+import time
+from contextlib import contextmanager
 from argparse import Namespace
 from collections import Counter, defaultdict
 from datetime import date, datetime, timezone
@@ -986,35 +988,82 @@ def _atomic_write_used_rows(rows: list[dict[str, str]], path: Path) -> None:
         raise
 
 
+@contextmanager
+def _publication_lock(used_path: Path, *, timeout: float = 15.0):
+    """Serialize the complete CSV read/check/write cycle across processes."""
+    used_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = used_path.with_name(f".{used_path.name}.lock")
+    lock_stream = lock_path.open("a+b")
+    if lock_stream.seek(0, os.SEEK_END) == 0:
+        lock_stream.write(b"\0")
+        lock_stream.flush()
+    lock_stream.seek(0)
+    deadline = time.monotonic() + timeout
+    acquired = False
+    try:
+        while not acquired:
+            try:
+                if os.name == "nt":
+                    import msvcrt
+
+                    msvcrt.locking(lock_stream.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+
+                    fcntl.flock(lock_stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                acquired = True
+            except OSError as exc:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(
+                        f"Не удалось получить блокировку журнала за {timeout:g} с: "
+                        f"{lock_path}"
+                    ) from exc
+                time.sleep(0.05)
+        yield
+    finally:
+        if acquired:
+            lock_stream.seek(0)
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(lock_stream.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(lock_stream.fileno(), fcntl.LOCK_UN)
+        lock_stream.close()
+
+
 def append_used(events: list[dict[str, Any]], used_path: Path) -> tuple[int, int]:
-    existing = _read_used_rows(used_path)
-    existing_ids = {normalize_text(record["id"]) for record in existing}
-    rows: list[dict[str, str]] = []
-    skipped = 0
-    for event in events:
-        chunk_id = normalize_text(str(event.get("chunk_id", "")))
-        if not chunk_id or chunk_id in existing_ids:
-            skipped += 1
-            continue
-        finding_type = normalize_text(str(event.get("type", "event"))).casefold()
-        if finding_type not in USED_TYPES:
-            raise ValueError(
-                f"{chunk_id}: type должен быть event или interpretation"
+    with _publication_lock(used_path):
+        existing = _read_used_rows(used_path)
+        existing_ids = {normalize_text(record["id"]) for record in existing}
+        rows: list[dict[str, str]] = []
+        skipped = 0
+        for event in events:
+            chunk_id = normalize_text(str(event.get("chunk_id", "")))
+            if not chunk_id or chunk_id in existing_ids:
+                skipped += 1
+                continue
+            finding_type = normalize_text(str(event.get("type", "event"))).casefold()
+            if finding_type not in USED_TYPES:
+                raise ValueError(
+                    f"{chunk_id}: type должен быть event или interpretation"
+                )
+            rows.append(
+                {
+                    "id": chunk_id,
+                    "type": finding_type,
+                    "persons": _join_used_values(event.get("person", [])),
+                    "topics": _join_used_values(event.get("topics", [])),
+                    "short_description": normalize_text(
+                        str(event.get("what_happened", event.get("title", "")))
+                    )[:500],
+                    "source": normalize_text(str(event.get("source", ""))),
+                    "date_used": date.today().isoformat(),
+                }
             )
-        rows.append(
-            {
-                "id": chunk_id,
-                "type": finding_type,
-                "persons": _join_used_values(event.get("person", [])),
-                "topics": _join_used_values(event.get("topics", [])),
-                "short_description": normalize_text(
-                    str(event.get("what_happened", event.get("title", "")))
-                )[:500],
-                "source": normalize_text(str(event.get("source", ""))),
-                "date_used": date.today().isoformat(),
-            }
-        )
-        existing_ids.add(chunk_id)
-    if rows:
-        _atomic_write_used_rows([*existing, *rows], used_path)
-    return len(rows), skipped
+            existing_ids.add(chunk_id)
+        if rows:
+            _atomic_write_used_rows([*existing, *rows], used_path)
+        return len(rows), skipped
