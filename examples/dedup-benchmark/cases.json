@@ -1,0 +1,350 @@
+{
+  "schema_version": 1,
+  "purpose": "Synthetic cases for measuring the unchanged TairaSearch 0.2 deduplication rules.",
+  "semantic_decisions": [
+    "confirmed_repeat",
+    "probable_repeat_review",
+    "new_angle",
+    "new_finding"
+  ],
+  "cases": [
+    {
+      "id": "jp-01-exact-chunk-id",
+      "theme": "medieval_japan",
+      "scenario": "The previously published chunk is selected again.",
+      "mode": "journal",
+      "expected_semantic_decision": "confirmed_repeat",
+      "expected_current": "duplicate",
+      "candidate": {
+        "chunk_id": "ch_demo_jp_fire_001",
+        "title": "Томомори — пожар в столице",
+        "person": ["Томомори"],
+        "topics": ["fire"],
+        "date": "治承四年",
+        "what_happened": "Томомори приказал открыть ворота и передавать воду цепочкой вёдер.",
+        "source_group": "平家物語"
+      },
+      "used": [
+        {
+          "id": "ch_demo_jp_fire_001",
+          "persons": ["Томомори"],
+          "topics": ["fire"],
+          "description": "治承四年 Томомори приказал открыть ворота и передавать воду цепочкой вёдер.",
+          "source": "平家物語"
+        }
+      ]
+    },
+    {
+      "id": "jp-02-same-story-neighbouring-chunks",
+      "theme": "medieval_japan",
+      "scenario": "Two adjacent chunks contain the two halves of one fire episode.",
+      "mode": "candidate_pool",
+      "expected_semantic_decision": "confirmed_repeat",
+      "expected_current": "collapsed",
+      "candidates": [
+        {
+          "retrieval_score": 10.0,
+          "relative_path": "Tale/fire.txt",
+          "chunk_no": 3,
+          "topics": ["fire"],
+          "source_group": "Tale of the House",
+          "what_happened": "The eastern gate was opened when smoke crossed the avenue."
+        },
+        {
+          "retrieval_score": 9.5,
+          "relative_path": "Tale/fire.txt",
+          "chunk_no": 4,
+          "topics": ["fire"],
+          "source_group": "Tale of the House",
+          "what_happened": "The same response continued with a bucket line from the well."
+        }
+      ]
+    },
+    {
+      "id": "rome-01-distinct-neighbouring-events",
+      "theme": "ancient_rome",
+      "scenario": "Adjacent chunks in one miscellany describe a bath repair and a bread ration.",
+      "mode": "candidate_pool",
+      "expected_semantic_decision": "new_finding",
+      "expected_current": "collapsed",
+      "candidates": [
+        {
+          "retrieval_score": 10.0,
+          "relative_path": "Roman Miscellany/book-1.txt",
+          "chunk_no": 5,
+          "topics": ["daily-life"],
+          "source_group": "Roman Miscellany",
+          "what_happened": "A cracked bath pipe delayed the morning opening."
+        },
+        {
+          "retrieval_score": 9.0,
+          "relative_path": "Roman Miscellany/book-1.txt",
+          "chunk_no": 6,
+          "topics": ["daily-life"],
+          "source_group": "Roman Miscellany",
+          "what_happened": "Market clerks divided the remaining bread after carts arrived late."
+        }
+      ]
+    },
+    {
+      "id": "jp-03-paraphrase-across-books",
+      "theme": "medieval_japan",
+      "scenario": "Two books retell the same response to a fire with different wording.",
+      "mode": "journal",
+      "expected_semantic_decision": "probable_repeat_review",
+      "expected_current": "duplicate_risk",
+      "candidate": {
+        "chunk_id": "ch_demo_jp_fire_reindexed",
+        "title": "Томомори — помощь при бедствии",
+        "person": ["Томомори"],
+        "topics": ["fire"],
+        "date": null,
+        "what_happened": "Когда столицу охватил огонь, военачальник распорядился распахнуть проезд и организовать подачу воды от колодца.",
+        "source_group": "源平盛衰記"
+      },
+      "used": [
+        {
+          "id": "ch_old_jp_fire",
+          "persons": ["Томомори"],
+          "topics": ["fire"],
+          "description": "Во время пожара в Киото Томомори приказал открыть ворота и передавать воду из колодца цепочкой вёдер.",
+          "source": "平家物語"
+        }
+      ]
+    },
+    {
+      "id": "rome-02-paraphrase-across-languages",
+      "theme": "ancient_rome",
+      "scenario": "An English article and a Russian note describe the same bath repair.",
+      "mode": "journal",
+      "expected_semantic_decision": "probable_repeat_review",
+      "expected_current": "clear",
+      "candidate": {
+        "chunk_id": "ch_rome_bath_en",
+        "title": "Morning closure at the baths",
+        "person": [],
+        "topics": ["daily-life"],
+        "date": "80 CE",
+        "what_happened": "Visitors waited under the portico while an apprentice carried tiles to repair a cracked hot-water conduit.",
+        "source_group": "Bath Accounts"
+      },
+      "used": [
+        {
+          "id": "ch_rome_bath_ru",
+          "persons": [],
+          "topics": ["daily-life"],
+          "description": "В общественных термах треснул водовод; посетители ждали под портиком, пока подмастерье носил плитки к печи.",
+          "source": "Municipal Repairs"
+        }
+      ]
+    },
+    {
+      "id": "rome-03-light-ocr-correction",
+      "theme": "ancient_rome",
+      "scenario": "Minor OCR substitutions are corrected after the chunk receives a new positional id.",
+      "mode": "journal",
+      "expected_semantic_decision": "confirmed_repeat",
+      "expected_current": "duplicate",
+      "candidate": {
+        "chunk_id": "ch_ledger_after_reindex",
+        "title": "Портовая запись после ливня",
+        "person": [],
+        "topics": ["material-culture"],
+        "date": null,
+        "what_happened": "Портовый писец отметил три амфоры, а грузчик перенёс их в сухой склад после ливня.",
+        "source_group": "Harbour Ledger"
+      },
+      "used": [
+        {
+          "id": "ch_ledger_before_reindex",
+          "persons": [],
+          "topics": ["material-culture"],
+          "description": "Портовый писец отметил три амф0ры, а грузчик перенес их в сухой склд после ливня.",
+          "source": "Harbour Ledger"
+        }
+      ]
+    },
+    {
+      "id": "rome-04-heavy-ocr-and-reindex",
+      "theme": "ancient_rome",
+      "scenario": "A damaged OCR summary and corrected text have different chunk ids.",
+      "mode": "journal",
+      "expected_semantic_decision": "probable_repeat_review",
+      "expected_current": "clear",
+      "candidate": {
+        "chunk_id": "ch_ledger_corrected_new_boundary",
+        "title": "Port inventory after a storm",
+        "person": [],
+        "topics": ["material-culture"],
+        "date": null,
+        "what_happened": "After the rain, a clerk counted three amphorae and a porter moved them into a dry storeroom.",
+        "source_group": "Harbour Ledger corrected edition"
+      },
+      "used": [
+        {
+          "id": "ch_ledger_damaged_old_boundary",
+          "persons": [],
+          "topics": ["material-culture"],
+          "description": "prt scribe mrkd III amphrae; rain; moved dry rm",
+          "source": "Harbour Ledger damaged scan"
+        }
+      ]
+    },
+    {
+      "id": "jp-04-same-person-theme-different-event",
+      "theme": "medieval_japan",
+      "scenario": "The same person and source appear in separate illness and recovery episodes.",
+      "mode": "journal",
+      "expected_semantic_decision": "new_finding",
+      "expected_current": "duplicate",
+      "candidate": {
+        "chunk_id": "ch_kiyomori_recovery",
+        "title": "Киёмори — возвращение после болезни",
+        "person": ["Киёмори"],
+        "topics": ["illness"],
+        "date": null,
+        "what_happened": "Год спустя Киёмори выздоровел, посетил храм и передал лекарю подарок.",
+        "source_group": "玉葉"
+      },
+      "used": [
+        {
+          "id": "ch_kiyomori_illness",
+          "persons": ["Киёмори"],
+          "topics": ["illness"],
+          "description": "Киёмори заболел и не явился на церемонию; распорядителям пришлось изменить рассадку.",
+          "source": "玉葉"
+        }
+      ]
+    },
+    {
+      "id": "jp-05-new-interpretation-of-known-event",
+      "theme": "medieval_japan",
+      "scenario": "A study offers a new literary interpretation of an already published fire episode.",
+      "mode": "journal",
+      "expected_semantic_decision": "new_angle",
+      "expected_current": "clear",
+      "candidate": {
+        "chunk_id": "ch_jp_fire_article",
+        "title": "Новый взгляд на сцену с воротами",
+        "person": ["Томомори"],
+        "topics": ["fire", "scholarship"],
+        "date": null,
+        "what_happened": "Исследователь связывает открытие ворот не с тактическим приказом, а с литературным мотивом восстановления порядка.",
+        "source_group": "Journal of Tale Studies"
+      },
+      "used": [
+        {
+          "id": "ch_old_jp_fire",
+          "persons": ["Томомори"],
+          "topics": ["fire"],
+          "description": "Томомори приказал открыть ворота во время пожара и организовал цепочку вёдер.",
+          "source": "平家物語"
+        }
+      ]
+    },
+    {
+      "id": "rome-05-repeated-interpretation",
+      "theme": "ancient_rome",
+      "scenario": "A later article repeats an established caution in another language.",
+      "mode": "journal",
+      "expected_semantic_decision": "probable_repeat_review",
+      "expected_current": "clear",
+      "candidate": {
+        "chunk_id": "ch_baths_article_later",
+        "title": "Limits of maintenance evidence",
+        "person": [],
+        "topics": ["scholarship"],
+        "date": null,
+        "what_happened": "A later paper likewise warns that maintenance records cannot identify who used the baths.",
+        "source_group": "Classical Urban Studies"
+      },
+      "used": [
+        {
+          "id": "ch_baths_article_earlier",
+          "persons": [],
+          "topics": ["scholarship"],
+          "description": "Исследователи считают, что ремонтная надпись не доказывает состав посетителей терм.",
+          "source": "Roman Social History Review"
+        }
+      ]
+    },
+    {
+      "id": "rome-06-new-detail-about-known-event",
+      "theme": "ancient_rome",
+      "scenario": "A second source adds the token procedure to a known bread distribution.",
+      "mode": "journal",
+      "expected_semantic_decision": "new_angle",
+      "expected_current": "clear",
+      "candidate": {
+        "chunk_id": "ch_market_tokens",
+        "title": "Жетоны при раздаче хлеба",
+        "person": [],
+        "topics": ["daily-life"],
+        "date": null,
+        "what_happened": "Новый счёт уточняет: при разделе хлеба каждой корзине выдавали глиняный жетон.",
+        "source_group": "Market Accounts"
+      },
+      "used": [
+        {
+          "id": "ch_market_delay",
+          "persons": [],
+          "topics": ["daily-life"],
+          "description": "После дождя хлебные повозки опоздали, и на рынке разделили оставшиеся буханки.",
+          "source": "Municipal Chronicle"
+        }
+      ]
+    },
+    {
+      "id": "jp-06-same-person-topic-date-different-event",
+      "theme": "medieval_japan",
+      "scenario": "Shared person, broad topic, and era date conceal two unrelated actions.",
+      "mode": "journal",
+      "expected_semantic_decision": "new_finding",
+      "expected_current": "duplicate",
+      "candidate": {
+        "chunk_id": "ch_tomomori_voyage",
+        "title": "Томомори — подготовка кораблей",
+        "person": ["Томомори"],
+        "topics": ["leadership"],
+        "date": "治承四年",
+        "what_happened": "治承四年 Томомори назначил лодочников и велел подготовить корабли к переходу.",
+        "source_group": "Naval Chronicle"
+      },
+      "used": [
+        {
+          "id": "ch_tomomori_fire_order",
+          "persons": ["Томомори"],
+          "topics": ["leadership"],
+          "description": "治承四年 Томомори распорядился тушить пожар в Киото.",
+          "source": "Capital Chronicle"
+        }
+      ]
+    },
+    {
+      "id": "rome-07-same-person-topic-source-different-event",
+      "theme": "ancient_rome",
+      "scenario": "One official oversees two unrelated public works recorded in the same source.",
+      "mode": "journal",
+      "expected_semantic_decision": "new_finding",
+      "expected_current": "duplicate",
+      "candidate": {
+        "chunk_id": "ch_lucius_road",
+        "title": "Lucius and the road surface",
+        "person": ["Lucius"],
+        "topics": ["public-works"],
+        "date": null,
+        "what_happened": "Lucius contracted workers to replace paving stones outside the southern gate.",
+        "source_group": "Municipal Accounts"
+      },
+      "used": [
+        {
+          "id": "ch_lucius_aqueduct",
+          "persons": ["Lucius"],
+          "topics": ["public-works"],
+          "description": "Lucius paid inspectors to measure leakage from the northern aqueduct.",
+          "source": "Municipal Accounts"
+        }
+      ]
+    }
+  ]
+}

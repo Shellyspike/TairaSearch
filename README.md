@@ -35,6 +35,18 @@ synthetic scenarios.
 Legacy `daily-five`, existing indexes, and the five-card demonstration below
 retain their existing contracts.
 
+## Semantic deduplication research (0.3, stage 1)
+
+The first 0.3 research stage freezes the current deduplication behaviour on 13
+fictional Japan and Rome cases. It documents false repeats, missed paraphrases,
+OCR/reindexing risks, and the distinction between a repeat and a supported new
+angle without changing the 0.2 algorithms. See the
+[audit and minimal design](docs/dedup-audit.md) or run:
+
+```powershell
+.venv\Scripts\python run_dedup_audit.py --check
+```
+
 ## Quick start: get five AI cards
 
 You need Python 3.11 and access to the Codex desktop app. Git is optional and
@@ -192,6 +204,7 @@ verified environment; see the official
 ```powershell
 .venv\Scripts\python -m unittest discover -s tests -v
 .venv\Scripts\python run_demo.py
+.venv\Scripts\python run_dedup_audit.py --check
 .venv\Scripts\python make_release.py --check-only
 ```
 

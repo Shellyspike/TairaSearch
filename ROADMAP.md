@@ -37,19 +37,25 @@ as two visible, separately testable parts.
   predefined people.
 - [x] Keep preview selections read-only with respect to `used_finds.csv`.
 
-## Compatibility research after onboarding
+## 0.3 — semantic deduplication and editorial quality
 
-- [ ] Design content versioning without changing the current position-based
-  `chunk_id` format prematurely.
-- [ ] Evaluate semantic deduplication that can distinguish an OCR correction of
-  the same episode from a genuinely new finding.
+- [x] Audit document, content, fragment, and finding identity without changing
+  the current position-based `chunk_id` format.
+- [x] Freeze a synthetic Japan/Rome benchmark covering false repeats,
+  paraphrases, OCR corrections, reindexing, scholarship, and new angles.
+- [x] Define a small evidence-based card-quality rubric and a four-class
+  semantic decision model for Python/Codex review.
+- [ ] Replace proximity-only candidate collapsing with a conservative,
+  explainable comparison, as a separate reviewed change.
+- [ ] Preserve uncertain matches for Codex instead of silently excluding every
+  `duplicate_risk`, without changing active automations.
 - [ ] Define migration and backward compatibility for existing
-  `used_finds.csv` histories before adopting any new identifier.
+  `used_finds.csv` histories before adopting any persistent finding identifier.
 - [ ] Add an explicit missing-document cleanup command with a mandatory
   preview. Ordinary indexing and `--rebuild` must continue to preserve unseen
   documents.
-- [ ] Add retrieval/editorial quality fixtures and repeatable human review
-  criteria; do not treat variable model prose as a byte-for-byte artifact.
+- [ ] Calibrate retrieval and editorial decisions on reviewed open-material
+  examples; do not treat variable model prose as a byte-for-byte artifact.
 
 Production migration remains separate from public development. Any switch must
 first be tested against copies of the corpus and index, comparing document

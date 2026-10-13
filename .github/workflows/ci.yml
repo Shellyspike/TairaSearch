@@ -40,5 +40,8 @@ jobs:
       - name: Run universal research demos
         run: python run_research_demo.py
 
+      - name: Verify semantic deduplication baseline
+        run: python run_dedup_audit.py --check
+
       - name: Build and verify public release
         run: python make_release.py --output work/TairaSearch.zip
