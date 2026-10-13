@@ -120,6 +120,12 @@ class ReleaseSafetyTests(unittest.TestCase):
                 "examples/demo/codex-request-existing-input.ru.md", names
             )
             self.assertIn("sample_corpus/玉葉/772049_0000001.txt", names)
+            self.assertIn("docs/research-onboarding.ru.md", names)
+            self.assertIn("examples/profiles/ancient-rome.json", names)
+            self.assertIn("research_findings.py", names)
+            self.assertIn("run_research_demo.py", names)
+            self.assertIn("sample_corpus_rome/Market/bread.txt", names)
+            self.assertIn("tests/test_research_profiles.py", names)
             self.assertNotIn("used_finds.csv", names)
             self.assertFalse(any(name.endswith(".sqlite3") for name in names))
             self.assertFalse(any(name.startswith("new_sources/") for name in names))
@@ -135,6 +141,7 @@ class ReleaseSafetyTests(unittest.TestCase):
             "python -m pip install -r requirements.txt",
             "python -m unittest discover -s tests -v",
             "python run_demo.py",
+            "python run_research_demo.py",
             "python make_release.py --output work/TairaSearch.zip",
         ):
             self.assertIn(required, workflow)

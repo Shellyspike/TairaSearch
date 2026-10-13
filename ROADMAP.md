@@ -25,7 +25,19 @@ as two visible, separately testable parts.
 - [ ] Review the separate daily-automation proposal on real open-source
   material before changing any active automation.
 
-## 0.2 — research before changing compatibility
+## 0.2 — universal research onboarding
+
+- [x] Add a local, ignored research profile created and updated by Codex after
+  a short natural-language interview.
+- [x] Add profile-driven retrieval that reuses FTS5, context, diversity, and
+  publication-history checks without changing the SQLite schema or `chunk_id`.
+- [x] Keep legacy `daily-five`, presentation cards, CLI contracts, and the AI
+  demo unchanged.
+- [x] Demonstrate medieval Japan and Ancient Rome, including a profile with no
+  predefined people.
+- [x] Keep preview selections read-only with respect to `used_finds.csv`.
+
+## Compatibility research after onboarding
 
 - [ ] Design content versioning without changing the current position-based
   `chunk_id` format prematurely.

@@ -33,6 +33,9 @@ drive_index.csv
 drive_index.jsonl
 daily_five_candidates.json
 daily_five_*.json
+research_candidates.json
+research_profile.json
+/research_profiles/
 index_errors.log
 used_finds.csv
 

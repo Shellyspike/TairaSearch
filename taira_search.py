@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""BM25/FTS5 search and neighbouring-context CLI for TairaSearch."""
+"""BM25/FTS5 search and neighbouring-context CLI for local research corpora."""
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sqlite3
 import sys
@@ -28,6 +29,7 @@ DEFAULT_PEOPLE = PROJECT_DIR / "people.json"
 DEFAULT_SOURCE_TYPES = PROJECT_DIR / "source_types.json"
 DEFAULT_USED_FINDS = PROJECT_DIR / "used_finds.csv"
 DEFAULT_DAILY_OUTPUT = PROJECT_DIR / "daily_five_candidates.json"
+DEFAULT_RESEARCH_OUTPUT = PROJECT_DIR / "research_candidates.json"
 DEFAULT_EVENT_CARDS = PROJECT_DIR / "event_cards.json"
 DEFAULT_SOURCE_NOTES = PROJECT_DIR / "source_notes.json"
 SOURCE_TYPES = ("historical", "scholarship", "literary", "other")
@@ -382,13 +384,48 @@ def add_search_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--include-duplicates", action="store_true")
 
 
+def _paths_refer_to_same_file(left: Path, right: Path) -> bool:
+    """Compare normalized paths and existing aliases such as links/hard links."""
+    left_resolved = left.expanduser().resolve(strict=False)
+    right_resolved = right.expanduser().resolve(strict=False)
+    if os.path.normcase(os.fspath(left_resolved)) == os.path.normcase(
+        os.fspath(right_resolved)
+    ):
+        return True
+    try:
+        return left_resolved.samefile(right_resolved)
+    except (FileNotFoundError, OSError):
+        return False
+
+
+def validate_research_output_path(args: argparse.Namespace) -> None:
+    """Prevent candidate JSON from replacing any input needed by the command."""
+    output = Path(args.output)
+    protected_inputs = (
+        ("--db", Path(args.db)),
+        ("--profile", Path(args.profile)),
+        ("--used-finds", Path(args.used_finds)),
+        ("--aliases", Path(args.aliases)),
+        ("--topics-config", Path(args.topics_config)),
+        ("--people-config", Path(args.people_config)),
+        ("--source-types-config", Path(args.source_types_config)),
+    )
+    for option, input_path in protected_inputs:
+        if _paths_refer_to_same_file(output, input_path):
+            raise ValueError(
+                "Небезопасный --output: путь совпадает с критичным входным "
+                f"файлом {option} после нормализации: "
+                f"{input_path.expanduser().resolve(strict=False)}"
+            )
+
+
 def make_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Локальный FTS5-поиск по корпусу Тайра")
+    parser = argparse.ArgumentParser(description="Локальный FTS5-поиск по корпусу")
     subparsers = parser.add_subparsers(dest="command", required=True)
     search_parser = subparsers.add_parser("search", help="Поиск с BM25 и фильтрами")
     add_search_arguments(search_parser)
     events_parser = subparsers.add_parser(
-        "events", help="Поиск только по чанкам с персонажами Тайра"
+        "events", help="Поиск только по чанкам с настроенными персонажами"
     )
     add_search_arguments(events_parser)
     context_parser = subparsers.add_parser("context", help="Соседние чанки документа")
@@ -416,6 +453,23 @@ def make_parser() -> argparse.ArgumentParser:
     daily_parser.add_argument("--source-notes-config", default=str(DEFAULT_SOURCE_NOTES))
     daily_parser.add_argument("--dry-run", action="store_true")
     daily_parser.add_argument("--json", action="store_true")
+    research_parser = subparsers.add_parser(
+        "research-findings",
+        help="Отобрать находки по локальному исследовательскому профилю",
+    )
+    add_config_arguments(research_parser)
+    research_parser.add_argument("--profile", required=True)
+    research_parser.add_argument("--used-finds", default=str(DEFAULT_USED_FINDS))
+    research_parser.add_argument("--count", type=int)
+    research_parser.add_argument("--top-per-interest", type=int, default=30)
+    research_parser.add_argument("--pool-size", type=int, default=160)
+    research_parser.add_argument("--output", default=str(DEFAULT_RESEARCH_OUTPUT))
+    research_parser.add_argument(
+        "--preview",
+        action="store_true",
+        help="Пробная подборка; журнал только читается и никогда не изменяется",
+    )
+    research_parser.add_argument("--json", action="store_true")
     mark_parser = subparsers.add_parser(
         "mark-used", help="Явно добавить daily-five JSON или chunk_id в used_finds.csv"
     )
@@ -502,8 +556,17 @@ def main(argv: list[str] | None = None) -> int:
             parser.error("--top-per-topic должен быть от 1 до 100")
         if not 10 <= args.pool_size <= 500:
             parser.error("--pool-size должен быть от 10 до 500")
+    if args.command == "research-findings":
+        if args.count is not None and not 1 <= args.count <= 20:
+            parser.error("--count должен быть от 1 до 20")
+        if not 1 <= args.top_per_interest <= 100:
+            parser.error("--top-per-interest должен быть от 1 до 100")
+        if not 10 <= args.pool_size <= 500:
+            parser.error("--pool-size должен быть от 10 до 500")
     connection: sqlite3.Connection | None = None
     try:
+        if args.command == "research-findings":
+            validate_research_output_path(args)
         if args.command == "record-publication":
             from daily_five import record_publication_from_json
 
@@ -588,6 +651,30 @@ def main(argv: list[str] | None = None) -> int:
                 save_result(result, output)
                 print(f"Сохранено: {output}", file=sys.stderr if args.json else sys.stdout)
             print_daily_result(result, json_output=args.json)
+        elif args.command == "research-findings":
+            from daily_five import save_result
+            from research_findings import build_research_findings, print_research_result
+            from research_profile import load_research_profile
+
+            profile_path = Path(args.profile).expanduser().resolve()
+            profile = load_research_profile(profile_path)
+            result = build_research_findings(
+                connection,
+                topics,
+                people,
+                profile,
+                Path(args.used_finds).expanduser().resolve(),
+                search_function=search_database,
+                context_function=context_rows,
+                count=args.count,
+                top_per_interest=args.top_per_interest,
+                pool_size=args.pool_size,
+                preview=args.preview,
+            )
+            output = Path(args.output).expanduser().resolve()
+            save_result(result, output)
+            print(f"Сохранено: {output}", file=sys.stderr if args.json else sys.stdout)
+            print_research_result(result, json_output=args.json)
         else:
             from daily_five import mark_used_chunk, mark_used_from_json
 

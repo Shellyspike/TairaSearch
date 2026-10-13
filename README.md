@@ -14,6 +14,27 @@ Japanese, and English fixtures (including PDFs), not the author's personal
 library, production database, publication journal, active automation, or chat
 history.
 
+## Universal research onboarding (0.2)
+
+A new user can configure retrieval by conversation instead of editing JSON:
+
+1. prepare the environment using the instructions below;
+2. open the project in Codex;
+3. paste the
+   [ready-made onboarding request](examples/codex/research-onboarding.md);
+4. provide an existing index or corpus folder;
+5. answer a few questions, review a preview, and refine preferences in plain
+   language.
+
+Codex saves an ignored local `research_profile.json`. The new
+`research-findings` command reuses the existing FTS5 search, neighbouring
+context, and repeat checks. A preview never updates `used_finds.csv`. See
+[docs/research-onboarding.md](docs/research-onboarding.md) for details and two
+synthetic scenarios.
+
+Legacy `daily-five`, existing indexes, and the five-card demonstration below
+retain their existing contracts.
+
 ## Quick start: get five AI cards
 
 You need Python 3.11 and access to the Codex desktop app. Git is optional and

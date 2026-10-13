@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "name": "Древний Рим без списка героев",
+  "research_area": "Повседневная и материальная история Древнего Рима",
+  "result_language": "ru",
+  "max_results": 3,
+  "interests": [
+    {
+      "id": "daily-life",
+      "label": "повседневная жизнь",
+      "terms": ["bread ration", "public bath", "market stall"],
+      "weight": 1.2
+    },
+    {
+      "id": "work-and-materials",
+      "label": "ремесло и материальный мир",
+      "terms": ["stonecutter", "shipment ledger", "repair workshop"],
+      "weight": 1.0
+    },
+    {
+      "id": "research-debate",
+      "label": "научные споры",
+      "terms": ["historians disagree", "researchers compare"],
+      "weight": 1.1
+    }
+  ],
+  "focus_people": [],
+  "material_types": ["scholarship", "other"],
+  "finding_preferences": {
+    "preferred_kinds": ["повседневность", "научные споры", "неожиданные детали"],
+    "include_unlisted_people": true,
+    "avoid_person_repetition": true,
+    "notes": "Исследовать корпус без заранее заданного списка персоналий."
+  }
+}

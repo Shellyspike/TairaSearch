@@ -4,6 +4,32 @@ TairaSearch is a hybrid project. Its retrieval core is deterministic, while
 Codex handles research and editorial work that benefits from language-model
 reasoning.
 
+## Universal research onboarding
+
+The 0.2 onboarding prompt in `examples/codex/research-onboarding.md` starts
+with a short conversation about the user's subject, interests, desired result
+language, material types, and optional people. Codex converts those answers
+into a local `research_profile.json`; users do not need to edit JSON or choose
+FTS queries themselves. The profile is ignored by Git and is separate from
+the index configuration, so changing research interests does not rewrite
+chunks, chunk identifiers, or index metadata.
+
+Python then runs `research-findings` in preview mode. It performs FTS5/BM25
+retrieval, verifies that the target chunk contains relevant evidence, adds
+neighbouring context, and applies the existing duplicate checks before
+returning a variable number of candidates. Codex reads those candidates,
+checks what the cited context actually supports, and explains or drafts the
+findings in the requested language. It may suggest people and events found in
+the corpus even when they were not named during onboarding.
+
+Preview mode is deliberately read-only for `used_finds.csv`: it neither
+publishes cards nor records findings as used. After the user comments on the
+trial results, Codex updates only the local research profile and reruns the
+preview. Building a new index remains a separate, explicit step: the prompt
+first scans a proposed corpus and asks before creating an index. The legacy
+`daily-five`, `alternate`, publication journal, and AI news demo keep their
+existing contracts.
+
 ## Daily historical news
 
 1. Python queries the local SQLite FTS5 index and ranks matches with BM25.

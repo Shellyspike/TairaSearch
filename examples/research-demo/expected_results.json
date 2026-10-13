@@ -1,0 +1,36 @@
+{
+  "japan": [
+    {
+      "chunk_id": "ch_110e60a748bedd2d4586559f",
+      "relative_path": "Статьи/исследование.md",
+      "primary_topic": "daily-court-life"
+    },
+    {
+      "chunk_id": "ch_3b39818e3652f04460690a93",
+      "relative_path": "吉記/русская_музыка.txt",
+      "primary_topic": "daily-court-life"
+    },
+    {
+      "chunk_id": "ch_64ad1a8c15358427306b1b1a",
+      "relative_path": "吾妻鏡/пленение.txt",
+      "primary_topic": "disruption-and-response"
+    }
+  ],
+  "rome": [
+    {
+      "chunk_id": "ch_cf617045c5e6cddef3dec85d",
+      "relative_path": "Baths/repair.txt",
+      "primary_topic": "daily-life"
+    },
+    {
+      "chunk_id": "ch_46315e1165b5b3c9f50c9411",
+      "relative_path": "Articles/baths-debate.md",
+      "primary_topic": "research-debate"
+    },
+    {
+      "chunk_id": "ch_5276d17cdbd0dca07d5d3150",
+      "relative_path": "Market/bread.txt",
+      "primary_topic": "daily-life"
+    }
+  ]
+}
