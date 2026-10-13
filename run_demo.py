@@ -107,10 +107,11 @@ def make_ai_input(payload: dict, connection, topics: dict, people: dict) -> dict
                     "context_chunks": verified.get("chunks", []),
                 },
                 "duplicate_check": item["duplicate_check"],
+                "semantic_review": item["semantic_review"],
             }
         )
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "demo": True,
         "material_status": "synthetic_demo_not_historical_evidence",
         "notice_ru": (
