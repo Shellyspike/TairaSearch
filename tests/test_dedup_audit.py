@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import json
 from pathlib import Path
 
 import daily_five
@@ -114,6 +115,75 @@ class DedupAuditTests(unittest.TestCase):
 
         self.assertEqual(len(daily_five._collapse_neighbours(candidates)), 1)
         self.assertEqual(len(research_findings._collapse_candidates(candidates)), 1)
+
+    def test_shared_labels_never_confirm_a_history_duplicate(self) -> None:
+        payload = json.loads(CASES.read_text(encoding="utf-8"))
+        case = next(
+            item
+            for item in payload["cases"]
+            if item["id"] == "jp-04-same-person-theme-different-event"
+        )
+
+        result = daily_five.duplicate_check(case["candidate"], case["used"])
+
+        self.assertEqual(result["status"], "duplicate_risk")
+        self.assertFalse(result["auto_exclude"])
+        self.assertTrue(result["requires_editorial_review"])
+        self.assertEqual(result["python_disposition"], "needs_semantic_review")
+
+    def test_cross_language_match_is_preserved_with_prior_context(self) -> None:
+        payload = json.loads(CASES.read_text(encoding="utf-8"))
+        case = next(
+            item
+            for item in payload["cases"]
+            if item["id"] == "rome-02-paraphrase-across-languages"
+        )
+
+        result = daily_five.duplicate_check(case["candidate"], case["used"])
+
+        self.assertEqual(result["status"], "duplicate_risk")
+        self.assertEqual(len(result["review_matches"]), 1)
+        self.assertEqual(
+            result["review_matches"][0]["prior"]["description"],
+            case["used"][0]["description"],
+        )
+        self.assertEqual(
+            set(result["allowed_semantic_decisions"]),
+            {
+                "confirmed_repeat",
+                "probable_repeat_review",
+                "new_angle",
+                "new_finding",
+            },
+        )
+
+    def test_scholarship_match_is_flagged_as_a_possible_new_angle(self) -> None:
+        payload = json.loads(CASES.read_text(encoding="utf-8"))
+        case = next(
+            item
+            for item in payload["cases"]
+            if item["id"] == "jp-05-new-interpretation-of-known-event"
+        )
+
+        result = daily_five.duplicate_check(case["candidate"], case["used"])
+
+        self.assertEqual(result["status"], "duplicate_risk")
+        self.assertTrue(result["review_matches"][0]["possible_new_angle"])
+        self.assertEqual(
+            result["review_matches"][0]["candidate_claim_type"], "interpretation"
+        )
+
+    def test_exact_chunk_id_remains_the_only_fixture_auto_exclusion(self) -> None:
+        payload = json.loads(CASES.read_text(encoding="utf-8"))
+        decisions = [
+            daily_five.duplicate_check(case["candidate"], case["used"])
+            for case in payload["cases"]
+            if case["mode"] == "journal"
+        ]
+
+        excluded = [item for item in decisions if item["auto_exclude"]]
+        self.assertEqual(len(excluded), 1)
+        self.assertEqual(excluded[0]["status"], "duplicate")
 
     def test_chunk_id_tracks_location_not_text_or_finding_identity(self) -> None:
         original_id = stable_chunk_id("Chronicle/book.txt", None, None, 4)

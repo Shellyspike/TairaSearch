@@ -123,7 +123,7 @@
       "mode": "journal",
       "expected_semantic_decision": "probable_repeat_review",
       "baseline_0_2": "clear",
-      "expected_improved": "clear",
+      "expected_improved": "duplicate_risk",
       "candidate": {
         "chunk_id": "ch_rome_bath_en",
         "title": "Morning closure at the baths",
@@ -150,7 +150,7 @@
       "mode": "journal",
       "expected_semantic_decision": "confirmed_repeat",
       "baseline_0_2": "duplicate",
-      "expected_improved": "duplicate",
+      "expected_improved": "duplicate_risk",
       "candidate": {
         "chunk_id": "ch_ledger_after_reindex",
         "title": "Портовая запись после ливня",
@@ -177,7 +177,7 @@
       "mode": "journal",
       "expected_semantic_decision": "probable_repeat_review",
       "baseline_0_2": "clear",
-      "expected_improved": "clear",
+      "expected_improved": "duplicate_risk",
       "candidate": {
         "chunk_id": "ch_ledger_corrected_new_boundary",
         "title": "Port inventory after a storm",
@@ -204,7 +204,7 @@
       "mode": "journal",
       "expected_semantic_decision": "new_finding",
       "baseline_0_2": "duplicate",
-      "expected_improved": "duplicate",
+      "expected_improved": "duplicate_risk",
       "candidate": {
         "chunk_id": "ch_kiyomori_recovery",
         "title": "Киёмори — возвращение после болезни",
@@ -231,19 +231,21 @@
       "mode": "journal",
       "expected_semantic_decision": "new_angle",
       "baseline_0_2": "clear",
-      "expected_improved": "clear",
+      "expected_improved": "duplicate_risk",
       "candidate": {
         "chunk_id": "ch_jp_fire_article",
         "title": "Новый взгляд на сцену с воротами",
         "person": ["Томомори"],
         "topics": ["fire", "scholarship"],
         "date": null,
+        "index_source_type": "scholarship",
         "what_happened": "Исследователь связывает открытие ворот не с тактическим приказом, а с литературным мотивом восстановления порядка.",
         "source_group": "Journal of Tale Studies"
       },
       "used": [
         {
           "id": "ch_old_jp_fire",
+          "type": "event",
           "persons": ["Томомори"],
           "topics": ["fire"],
           "description": "Томомори приказал открыть ворота во время пожара и организовал цепочку вёдер.",
@@ -258,19 +260,21 @@
       "mode": "journal",
       "expected_semantic_decision": "probable_repeat_review",
       "baseline_0_2": "clear",
-      "expected_improved": "clear",
+      "expected_improved": "duplicate_risk",
       "candidate": {
         "chunk_id": "ch_baths_article_later",
         "title": "Limits of maintenance evidence",
         "person": [],
         "topics": ["scholarship"],
         "date": null,
+        "index_source_type": "scholarship",
         "what_happened": "A later paper likewise warns that maintenance records cannot identify who used the baths.",
         "source_group": "Classical Urban Studies"
       },
       "used": [
         {
           "id": "ch_baths_article_earlier",
+          "type": "interpretation",
           "persons": [],
           "topics": ["scholarship"],
           "description": "Исследователи считают, что ремонтная надпись не доказывает состав посетителей терм.",
@@ -285,7 +289,7 @@
       "mode": "journal",
       "expected_semantic_decision": "new_angle",
       "baseline_0_2": "clear",
-      "expected_improved": "clear",
+      "expected_improved": "duplicate_risk",
       "candidate": {
         "chunk_id": "ch_market_tokens",
         "title": "Жетоны при раздаче хлеба",
@@ -312,7 +316,7 @@
       "mode": "journal",
       "expected_semantic_decision": "new_finding",
       "baseline_0_2": "duplicate",
-      "expected_improved": "duplicate",
+      "expected_improved": "duplicate_risk",
       "candidate": {
         "chunk_id": "ch_tomomori_voyage",
         "title": "Томомори — подготовка кораблей",
@@ -339,7 +343,7 @@
       "mode": "journal",
       "expected_semantic_decision": "new_finding",
       "baseline_0_2": "duplicate",
-      "expected_improved": "duplicate",
+      "expected_improved": "duplicate_risk",
       "candidate": {
         "chunk_id": "ch_lucius_road",
         "title": "Lucius and the road surface",
