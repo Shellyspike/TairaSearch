@@ -21,6 +21,13 @@ from research_findings import _collapse_candidates
 DEFAULT_CASES = Path("examples/dedup-benchmark/cases.json")
 
 
+def configure_console() -> None:
+    """Keep the multilingual report printable on Windows CI consoles."""
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+
+
 def run_case(case: dict[str, Any]) -> dict[str, Any]:
     mode = case["mode"]
     if mode == "journal":
@@ -174,6 +181,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    configure_console()
     args = build_parser().parse_args(argv)
     report = audit_cases(args.cases)
     rendered = (

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import io
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import daily_five
 import research_findings
@@ -303,6 +306,19 @@ class DedupAuditTests(unittest.TestCase):
             rendered = output.read_text(encoding="utf-8")
             self.assertIn("rome-01-distinct-neighbouring-events", rendered)
             self.assertIn("false_repeat", rendered)
+
+    def test_cli_reconfigures_a_legacy_windows_console_to_utf8(self) -> None:
+        output = io.BytesIO()
+        legacy_console = io.TextIOWrapper(
+            output, encoding="cp1252", errors="strict", write_through=True
+        )
+
+        with patch.object(sys, "stdout", legacy_console):
+            exit_code = run_dedup_audit.main(["--cases", str(CASES), "--check"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(legacy_console.encoding, "utf-8")
+        self.assertIn("Киёмори", output.getvalue().decode("utf-8"))
 
 
 if __name__ == "__main__":
