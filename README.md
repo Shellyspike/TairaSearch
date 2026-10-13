@@ -35,13 +35,16 @@ synthetic scenarios.
 Legacy `daily-five`, existing indexes, and the five-card demonstration below
 retain their existing contracts.
 
-## Semantic deduplication research (0.3, stage 1)
+## Semantic deduplication (0.3)
 
-The first 0.3 research stage freezes the current deduplication behaviour on 13
-fictional Japan and Rome cases. It documents false repeats, missed paraphrases,
-OCR/reindexing risks, and the distinction between a repeat and a supported new
-angle without changing the 0.2 algorithms. See the
-[audit and minimal design](docs/dedup-audit.md) or run:
+The 0.3 benchmark preserves the historical 0.2 result for 13 fictional Japan
+and Rome cases, then measures the corrected logic separately. Python now
+collapses only strong technical matches, keeps uncertain OCR, reindexing,
+paraphrase, translation, and history matches in the candidate pool, and passes
+bounded comparison evidence to Codex. Codex applies the four semantic classes;
+shared people, topics, dates, or source names never decide a repeat by
+themselves. See the [audit and implementation result](docs/dedup-audit.md) or
+run:
 
 ```powershell
 .venv\Scripts\python run_dedup_audit.py --check

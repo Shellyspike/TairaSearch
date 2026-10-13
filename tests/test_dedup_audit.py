@@ -13,6 +13,7 @@ from text_utils import sha256_text, stable_chunk_id
 
 ROOT = Path(__file__).resolve().parents[1]
 CASES = ROOT / "examples" / "dedup-benchmark" / "cases.json"
+EDITORIAL_PROMPT = ROOT / "examples" / "codex" / "daily-news-prompt.md"
 
 
 class DedupAuditTests(unittest.TestCase):
@@ -266,6 +267,16 @@ class DedupAuditTests(unittest.TestCase):
             review["candidate_matches"][0]["candidate"]["what_happened"],
             candidates[1]["what_happened"],
         )
+
+    def test_editorial_prompt_requires_all_four_semantic_classes(self) -> None:
+        prompt = EDITORIAL_PROMPT.read_text(encoding="utf-8")
+
+        for decision in daily_five.SEMANTIC_DECISIONS:
+            self.assertIn(f"`{decision}`", prompt)
+        self.assertIn("semantic_review", prompt)
+        self.assertIn("Shared people, topics, dates, or source names", prompt)
+        self.assertIn("Keep `probable_repeat_review` visible", prompt)
+        self.assertIn("Do not make a card from `confirmed_repeat`", prompt)
 
     def test_chunk_id_tracks_location_not_text_or_finding_identity(self) -> None:
         original_id = stable_chunk_id("Chronicle/book.txt", None, None, 4)

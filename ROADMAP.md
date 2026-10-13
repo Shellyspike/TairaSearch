@@ -45,10 +45,12 @@ as two visible, separately testable parts.
   paraphrases, OCR corrections, reindexing, scholarship, and new angles.
 - [x] Define a small evidence-based card-quality rubric and a four-class
   semantic decision model for Python/Codex review.
-- [ ] Replace proximity-only candidate collapsing with a conservative,
+- [x] Replace proximity-only candidate collapsing with a conservative,
   explainable comparison, as a separate reviewed change.
-- [ ] Preserve uncertain matches for Codex instead of silently excluding every
+- [x] Preserve uncertain matches for Codex instead of silently excluding every
   `duplicate_risk`, without changing active automations.
+- [x] Teach the public editorial prompt to classify supplied comparisons as a
+  confirmed repeat, probable repeat needing review, new angle, or new finding.
 - [ ] Define migration and backward compatibility for existing
   `used_finds.csv` histories before adopting any persistent finding identifier.
 - [ ] Add an explicit missing-document cleanup command with a mandatory
