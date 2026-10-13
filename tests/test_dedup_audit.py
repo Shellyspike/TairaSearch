@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
-import json
 from pathlib import Path
 
 import daily_five
@@ -184,6 +184,88 @@ class DedupAuditTests(unittest.TestCase):
         excluded = [item for item in decisions if item["auto_exclude"]]
         self.assertEqual(len(excluded), 1)
         self.assertEqual(excluded[0]["status"], "duplicate")
+
+    def test_uncertain_history_match_remains_eligible_in_both_selectors(self) -> None:
+        uncertain = {
+            "chunk_id": "uncertain",
+            "retrieval_score": 2.0,
+            "source_group": "Chronicle",
+            "primary_topic": "daily-life",
+            "topics": ["daily-life"],
+            "person": ["Lucius"],
+            "duplicate_check": {
+                "status": "duplicate_risk",
+                "auto_exclude": False,
+            },
+        }
+        confirmed = {
+            **uncertain,
+            "chunk_id": "confirmed",
+            "retrieval_score": 3.0,
+            "duplicate_check": {
+                "status": "duplicate",
+                "auto_exclude": True,
+            },
+        }
+
+        daily_selected = daily_five._select_diverse([confirmed, uncertain], 2)
+        research_selected = research_findings._select_diverse(
+            [confirmed, uncertain],
+            2,
+            {"finding_preferences": {"avoid_person_repetition": False}},
+        )
+
+        self.assertEqual([item["chunk_id"] for item in daily_selected], ["uncertain"])
+        self.assertEqual(
+            [item["chunk_id"] for item in research_selected], ["uncertain"]
+        )
+
+    def test_semantic_review_packet_contains_comparison_evidence(self) -> None:
+        candidates = [
+            {
+                "chunk_id": "first",
+                "title": "Bath repair",
+                "relative_path": "notes.txt",
+                "chunk_no": 1,
+                "source": "Notes",
+                "source_group": "Notes",
+                "person": [],
+                "topics": ["daily-life"],
+                "what_happened": "The bath pipe cracked.",
+                "verified_context": {"chunks": [{"text": "The bath pipe cracked."}]},
+                "duplicate_check": {
+                    "requires_editorial_review": False,
+                    "review_matches": [],
+                },
+            },
+            {
+                "chunk_id": "second",
+                "title": "Bread ration",
+                "relative_path": "notes.txt",
+                "chunk_no": 2,
+                "source": "Notes",
+                "source_group": "Notes",
+                "person": [],
+                "topics": ["daily-life"],
+                "what_happened": "Workers divided the remaining bread.",
+                "verified_context": {"chunks": [{"text": "Workers divided bread."}]},
+                "duplicate_check": {
+                    "requires_editorial_review": False,
+                    "review_matches": [],
+                },
+            },
+        ]
+
+        daily_five.attach_semantic_reviews(candidates)
+
+        review = candidates[0]["semantic_review"]
+        self.assertTrue(review["required"])
+        self.assertEqual(review["decision_owner"], "codex")
+        self.assertEqual(review["candidate_matches"][0]["matched_chunk_id"], "second")
+        self.assertEqual(
+            review["candidate_matches"][0]["candidate"]["what_happened"],
+            candidates[1]["what_happened"],
+        )
 
     def test_chunk_id_tracks_location_not_text_or_finding_identity(self) -> None:
         original_id = stable_chunk_id("Chronicle/book.txt", None, None, 4)

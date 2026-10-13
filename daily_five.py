@@ -230,6 +230,71 @@ def candidate_pair_check(
     }
 
 
+def attach_semantic_reviews(
+    candidates: list[dict[str, Any]], *, limit: int = 3
+) -> list[dict[str, Any]]:
+    """Attach bounded evidence packets for Codex without removing candidates."""
+    for candidate in candidates:
+        candidate_matches: list[dict[str, Any]] = []
+        for other in candidates:
+            if other is candidate:
+                continue
+            pair = candidate_pair_check(candidate, other)
+            if pair["action"] != "review":
+                continue
+            candidate_matches.append(
+                {
+                    "matched_chunk_id": other.get("chunk_id"),
+                    "confidence": pair["confidence"],
+                    "reason": pair["reason"],
+                    "candidate": {
+                        "title": other.get("title"),
+                        "person": list(other.get("person", [])),
+                        "topics": list(other.get("topics", [])),
+                        "date": other.get("date"),
+                        "source": other.get("source"),
+                        "source_type": other.get("index_source_type")
+                        or other.get("source_type"),
+                        "relative_path": other.get("relative_path"),
+                        "chunk_id": other.get("chunk_id"),
+                        "what_happened": other.get("what_happened"),
+                        "verified_context": other.get("verified_context", {}),
+                    },
+                }
+            )
+        candidate_matches.sort(
+            key=lambda item: (
+                -float(item["confidence"]),
+                str(item["matched_chunk_id"] or ""),
+            )
+        )
+        candidate_matches = candidate_matches[:limit]
+        duplicate = candidate.get("duplicate_check", {})
+        history_matches = list(duplicate.get("review_matches", []))
+        required = bool(
+            duplicate.get("requires_editorial_review") or candidate_matches
+        )
+        candidate["semantic_review"] = {
+            "required": required,
+            "decision_owner": "codex" if required else "python_technical_rules",
+            "allowed_decisions": list(SEMANTIC_DECISIONS),
+            "history_matches": history_matches,
+            "candidate_matches": candidate_matches,
+            "instruction": (
+                "Compare supported claims, actions, objects, outcomes, and source roles. "
+                "Shared people, topics, dates, or sources are not a duplicate verdict."
+            ),
+        }
+    return candidates
+
+
+def _auto_excluded(candidate: dict[str, Any]) -> bool:
+    decision = candidate.get("duplicate_check", {})
+    return bool(
+        decision.get("auto_exclude", decision.get("status") == "duplicate")
+    )
+
+
 def _claim_type(candidate: dict[str, Any]) -> str:
     explicit = normalize_text(str(candidate.get("type", ""))).casefold()
     if explicit in {"event", "interpretation"}:
@@ -589,7 +654,7 @@ def _collapse_neighbours(candidates: list[dict[str, Any]]) -> list[dict[str, Any
 
 
 def _select_diverse(candidates: list[dict[str, Any]], count: int = 5) -> list[dict[str, Any]]:
-    eligible = [item for item in candidates if item["duplicate_check"]["status"] == "clear"]
+    eligible = [item for item in candidates if not _auto_excluded(item)]
     selected: list[dict[str, Any]] = []
     source_counts: Counter[str] = Counter()
     people_counts: Counter[str] = Counter()
@@ -742,11 +807,10 @@ def build_daily_five(
         event["duplicate_check"] = duplicate_check(event, used)
         if event["duplicate_check"]["status"] == "duplicate":
             rejected["used_duplicate"] += 1
-        elif event["duplicate_check"]["status"] == "duplicate_risk":
-            rejected["duplicate_risk"] += 1
         verified.append(event)
 
     verified = _collapse_neighbours(verified)
+    attach_semantic_reviews(verified)
     verified.sort(
         key=lambda item: (
             item["duplicate_check"]["status"] != "clear",
@@ -759,6 +823,18 @@ def build_daily_five(
     alternates = [item for item in verified if item["chunk_id"] not in final_ids][
         : (20 if dry_run else 15)
     ]
+    review_stats = {
+        "candidates_requiring_editorial_review": sum(
+            bool(item["semantic_review"]["required"]) for item in verified
+        ),
+        "history_match_candidates": sum(
+            bool(item["semantic_review"]["history_matches"]) for item in verified
+        ),
+        "candidate_pair_relations": sum(
+            len(item["semantic_review"]["candidate_matches"]) for item in verified
+        )
+        // 2,
+    }
     return {
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "mode": "historical-events",
@@ -779,6 +855,7 @@ def build_daily_five(
             "rejected": dict(rejected),
             "final_count": len(final),
             "alternate_count": len(alternates),
+            "semantic_review": review_stats,
         },
         "final": final,
         "alternates": alternates,

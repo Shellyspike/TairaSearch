@@ -25,7 +25,12 @@ def run_case(case: dict[str, Any]) -> dict[str, Any]:
     mode = case["mode"]
     if mode == "journal":
         decision = duplicate_check(case["candidate"], case["used"])
-        actual = decision["status"]
+        actual = (
+            "kept_for_review"
+            if decision.get("requires_editorial_review")
+            and not decision.get("auto_exclude")
+            else decision["status"]
+        )
         details = {
             "confidence": decision["confidence"],
             "reason": decision["reason"],

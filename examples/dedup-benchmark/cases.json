@@ -96,7 +96,7 @@
       "mode": "journal",
       "expected_semantic_decision": "probable_repeat_review",
       "baseline_0_2": "duplicate_risk",
-      "expected_improved": "duplicate_risk",
+      "expected_improved": "kept_for_review",
       "candidate": {
         "chunk_id": "ch_demo_jp_fire_reindexed",
         "title": "Томомори — помощь при бедствии",
@@ -123,7 +123,7 @@
       "mode": "journal",
       "expected_semantic_decision": "probable_repeat_review",
       "baseline_0_2": "clear",
-      "expected_improved": "duplicate_risk",
+      "expected_improved": "kept_for_review",
       "candidate": {
         "chunk_id": "ch_rome_bath_en",
         "title": "Morning closure at the baths",
@@ -150,7 +150,7 @@
       "mode": "journal",
       "expected_semantic_decision": "confirmed_repeat",
       "baseline_0_2": "duplicate",
-      "expected_improved": "duplicate_risk",
+      "expected_improved": "kept_for_review",
       "candidate": {
         "chunk_id": "ch_ledger_after_reindex",
         "title": "Портовая запись после ливня",
@@ -177,7 +177,7 @@
       "mode": "journal",
       "expected_semantic_decision": "probable_repeat_review",
       "baseline_0_2": "clear",
-      "expected_improved": "duplicate_risk",
+      "expected_improved": "kept_for_review",
       "candidate": {
         "chunk_id": "ch_ledger_corrected_new_boundary",
         "title": "Port inventory after a storm",
@@ -204,7 +204,7 @@
       "mode": "journal",
       "expected_semantic_decision": "new_finding",
       "baseline_0_2": "duplicate",
-      "expected_improved": "duplicate_risk",
+      "expected_improved": "kept_for_review",
       "candidate": {
         "chunk_id": "ch_kiyomori_recovery",
         "title": "Киёмори — возвращение после болезни",
@@ -231,7 +231,7 @@
       "mode": "journal",
       "expected_semantic_decision": "new_angle",
       "baseline_0_2": "clear",
-      "expected_improved": "duplicate_risk",
+      "expected_improved": "kept_for_review",
       "candidate": {
         "chunk_id": "ch_jp_fire_article",
         "title": "Новый взгляд на сцену с воротами",
@@ -260,7 +260,7 @@
       "mode": "journal",
       "expected_semantic_decision": "probable_repeat_review",
       "baseline_0_2": "clear",
-      "expected_improved": "duplicate_risk",
+      "expected_improved": "kept_for_review",
       "candidate": {
         "chunk_id": "ch_baths_article_later",
         "title": "Limits of maintenance evidence",
@@ -289,7 +289,7 @@
       "mode": "journal",
       "expected_semantic_decision": "new_angle",
       "baseline_0_2": "clear",
-      "expected_improved": "duplicate_risk",
+      "expected_improved": "kept_for_review",
       "candidate": {
         "chunk_id": "ch_market_tokens",
         "title": "Жетоны при раздаче хлеба",
@@ -316,7 +316,7 @@
       "mode": "journal",
       "expected_semantic_decision": "new_finding",
       "baseline_0_2": "duplicate",
-      "expected_improved": "duplicate_risk",
+      "expected_improved": "kept_for_review",
       "candidate": {
         "chunk_id": "ch_tomomori_voyage",
         "title": "Томомори — подготовка кораблей",
@@ -343,7 +343,7 @@
       "mode": "journal",
       "expected_semantic_decision": "new_finding",
       "baseline_0_2": "duplicate",
-      "expected_improved": "duplicate_risk",
+      "expected_improved": "kept_for_review",
       "candidate": {
         "chunk_id": "ch_lucius_road",
         "title": "Lucius and the road surface",
