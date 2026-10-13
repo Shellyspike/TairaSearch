@@ -13,7 +13,7 @@ from typing import Any, Callable
 
 from daily_five import (
     _evidence_readable,
-    _lexical_similarity,
+    candidate_pair_check,
     duplicate_check,
     load_used_finds,
     source_group,
@@ -111,19 +111,7 @@ def _collapse_candidates(candidates: list[dict[str, Any]]) -> list[dict[str, Any
     kept: list[dict[str, Any]] = []
     for candidate in sorted(candidates, key=lambda item: -item["retrieval_score"]):
         duplicate = any(
-            (
-                prior["relative_path"] == candidate["relative_path"]
-                and abs(prior["chunk_no"] - candidate["chunk_no"]) <= 2
-                and bool(set(prior["topics"]) & set(candidate["topics"]))
-            )
-            or (
-                prior["source_group"] == candidate["source_group"]
-                and bool(set(prior["topics"]) & set(candidate["topics"]))
-                and _lexical_similarity(
-                    prior["what_happened"], candidate["what_happened"]
-                )
-                >= 0.62
-            )
+            candidate_pair_check(prior, candidate)["action"] == "collapse"
             for prior in kept
         )
         if not duplicate:

@@ -150,6 +150,78 @@ def _lexical_similarity(left: str, right: str) -> float:
     return max(sequence, word_jaccard, gram_jaccard)
 
 
+def candidate_pair_check(
+    left: dict[str, Any], right: dict[str, Any]
+) -> dict[str, Any]:
+    """Decide whether two candidates may be collapsed without semantic guesswork.
+
+    ``collapse`` is deliberately limited to the same chunk or near-identical
+    evidence from the same document/work.  Positional proximity and shared
+    labels only create a ``review`` relation; they never delete a candidate.
+    """
+    left_id = normalize_text(str(left.get("chunk_id", "")))
+    right_id = normalize_text(str(right.get("chunk_id", "")))
+    if left_id and left_id == right_id:
+        return {
+            "action": "collapse",
+            "confidence": 1.0,
+            "reason": "exact same chunk_id",
+        }
+
+    left_text = normalize_text(str(left.get("what_happened", "")))
+    right_text = normalize_text(str(right.get("what_happened", "")))
+    lexical = _lexical_similarity(left_text, right_text)
+    shared_topics = sorted(set(left.get("topics", [])) & set(right.get("topics", [])))
+    shared_people = sorted(set(left.get("person", [])) & set(right.get("person", [])))
+    same_path = bool(
+        left.get("relative_path")
+        and left.get("relative_path") == right.get("relative_path")
+    )
+    same_source = bool(
+        left.get("source_group")
+        and left.get("source_group") == right.get("source_group")
+    )
+    chunk_distance: int | None = None
+    if same_path and left.get("chunk_no") is not None and right.get("chunk_no") is not None:
+        chunk_distance = abs(int(left["chunk_no"]) - int(right["chunk_no"]))
+
+    same_scope = same_path or same_source
+    if (
+        left_text
+        and right_text
+        and same_scope
+        and shared_topics
+        and (
+            left_text.casefold() == right_text.casefold()
+            or lexical >= 0.90
+        )
+    ):
+        return {
+            "action": "collapse",
+            "confidence": round(lexical, 3),
+            "reason": "near-identical evidence in the same document or source group",
+        }
+
+    review_reasons: list[str] = []
+    if same_path and chunk_distance is not None and chunk_distance <= 2 and shared_topics:
+        review_reasons.append("nearby chunks in the same document with a shared topic")
+    if same_source and shared_topics and shared_people:
+        review_reasons.append("same source group with shared people and topics")
+    if lexical >= 0.45 and (same_scope or shared_topics or shared_people):
+        review_reasons.append(f"material similarity {lexical:.2f}")
+    if review_reasons:
+        return {
+            "action": "review",
+            "confidence": round(lexical, 3),
+            "reason": "; ".join(review_reasons),
+        }
+    return {
+        "action": "distinct",
+        "confidence": round(lexical, 3),
+        "reason": "no strong technical evidence that the candidates are the same finding",
+    }
+
+
 def duplicate_check(candidate: dict[str, Any], used: list[dict[str, Any]]) -> dict[str, Any]:
     best_score = 0.0
     best_reason = "not found in used_finds.csv"
@@ -379,21 +451,7 @@ def _collapse_neighbours(candidates: list[dict[str, Any]]) -> list[dict[str, Any
     kept: list[dict[str, Any]] = []
     for candidate in sorted(candidates, key=lambda item: -item["retrieval_score"]):
         duplicate_neighbour = any(
-            (
-                prior["relative_path"] == candidate["relative_path"]
-                and abs(prior["chunk_no"] - candidate["chunk_no"]) <= 2
-                and bool(set(prior["person"]) & set(candidate["person"]))
-                and bool(set(prior["topics"]) & set(candidate["topics"]))
-            )
-            or (
-                prior["source_group"] == candidate["source_group"]
-                and prior["primary_topic"] == candidate["primary_topic"]
-                and bool(set(prior["person"]) & set(candidate["person"]))
-                and _lexical_similarity(
-                    prior["what_happened"], candidate["what_happened"]
-                )
-                >= 0.62
-            )
+            candidate_pair_check(prior, candidate)["action"] == "collapse"
             for prior in kept
         )
         if not duplicate_neighbour:

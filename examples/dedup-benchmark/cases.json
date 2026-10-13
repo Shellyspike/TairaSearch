@@ -14,7 +14,8 @@
       "scenario": "The previously published chunk is selected again.",
       "mode": "journal",
       "expected_semantic_decision": "confirmed_repeat",
-      "expected_current": "duplicate",
+      "baseline_0_2": "duplicate",
+      "expected_improved": "duplicate",
       "candidate": {
         "chunk_id": "ch_demo_jp_fire_001",
         "title": "Томомори — пожар в столице",
@@ -40,7 +41,8 @@
       "scenario": "Two adjacent chunks contain the two halves of one fire episode.",
       "mode": "candidate_pool",
       "expected_semantic_decision": "confirmed_repeat",
-      "expected_current": "collapsed",
+      "baseline_0_2": "collapsed",
+      "expected_improved": "kept_for_review",
       "candidates": [
         {
           "retrieval_score": 10.0,
@@ -66,7 +68,8 @@
       "scenario": "Adjacent chunks in one miscellany describe a bath repair and a bread ration.",
       "mode": "candidate_pool",
       "expected_semantic_decision": "new_finding",
-      "expected_current": "collapsed",
+      "baseline_0_2": "collapsed",
+      "expected_improved": "kept_for_review",
       "candidates": [
         {
           "retrieval_score": 10.0,
@@ -92,7 +95,8 @@
       "scenario": "Two books retell the same response to a fire with different wording.",
       "mode": "journal",
       "expected_semantic_decision": "probable_repeat_review",
-      "expected_current": "duplicate_risk",
+      "baseline_0_2": "duplicate_risk",
+      "expected_improved": "duplicate_risk",
       "candidate": {
         "chunk_id": "ch_demo_jp_fire_reindexed",
         "title": "Томомори — помощь при бедствии",
@@ -118,7 +122,8 @@
       "scenario": "An English article and a Russian note describe the same bath repair.",
       "mode": "journal",
       "expected_semantic_decision": "probable_repeat_review",
-      "expected_current": "clear",
+      "baseline_0_2": "clear",
+      "expected_improved": "clear",
       "candidate": {
         "chunk_id": "ch_rome_bath_en",
         "title": "Morning closure at the baths",
@@ -144,7 +149,8 @@
       "scenario": "Minor OCR substitutions are corrected after the chunk receives a new positional id.",
       "mode": "journal",
       "expected_semantic_decision": "confirmed_repeat",
-      "expected_current": "duplicate",
+      "baseline_0_2": "duplicate",
+      "expected_improved": "duplicate",
       "candidate": {
         "chunk_id": "ch_ledger_after_reindex",
         "title": "Портовая запись после ливня",
@@ -170,7 +176,8 @@
       "scenario": "A damaged OCR summary and corrected text have different chunk ids.",
       "mode": "journal",
       "expected_semantic_decision": "probable_repeat_review",
-      "expected_current": "clear",
+      "baseline_0_2": "clear",
+      "expected_improved": "clear",
       "candidate": {
         "chunk_id": "ch_ledger_corrected_new_boundary",
         "title": "Port inventory after a storm",
@@ -196,7 +203,8 @@
       "scenario": "The same person and source appear in separate illness and recovery episodes.",
       "mode": "journal",
       "expected_semantic_decision": "new_finding",
-      "expected_current": "duplicate",
+      "baseline_0_2": "duplicate",
+      "expected_improved": "duplicate",
       "candidate": {
         "chunk_id": "ch_kiyomori_recovery",
         "title": "Киёмори — возвращение после болезни",
@@ -222,7 +230,8 @@
       "scenario": "A study offers a new literary interpretation of an already published fire episode.",
       "mode": "journal",
       "expected_semantic_decision": "new_angle",
-      "expected_current": "clear",
+      "baseline_0_2": "clear",
+      "expected_improved": "clear",
       "candidate": {
         "chunk_id": "ch_jp_fire_article",
         "title": "Новый взгляд на сцену с воротами",
@@ -248,7 +257,8 @@
       "scenario": "A later article repeats an established caution in another language.",
       "mode": "journal",
       "expected_semantic_decision": "probable_repeat_review",
-      "expected_current": "clear",
+      "baseline_0_2": "clear",
+      "expected_improved": "clear",
       "candidate": {
         "chunk_id": "ch_baths_article_later",
         "title": "Limits of maintenance evidence",
@@ -274,7 +284,8 @@
       "scenario": "A second source adds the token procedure to a known bread distribution.",
       "mode": "journal",
       "expected_semantic_decision": "new_angle",
-      "expected_current": "clear",
+      "baseline_0_2": "clear",
+      "expected_improved": "clear",
       "candidate": {
         "chunk_id": "ch_market_tokens",
         "title": "Жетоны при раздаче хлеба",
@@ -300,7 +311,8 @@
       "scenario": "Shared person, broad topic, and era date conceal two unrelated actions.",
       "mode": "journal",
       "expected_semantic_decision": "new_finding",
-      "expected_current": "duplicate",
+      "baseline_0_2": "duplicate",
+      "expected_improved": "duplicate",
       "candidate": {
         "chunk_id": "ch_tomomori_voyage",
         "title": "Томомори — подготовка кораблей",
@@ -326,7 +338,8 @@
       "scenario": "One official oversees two unrelated public works recorded in the same source.",
       "mode": "journal",
       "expected_semantic_decision": "new_finding",
-      "expected_current": "duplicate",
+      "baseline_0_2": "duplicate",
+      "expected_improved": "duplicate",
       "candidate": {
         "chunk_id": "ch_lucius_road",
         "title": "Lucius and the road surface",

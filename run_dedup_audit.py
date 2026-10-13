@@ -1,8 +1,8 @@
-"""Reproduce the documented 0.3 deduplication baseline.
+"""Compare the frozen 0.2 baseline with the current 0.3 implementation.
 
-This tool deliberately calls the existing 0.2 rules without changing them.  It
-freezes their observable decisions on synthetic material so that a later,
-small algorithm change can be measured against the same cases.
+The fixture keeps the measured 0.2 result as historical data and separately
+states the expected result of reviewed improvements.  ``--check`` never
+rewrites either expectation.
 """
 
 from __future__ import annotations
@@ -14,25 +14,11 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from daily_five import duplicate_check
+from daily_five import candidate_pair_check, duplicate_check
 from research_findings import _collapse_candidates
 
 
 DEFAULT_CASES = Path("examples/dedup-benchmark/cases.json")
-
-
-def _pool_reason(candidates: list[dict[str, Any]], collapsed: bool) -> str:
-    if not collapsed:
-        return "both candidates remain in the pool"
-    first, second = sorted(candidates, key=lambda item: -item["retrieval_score"])
-    nearby = (
-        first["relative_path"] == second["relative_path"]
-        and abs(first["chunk_no"] - second["chunk_no"]) <= 2
-        and bool(set(first["topics"]) & set(second["topics"]))
-    )
-    if nearby:
-        return "collapsed by same path, nearby chunk number, and shared topic"
-    return "collapsed by source group, shared topic, and lexical similarity"
 
 
 def run_case(case: dict[str, Any]) -> dict[str, Any]:
@@ -48,10 +34,17 @@ def run_case(case: dict[str, Any]) -> dict[str, Any]:
     elif mode == "candidate_pool":
         candidates = case["candidates"]
         retained = _collapse_candidates(candidates)
-        actual = "collapsed" if len(retained) < len(candidates) else "kept"
+        pair = candidate_pair_check(*candidates)
+        actual = (
+            "collapsed"
+            if len(retained) < len(candidates)
+            else "kept_for_review"
+            if pair["action"] == "review"
+            else "kept"
+        )
         details = {
-            "confidence": None,
-            "reason": _pool_reason(candidates, actual == "collapsed"),
+            "confidence": pair["confidence"],
+            "reason": pair["reason"],
             "matched_id": None,
         }
     else:
@@ -62,24 +55,23 @@ def run_case(case: dict[str, Any]) -> dict[str, Any]:
         "theme": case["theme"],
         "scenario": case["scenario"],
         "expected_semantic_decision": case["expected_semantic_decision"],
-        "expected_current": case["expected_current"],
-        "actual_current": actual,
-        "baseline_matches": actual == case["expected_current"],
+        "baseline_0_2": case["baseline_0_2"],
+        "expected_improved": case["expected_improved"],
+        "actual_improved": actual,
+        "improved_matches": actual == case["expected_improved"],
         **details,
     }
 
 
-def _assessment(result: dict[str, Any]) -> str:
-    desired = result["expected_semantic_decision"]
-    actual = result["actual_current"]
+def _assessment(desired: str, actual: str) -> str:
     if desired == "confirmed_repeat":
         if actual in {"duplicate", "collapsed"}:
             return "correct"
-        if actual == "duplicate_risk":
+        if actual in {"duplicate_risk", "kept_for_review"}:
             return "underconfident_repeat"
         return "missed_repeat"
     if desired == "probable_repeat_review":
-        if actual == "duplicate_risk":
+        if actual in {"duplicate_risk", "kept_for_review"}:
             return "correct"
         if actual in {"duplicate", "collapsed"}:
             return "overconfident_repeat"
@@ -87,9 +79,15 @@ def _assessment(result: dict[str, Any]) -> str:
     if desired == "new_angle":
         if actual in {"clear", "kept"}:
             return "new_angle_not_represented"
+        if actual == "kept_for_review":
+            return "new_angle_pending_review"
         return "false_repeat"
     if desired == "new_finding":
-        return "correct" if actual in {"clear", "kept"} else "false_repeat"
+        if actual in {"clear", "kept"}:
+            return "correct"
+        if actual == "kept_for_review":
+            return "preserved_for_review"
+        return "false_repeat"
     raise ValueError(f"unsupported semantic decision {desired!r}")
 
 
@@ -98,18 +96,22 @@ def audit_cases(path: Path = DEFAULT_CASES) -> dict[str, Any]:
     results = []
     for case in payload["cases"]:
         result = run_case(case)
-        result["assessment"] = _assessment(result)
+        desired = result["expected_semantic_decision"]
+        result["baseline_assessment"] = _assessment(desired, result["baseline_0_2"])
+        result["improved_assessment"] = _assessment(desired, result["actual_improved"])
         results.append(result)
-    assessments = Counter(item["assessment"] for item in results)
+    baseline_assessments = Counter(item["baseline_assessment"] for item in results)
+    improved_assessments = Counter(item["improved_assessment"] for item in results)
     themes = sorted({item["theme"] for item in results})
     return {
         "schema_version": 1,
         "fixture": path.as_posix(),
         "case_count": len(results),
         "themes": themes,
-        "summary": dict(sorted(assessments.items())),
-        "baseline_mismatches": [
-            item["id"] for item in results if not item["baseline_matches"]
+        "baseline_summary": dict(sorted(baseline_assessments.items())),
+        "improved_summary": dict(sorted(improved_assessments.items())),
+        "improved_mismatches": [
+            item["id"] for item in results if not item["improved_matches"]
         ],
         "results": results,
     }
@@ -121,11 +123,11 @@ def _escape(value: Any) -> str:
 
 def render_markdown(report: dict[str, Any]) -> str:
     lines = [
-        "# Current deduplication baseline",
+        "# Deduplication benchmark: 0.2 baseline vs current branch",
         "",
-        "This is a measurement of the 0.2 rules, not a claim that every current decision is correct.",
+        "The baseline is frozen historical data. Current decisions are measured from code.",
         "",
-        "| Case | Theme | Expected semantic decision | Current decision | Assessment | Current reason |",
+        "| Case | Expected semantic decision | 0.2 baseline | Current branch | Current assessment | Reason |",
         "| --- | --- | --- | --- | --- | --- |",
     ]
     for item in report["results"]:
@@ -135,17 +137,20 @@ def render_markdown(report: dict[str, Any]) -> str:
                 _escape(value)
                 for value in (
                     item["id"],
-                    item["theme"],
                     item["expected_semantic_decision"],
-                    item["actual_current"],
-                    item["assessment"],
+                    item["baseline_0_2"],
+                    item["actual_improved"],
+                    item["improved_assessment"],
                     item["reason"],
                 )
             )
             + " |"
         )
-    lines.extend(["", "Summary:"])
-    for key, value in report["summary"].items():
+    lines.extend(["", "0.2 baseline summary:"])
+    for key, value in report["baseline_summary"].items():
+        lines.append(f"- `{key}`: {value}")
+    lines.extend(["", "Current branch summary:"])
+    for key, value in report["improved_summary"].items():
         lines.append(f"- `{key}`: {value}")
     return "\n".join(lines) + "\n"
 
@@ -158,7 +163,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--check",
         action="store_true",
-        help="fail only if the measured 0.2 baseline changed unexpectedly",
+        help="fail if current code differs from the reviewed improved expectations",
     )
     return parser
 
@@ -176,10 +181,10 @@ def main(argv: list[str] | None = None) -> int:
         args.output.write_text(rendered, encoding="utf-8")
     else:
         print(rendered, end="")
-    if args.check and report["baseline_mismatches"]:
+    if args.check and report["improved_mismatches"]:
         print(
-            "Unexpected baseline changes: "
-            + ", ".join(report["baseline_mismatches"]),
+            "Unexpected improved-result changes: "
+            + ", ".join(report["improved_mismatches"]),
             file=sys.stderr,
         )
         return 1
