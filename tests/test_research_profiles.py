@@ -6,6 +6,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 PROJECT = Path(__file__).resolve().parents[1]
@@ -216,7 +217,7 @@ class ResearchProfileTests(unittest.TestCase):
             json.dumps(source, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
         )
         payload = self.run_profile(
-            "rome", profile_path, output_name="missing-interest"
+            "rome", profile_path, output_name="missing-interest-results"
         )
         self.assertEqual(payload["final"], [])
         self.assertEqual(
@@ -243,6 +244,63 @@ class ResearchProfileTests(unittest.TestCase):
         self.assertEqual(len(payload["final"]), 2)
         self.assertEqual(used_path.read_bytes(), before)
 
+    def test_output_cannot_replace_any_critical_input_after_normalization(self) -> None:
+        inputs = {
+            "--db": self.databases["rome"],
+            "--profile": self.root / "protected-profile.json",
+            "--used-finds": self.root / "protected-used.csv",
+            "--aliases": self.root / "protected-aliases.json",
+            "--topics-config": self.root / "protected-topics.json",
+            "--people-config": self.root / "protected-people.json",
+            "--source-types-config": self.root / "protected-source-types.json",
+        }
+        inputs["--profile"].write_bytes(
+            (PROJECT / "examples" / "profiles" / "ancient-rome.json").read_bytes()
+        )
+        inputs["--used-finds"].write_text(USED_HEADER, encoding="utf-8-sig")
+        for option, source_name in (
+            ("--aliases", "aliases.json"),
+            ("--topics-config", "topics.json"),
+            ("--people-config", "people.json"),
+            ("--source-types-config", "source_types.json"),
+        ):
+            inputs[option].write_bytes((PROJECT / source_name).read_bytes())
+
+        base_arguments = ["research-findings"]
+        for option, path in inputs.items():
+            base_arguments.extend([option, str(path)])
+
+        for preview in (False, True):
+            for protected_option, protected_path in inputs.items():
+                with self.subTest(option=protected_option, preview=preview):
+                    before = protected_path.read_bytes()
+                    normalized_alias = (
+                        protected_path.parent
+                        / "directory-that-does-not-exist"
+                        / ".."
+                        / protected_path.name
+                    )
+                    arguments = [
+                        *base_arguments,
+                        "--output",
+                        str(normalized_alias),
+                    ]
+                    if preview:
+                        arguments.append("--preview")
+                    stdout = io.StringIO()
+                    stderr = io.StringIO()
+                    with mock.patch.object(taira_search, "load_runtime") as loader:
+                        with contextlib.redirect_stdout(
+                            stdout
+                        ), contextlib.redirect_stderr(stderr):
+                            code = taira_search.main(arguments)
+                    self.assertEqual(code, 1)
+                    loader.assert_not_called()
+                    self.assertEqual(protected_path.read_bytes(), before)
+                    self.assertIn("Небезопасный --output", stderr.getvalue())
+                    self.assertIn(protected_option, stderr.getvalue())
+                    self.assertIn("после нормализации", stderr.getvalue())
+
     def test_bilingual_onboarding_is_dialogue_first_and_safe(self) -> None:
         variants = (
             (
@@ -250,26 +308,42 @@ class ResearchProfileTests(unittest.TestCase):
                 PROJECT / "docs" / "research-onboarding.md",
                 "short, natural conversation",
                 "research_profile.json",
+                "`notes` are explanatory only and do not affect search",
             ),
             (
                 PROJECT / "examples" / "codex" / "research-onboarding.ru.md",
                 PROJECT / "docs" / "research-onboarding.ru.md",
                 "короткий естественный диалог",
                 "research_profile.json",
+                "нельзя сохранять рабочее пожелание только там",
             ),
         )
-        for prompt_path, documentation_path, dialogue, profile_name in variants:
+        for (
+            prompt_path,
+            documentation_path,
+            dialogue,
+            profile_name,
+            effective_preference_rule,
+        ) in variants:
             with self.subTest(prompt=prompt_path.name):
                 prompt = prompt_path.read_text(encoding="utf-8")
                 documentation = documentation_path.read_text(encoding="utf-8")
+                normalized_prompt = " ".join(prompt.split())
+                normalized_documentation = " ".join(documentation.split())
                 self.assertIn(dialogue, prompt)
                 self.assertIn("--scan-only", prompt)
                 self.assertIn("--preview", prompt)
                 self.assertIn("daily-news-prompt.md", prompt)
                 self.assertIn(profile_name, prompt)
+                self.assertIn("interests[].terms", prompt)
+                self.assertIn("weight", prompt)
+                self.assertIn(effective_preference_rule, normalized_prompt)
                 self.assertIn(profile_name, documentation)
                 self.assertIn("research-findings", documentation)
                 self.assertIn("used_finds.csv", documentation)
+                self.assertIn("interests[].terms", documentation)
+                self.assertIn("weight", documentation)
+                self.assertIn("notes", normalized_documentation)
 
         ignore = (PROJECT / ".gitignore").read_text(encoding="utf-8")
         self.assertIn("research_profile.json", ignore)

@@ -16,7 +16,11 @@ the index schema.
    variants, sources, or corpus coverage.
 4. After confirmation, create a local `research_profile.json` using the format
    documented in `docs/research-onboarding.md` and the committed examples in
-   `examples/profiles/`. I should not edit it manually.
+   `examples/profiles/`. I should not edit it manually. Translate every free-form
+   preference that should affect retrieval into actual `interests[].terms`,
+   interest `weight`, material types, or source filters. `notes` are explanatory
+   only and do not affect search; never store an actionable preference only in
+   `notes`. Use only terms or name variants I confirmed.
 5. Run `taira_search.py research-findings` with that profile, an output under
    `work/`, and `--preview`. Never run `record-publication` or change
    `used_finds.csv`.
@@ -26,8 +30,9 @@ the index schema.
    and `chunk_id` references, keeping source report, literary narrative,
    scholarship, and cautious inference distinct.
 7. Ask whether the findings feel right. Apply feedback by changing only
-   `research_profile.json` and rerunning the preview, not by changing search
-   code.
+   the profile's effective terms, weights, and filters and rerunning the
+   preview, not by changing search code. Updating `notes` alone is not an
+   implementation of feedback.
 8. When I accept the preview, explain briefly how the saved profile can be
    reused for a later manual run. Do not create or change an automation.
 

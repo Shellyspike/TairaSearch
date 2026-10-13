@@ -34,6 +34,12 @@ The profile is a small auditable JSON containing:
 - preferred kinds of findings and diversity preferences;
 - a result count from one to twenty, with five as the default.
 
+Only fields used by retrieval change the results. Codex must translate a
+free-form preference into confirmed `interests[].terms`, an interest `weight`,
+material types, or source filters as appropriate. `finding_preferences.notes`
+is explanatory metadata and does not affect ranking or filtering; saving a
+request only in `notes` does not apply it.
+
 The profile does not rewrite index annotations. New names and topics become
 direct FTS queries over stored text, so a preview does not require reindexing.
 Adding new metadata annotations for other CLI commands would be a separate
@@ -67,7 +73,7 @@ report for preferences that produced no indexed hit.
 
 Codex applies feedback by updating the profile and rerunning the preview. A
 request such as “less military material” changes interests and weights, not
-Python code.
+Python code or only the explanatory `notes` field.
 
 ## Later manual runs
 

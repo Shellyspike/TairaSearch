@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sqlite3
 import sys
@@ -383,6 +384,41 @@ def add_search_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--include-duplicates", action="store_true")
 
 
+def _paths_refer_to_same_file(left: Path, right: Path) -> bool:
+    """Compare normalized paths and existing aliases such as links/hard links."""
+    left_resolved = left.expanduser().resolve(strict=False)
+    right_resolved = right.expanduser().resolve(strict=False)
+    if os.path.normcase(os.fspath(left_resolved)) == os.path.normcase(
+        os.fspath(right_resolved)
+    ):
+        return True
+    try:
+        return left_resolved.samefile(right_resolved)
+    except (FileNotFoundError, OSError):
+        return False
+
+
+def validate_research_output_path(args: argparse.Namespace) -> None:
+    """Prevent candidate JSON from replacing any input needed by the command."""
+    output = Path(args.output)
+    protected_inputs = (
+        ("--db", Path(args.db)),
+        ("--profile", Path(args.profile)),
+        ("--used-finds", Path(args.used_finds)),
+        ("--aliases", Path(args.aliases)),
+        ("--topics-config", Path(args.topics_config)),
+        ("--people-config", Path(args.people_config)),
+        ("--source-types-config", Path(args.source_types_config)),
+    )
+    for option, input_path in protected_inputs:
+        if _paths_refer_to_same_file(output, input_path):
+            raise ValueError(
+                "Небезопасный --output: путь совпадает с критичным входным "
+                f"файлом {option} после нормализации: "
+                f"{input_path.expanduser().resolve(strict=False)}"
+            )
+
+
 def make_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Локальный FTS5-поиск по корпусу")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -529,6 +565,8 @@ def main(argv: list[str] | None = None) -> int:
             parser.error("--pool-size должен быть от 10 до 500")
     connection: sqlite3.Connection | None = None
     try:
+        if args.command == "research-findings":
+            validate_research_output_path(args)
         if args.command == "record-publication":
             from daily_five import record_publication_from_json
 
