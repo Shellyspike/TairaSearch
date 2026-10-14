@@ -120,6 +120,49 @@ class DedupAuditTests(unittest.TestCase):
         self.assertEqual(len(daily_five._collapse_neighbours(candidates)), 1)
         self.assertEqual(len(research_findings._collapse_candidates(candidates)), 1)
 
+    def test_near_identical_factual_changes_require_review_in_both_selectors(
+        self,
+    ) -> None:
+        variants = {
+            "number": "A clerk counted four amphorae after the storm.",
+            "date": "In 1181 a clerk counted three amphorae after the storm.",
+            "negation": "A clerk did not count three amphorae after the storm.",
+            "outcome": "A clerk counted three amphorae, which were destroyed after the storm.",
+        }
+        original = "A clerk counted three amphorae after the storm."
+
+        for label, changed in variants.items():
+            with self.subTest(change=label):
+                candidates = [
+                    {
+                        "chunk_id": f"{label}-first",
+                        "retrieval_score": 2.0,
+                        "relative_path": "ledger.txt",
+                        "chunk_no": 2,
+                        "person": [],
+                        "topics": ["material-culture"],
+                        "source_group": "Harbour Ledger",
+                        "what_happened": original,
+                    },
+                    {
+                        "chunk_id": f"{label}-second",
+                        "retrieval_score": 1.0,
+                        "relative_path": "ledger.txt",
+                        "chunk_no": 3,
+                        "person": [],
+                        "topics": ["material-culture"],
+                        "source_group": "Harbour Ledger",
+                        "what_happened": changed,
+                    },
+                ]
+
+                pair = daily_five.candidate_pair_check(*candidates)
+                self.assertEqual(pair["action"], "review")
+                self.assertEqual(len(daily_five._collapse_neighbours(candidates)), 2)
+                self.assertEqual(
+                    len(research_findings._collapse_candidates(candidates)), 2
+                )
+
     def test_shared_labels_never_confirm_a_history_duplicate(self) -> None:
         payload = json.loads(CASES.read_text(encoding="utf-8"))
         case = next(

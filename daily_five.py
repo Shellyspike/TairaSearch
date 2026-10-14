@@ -167,18 +167,24 @@ def candidate_pair_check(
     evidence from the same document/work.  Positional proximity and shared
     labels only create a ``review`` relation; they never delete a candidate.
     """
+    left_text = normalize_text(str(left.get("what_happened", "")))
+    right_text = normalize_text(str(right.get("what_happened", "")))
+    exact_text = bool(
+        left_text
+        and right_text
+        and left_text.casefold() == right_text.casefold()
+    )
+    lexical = _lexical_similarity(left_text, right_text)
     left_id = normalize_text(str(left.get("chunk_id", "")))
     right_id = normalize_text(str(right.get("chunk_id", "")))
-    if left_id and left_id == right_id:
+    same_id = bool(left_id and left_id == right_id)
+    if same_id and exact_text:
         return {
             "action": "collapse",
             "confidence": 1.0,
-            "reason": "exact same chunk_id",
+            "reason": "exact same chunk_id and normalized evidence",
         }
 
-    left_text = normalize_text(str(left.get("what_happened", "")))
-    right_text = normalize_text(str(right.get("what_happened", "")))
-    lexical = _lexical_similarity(left_text, right_text)
     shared_topics = sorted(set(left.get("topics", [])) & set(right.get("topics", [])))
     shared_people = sorted(set(left.get("person", [])) & set(right.get("person", [])))
     same_path = bool(
@@ -194,23 +200,18 @@ def candidate_pair_check(
         chunk_distance = abs(int(left["chunk_no"]) - int(right["chunk_no"]))
 
     same_scope = same_path or same_source
-    if (
-        left_text
-        and right_text
-        and same_scope
-        and shared_topics
-        and (
-            left_text.casefold() == right_text.casefold()
-            or lexical >= 0.90
-        )
-    ):
+    if exact_text and same_scope:
         return {
             "action": "collapse",
             "confidence": round(lexical, 3),
-            "reason": "near-identical evidence in the same document or source group",
+            "reason": "exact normalized evidence in the same document or source group",
         }
 
     review_reasons: list[str] = []
+    if same_id:
+        review_reasons.append(
+            "same positional chunk_id but non-identical evidence"
+        )
     if same_path and chunk_distance is not None and chunk_distance <= 2 and shared_topics:
         review_reasons.append("nearby chunks in the same document with a shared topic")
     if same_source and shared_topics and shared_people:
