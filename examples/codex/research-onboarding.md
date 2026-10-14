@@ -32,9 +32,12 @@ the index schema.
 7. Ask whether the findings feel right. Apply feedback by changing only
    the profile's effective terms, weights, and filters and rerunning the
    preview, not by changing search code. Updating `notes` alone is not an
-   implementation of feedback.
+   implementation of feedback. If the profile is right but individual
+   candidates fail source or semantic review, keep the profile and request a
+   disjoint next batch with `--continue-from` instead.
 8. When I accept the preview, explain briefly how the saved profile can be
-   reused for a later manual run. Do not create or change an automation.
+   reused with `examples/codex/research-workflow.md` for later manual runs. Do
+   not create or change an automation.
 
 If a preference or name has no hit, say that the checked index did not support
 it. Do not claim that the entire original corpus is exhausted.

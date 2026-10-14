@@ -22,6 +22,8 @@ files = [
   "examples/codex/daily-news-prompt.md",
   "examples/codex/research-onboarding.md",
   "examples/codex/research-onboarding.ru.md",
+  "examples/codex/research-workflow.md",
+  "examples/codex/research-workflow.ru.md",
   "examples/codex/source-discovery-prompt.md",
   "examples/demo/ai-input.json",
   "examples/demo/ai-output.md",

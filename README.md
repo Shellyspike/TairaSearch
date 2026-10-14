@@ -14,26 +14,31 @@ Japanese, and English fixtures (including PDFs), not the author's personal
 library, production database, publication journal, active automation, or chat
 history.
 
-## Universal research onboarding (0.2)
+## Profile-driven Codex research (0.3.1)
 
-A new user can configure retrieval by conversation instead of editing JSON:
+A new user can configure retrieval by conversation instead of editing JSON.
+Open the project in Codex and send one request:
 
-1. prepare the environment using the instructions below;
-2. open the project in Codex;
-3. paste the
-   [ready-made onboarding request](examples/codex/research-onboarding.md);
-4. provide an existing index or corpus folder;
-5. answer a few questions, review a preview, and refine preferences in plain
-   language.
+> Read `examples/codex/research-onboarding.md` and guide me through the initial
+> research setup.
 
-Codex saves an ignored local `research_profile.json`. The new
-`research-findings` command reuses the existing FTS5 search, neighbouring
-context, and repeat checks. A preview never updates `used_finds.csv`. See
+Codex then follows the ready-made onboarding request: you provide an existing
+index or corpus folder, answer a few short questions, review a preview, and
+refine preferences in plain language. Prepare the Python environment using the
+instructions below before starting this workflow.
+
+Codex saves an ignored local `research_profile.json`. `research-findings` is
+the primary candidate source for Codex: it reuses FTS5 search, neighbouring
+context, and the 0.3 repeat checks. Codex can request disjoint later batches
+with `--continue-from`, review their evidence, and make the final editorial
+choice. A preview never updates `used_finds.csv`. See
 [docs/research-onboarding.md](docs/research-onboarding.md) for details and two
 synthetic scenarios.
 
-Legacy `daily-five`, existing indexes, and the five-card demonstration below
-retain their existing contracts.
+For later runs, send the ready-made
+[research workflow request](examples/codex/research-workflow.md). Legacy
+`daily-five`, existing indexes, and the five-card demonstration below retain
+their existing contracts.
 
 ## Semantic deduplication (0.3)
 
@@ -163,7 +168,15 @@ Search it:
 .venv\Scripts\python taira_search.py search --db work/index.sqlite3 --query "維盛" --json
 ```
 
-Select zero to five daily candidates:
+Retrieve a profile-driven shortlist for Codex:
+
+```powershell
+.venv\Scripts\python taira_search.py research-findings --db work/index.sqlite3 --profile research_profile.json --used-finds work/demo-used.csv --output work/research-1.json --preview
+```
+
+If editorial review rejects it, add
+`--continue-from work/research-1.json` and use a new output path. The legacy
+daily selector remains available:
 
 ```powershell
 .venv\Scripts\python taira_search.py daily-five --db work/index.sqlite3 --used-finds work/demo-used.csv --output work/candidates.json --json
@@ -208,6 +221,7 @@ verified environment; see the official
 ```powershell
 .venv\Scripts\python -m unittest discover -s tests -v
 .venv\Scripts\python run_demo.py
+.venv\Scripts\python run_research_demo.py
 .venv\Scripts\python run_dedup_audit.py --check
 .venv\Scripts\python make_release.py --check-only
 ```

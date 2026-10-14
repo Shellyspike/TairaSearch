@@ -79,6 +79,7 @@ class ResearchProfileTests(unittest.TestCase):
         output_name: str,
         used_path: Path | None = None,
         count: int | None = None,
+        extra_arguments: tuple[str, ...] = (),
     ) -> dict:
         if used_path is None:
             used_path = self.root / f"{output_name}-used.csv"
@@ -98,6 +99,7 @@ class ResearchProfileTests(unittest.TestCase):
         ]
         if count is not None:
             arguments.extend(["--count", str(count)])
+        arguments.extend(extra_arguments)
         stdout = io.StringIO()
         stderr = io.StringIO()
         with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
@@ -115,6 +117,16 @@ class ResearchProfileTests(unittest.TestCase):
         self.assertIn("Япония", japan["research_area"])
         self.assertIn("Рим", rome["research_area"])
         self.assertEqual(rome["focus_people"], [])
+
+    def test_missing_default_profile_routes_user_to_codex_onboarding(self) -> None:
+        parser = taira_search.make_parser()
+        arguments = parser.parse_args(["research-findings"])
+        self.assertEqual(
+            Path(arguments.profile).resolve(),
+            (PROJECT / "research_profile.json").resolve(),
+        )
+        with self.assertRaisesRegex(RuntimeError, "research-onboarding.ru.md"):
+            load_research_profile(self.root / "missing-profile.json")
 
     def test_rome_works_without_known_people_or_japanese_rules(self) -> None:
         payload = self.run_profile(
@@ -244,6 +256,92 @@ class ResearchProfileTests(unittest.TestCase):
         self.assertEqual(len(payload["final"]), 2)
         self.assertEqual(used_path.read_bytes(), before)
 
+    def test_codex_can_reject_first_batch_and_request_disjoint_next_batch(self) -> None:
+        profile = PROJECT / "examples" / "profiles" / "ancient-rome.json"
+        first = self.run_profile(
+            "rome",
+            profile,
+            output_name="first-batch",
+            count=1,
+            extra_arguments=("--pool-size", "10", "--batch-size", "2"),
+        )
+        first_path = self.root / "first-batch.json"
+        first_ids = {
+            item["chunk_id"] for item in [*first["final"], *first["alternates"]]
+        }
+        self.assertTrue(first_ids)
+        self.assertEqual(
+            set(first["continuation"]["candidate_chunk_ids"]), first_ids
+        )
+
+        second = self.run_profile(
+            "rome",
+            profile,
+            output_name="second-batch",
+            count=1,
+            extra_arguments=(
+                "--pool-size",
+                "10",
+                "--batch-size",
+                "2",
+                "--continue-from",
+                str(first_path),
+            ),
+        )
+        second_ids = {
+            item["chunk_id"] for item in [*second["final"], *second["alternates"]]
+        }
+        self.assertTrue(second_ids)
+        self.assertTrue(first_ids.isdisjoint(second_ids))
+        self.assertGreaterEqual(
+            second["continuation"]["seen_before_count"], len(first_ids)
+        )
+        self.assertEqual(
+            second["stats"]["excluded_from_previous_batches"], len(first_ids)
+        )
+        self.assertGreater(second["coverage"]["search_hits"]["daily-life"], 0)
+        self.assertNotIn(
+            "daily-life", second["coverage"]["interests_without_hits"]
+        )
+
+    def test_continuation_accepts_legacy_result_without_new_metadata(self) -> None:
+        profile = PROJECT / "examples" / "profiles" / "ancient-rome.json"
+        first = self.run_profile(
+            "rome",
+            profile,
+            output_name="legacy-source",
+            count=1,
+            extra_arguments=("--pool-size", "10", "--batch-size", "2"),
+        )
+        first.pop("continuation")
+        legacy_path = self.root / "legacy-result.json"
+        legacy_path.write_text(
+            json.dumps(first, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+        first_ids = {
+            item["chunk_id"] for item in [*first["final"], *first["alternates"]]
+        }
+
+        second = self.run_profile(
+            "rome",
+            profile,
+            output_name="legacy-continuation",
+            count=1,
+            extra_arguments=(
+                "--pool-size",
+                "10",
+                "--batch-size",
+                "2",
+                "--continue-from",
+                str(legacy_path),
+            ),
+        )
+        second_ids = {
+            item["chunk_id"] for item in [*second["final"], *second["alternates"]]
+        }
+        self.assertTrue(second_ids)
+        self.assertTrue(first_ids.isdisjoint(second_ids))
+
     def test_output_cannot_replace_any_critical_input_after_normalization(self) -> None:
         inputs = {
             "--db": self.databases["rome"],
@@ -253,11 +351,13 @@ class ResearchProfileTests(unittest.TestCase):
             "--topics-config": self.root / "protected-topics.json",
             "--people-config": self.root / "protected-people.json",
             "--source-types-config": self.root / "protected-source-types.json",
+            "--continue-from": self.root / "protected-continuation.json",
         }
         inputs["--profile"].write_bytes(
             (PROJECT / "examples" / "profiles" / "ancient-rome.json").read_bytes()
         )
         inputs["--used-finds"].write_text(USED_HEADER, encoding="utf-8-sig")
+        inputs["--continue-from"].write_text("{}\n", encoding="utf-8")
         for option, source_name in (
             ("--aliases", "aliases.json"),
             ("--topics-config", "topics.json"),
@@ -348,6 +448,27 @@ class ResearchProfileTests(unittest.TestCase):
         ignore = (PROJECT / ".gitignore").read_text(encoding="utf-8")
         self.assertIn("research_profile.json", ignore)
         self.assertIn("/research_profiles/", ignore)
+
+    def test_codex_workflow_owns_semantic_review_and_continuation(self) -> None:
+        for path in (
+            PROJECT / "examples" / "codex" / "research-workflow.md",
+            PROJECT / "examples" / "codex" / "research-workflow.ru.md",
+        ):
+            with self.subTest(prompt=path.name):
+                prompt = path.read_text(encoding="utf-8")
+                self.assertIn("research-findings", prompt)
+                self.assertIn("--continue-from", prompt)
+                self.assertIn("`search`", prompt)
+                self.assertIn("`context`", prompt)
+                self.assertIn("semantic_review", prompt)
+                self.assertIn("confirmed_repeat", prompt)
+                self.assertIn("probable_repeat_review", prompt)
+                self.assertIn("new_angle", prompt)
+                self.assertIn("new_finding", prompt)
+                self.assertIn("research-onboarding", prompt)
+                self.assertIn("record-publication", prompt)
+                self.assertIn("daily-five", prompt)
+                self.assertIn("used_finds.csv", prompt)
 
 
 if __name__ == "__main__":

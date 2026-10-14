@@ -27,7 +27,11 @@ def load_research_profile(path: Path) -> dict[str, Any]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8-sig"))
     except FileNotFoundError as exc:
-        raise RuntimeError(f"Профиль исследования не найден: {path}") from exc
+        raise RuntimeError(
+            f"Профиль исследования не найден: {path}. Для первоначальной "
+            "настройки откройте проект в Codex и попросите выполнить инструкции "
+            "из examples/codex/research-onboarding.ru.md (или английской версии)."
+        ) from exc
     except json.JSONDecodeError as exc:
         raise RuntimeError(f"Ошибка JSON в профиле {path}: {exc}") from exc
     if not isinstance(payload, dict):
