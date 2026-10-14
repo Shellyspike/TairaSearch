@@ -391,9 +391,12 @@ def _history_match(
     score += 0.10 * bool(same_source)
     score += 0.05 * bool(related_source_name and not same_source)
     score += 0.10 * bool(same_date)
-    if exact_id or exact_claim:
+    if exact_claim:
         strength = "confirmed"
         score = 1.0
+    elif exact_id:
+        strength = "strong"
+        score = max(score, 0.95)
     elif lexical >= 0.60 or (lexical >= 0.38 and anchor_count >= 2):
         strength = "strong"
     elif lexical >= 0.28 or anchor_count >= 2:
@@ -414,6 +417,7 @@ def _history_match(
             "same_date": same_date,
             "exact_chunk_id": exact_id,
             "exact_claim": exact_claim,
+            "positional_id_claim_changed": bool(exact_id and not exact_claim),
         },
         "candidate_claim_type": candidate_type,
         "prior_claim_type": prior_type,

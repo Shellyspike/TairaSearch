@@ -15,7 +15,7 @@
       "mode": "journal",
       "expected_semantic_decision": "confirmed_repeat",
       "baseline_0_2": "duplicate",
-      "expected_improved": "duplicate",
+      "expected_improved": "kept_for_review",
       "candidate": {
         "chunk_id": "ch_demo_jp_fire_001",
         "title": "Томомори — пожар в столице",

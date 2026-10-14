@@ -220,17 +220,88 @@ class DedupAuditTests(unittest.TestCase):
             result["review_matches"][0]["candidate_claim_type"], "interpretation"
         )
 
-    def test_exact_chunk_id_remains_the_only_fixture_auto_exclusion(self) -> None:
-        payload = json.loads(CASES.read_text(encoding="utf-8"))
-        decisions = [
-            daily_five.duplicate_check(case["candidate"], case["used"])
-            for case in payload["cases"]
-            if case["mode"] == "journal"
+    def test_exact_chunk_and_claim_remain_a_confirmed_technical_repeat(self) -> None:
+        candidate = {
+            "chunk_id": "same-location",
+            "what_happened": "A clerk counted three amphorae after the storm.",
+            "person": [],
+            "topics": ["material-culture"],
+            "source_group": "Harbour Ledger",
+        }
+        used = [
+            {
+                "id": "same-location",
+                "description": "A clerk counted three amphorae after the storm.",
+                "persons": [],
+                "topics": ["material-culture"],
+                "source": "Harbour Ledger",
+            }
         ]
 
-        excluded = [item for item in decisions if item["auto_exclude"]]
-        self.assertEqual(len(excluded), 1)
-        self.assertEqual(excluded[0]["status"], "duplicate")
+        result = daily_five.duplicate_check(candidate, used)
+
+        self.assertEqual(result["status"], "duplicate")
+        self.assertTrue(result["auto_exclude"])
+        self.assertFalse(result["requires_editorial_review"])
+
+    def test_same_chunk_id_with_changed_claim_requires_review_in_both_selectors(
+        self,
+    ) -> None:
+        candidate = {
+            "chunk_id": "same-location",
+            "retrieval_score": 2.0,
+            "relative_path": "ledger.txt",
+            "chunk_no": 4,
+            "source": "Harbour Ledger",
+            "source_group": "Harbour Ledger",
+            "primary_topic": "material-culture",
+            "person": [],
+            "topics": ["material-culture"],
+            "what_happened": "A porter opened the granary after the storm.",
+        }
+        used = [
+            {
+                "id": "same-location",
+                "description": "A clerk closed the harbour gate before the storm.",
+                "persons": [],
+                "topics": ["material-culture"],
+                "source": "Harbour Ledger",
+            }
+        ]
+
+        result = daily_five.duplicate_check(candidate, used)
+        candidate["duplicate_check"] = result
+        daily_five.attach_semantic_reviews([candidate])
+
+        self.assertEqual(result["status"], "duplicate_risk")
+        self.assertFalse(result["auto_exclude"])
+        self.assertTrue(result["requires_editorial_review"])
+        self.assertTrue(
+            result["review_matches"][0]["signals"][
+                "positional_id_claim_changed"
+            ]
+        )
+        self.assertEqual(
+            candidate["semantic_review"]["history_matches"][0]["prior"][
+                "description"
+            ],
+            used[0]["description"],
+        )
+        self.assertEqual(
+            [item["chunk_id"] for item in daily_five._select_diverse([candidate], 1)],
+            ["same-location"],
+        )
+        self.assertEqual(
+            [
+                item["chunk_id"]
+                for item in research_findings._select_diverse(
+                    [candidate],
+                    1,
+                    {"finding_preferences": {"avoid_person_repetition": False}},
+                )
+            ],
+            ["same-location"],
+        )
 
     def test_uncertain_history_match_remains_eligible_in_both_selectors(self) -> None:
         uncertain = {
