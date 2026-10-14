@@ -22,10 +22,12 @@ Open the project in Codex and send one request:
 > Read `examples/codex/research-onboarding.md` and guide me through the initial
 > research setup.
 
-Codex then follows the ready-made onboarding request: you provide an existing
-index or corpus folder, answer a few short questions, review a preview, and
-refine preferences in plain language. Prepare the Python environment using the
-instructions below before starting this workflow.
+Codex first asks a few short questions about your interests, then offers three
+material sources: a document folder, a ready index, or help finding open
+sources. Downloads and indexing require explicit consent. After the library is
+ready, you review a preview and refine preferences in plain language. Prepare
+the Python environment using the instructions below before starting this
+workflow.
 
 Codex saves an ignored local `research_profile.json`. `research-findings` is
 the primary candidate source for Codex: it reuses FTS5 search, neighbouring

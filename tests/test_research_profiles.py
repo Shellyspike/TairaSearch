@@ -129,6 +129,114 @@ class ResearchProfileTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "research-onboarding.ru.md"):
             load_research_profile(self.root / "missing-profile.json")
 
+    def test_clean_onboarding_folder_path_scans_builds_and_previews(self) -> None:
+        scenario = self.root / "clean-onboarding"
+        corpus = scenario / "new-library"
+        corpus.mkdir(parents=True)
+        (corpus / "open-example.txt").write_text(
+            "Synthetic onboarding material. The signal appears in a complete "
+            "account with enough context to test a first research preview. "
+            "This is not a historical claim.",
+            encoding="utf-8",
+        )
+        database = scenario / "work" / "index.sqlite3"
+        profile_path = scenario / "research_profile.json"
+        used_path = scenario / "used.csv"
+        output_path = scenario / "work" / "candidates.json"
+        self.assertFalse(database.exists())
+        self.assertFalse(profile_path.exists())
+
+        scan_stdout = io.StringIO()
+        with contextlib.redirect_stdout(scan_stdout), mock.patch.object(
+            build_index,
+            "parse_file",
+            side_effect=AssertionError("scan-only read document contents"),
+        ):
+            scan_code = build_index.main(
+                [str(corpus), "--scan-only", "--db", str(database)]
+            )
+        self.assertEqual(scan_code, 0)
+        self.assertFalse(database.exists())
+        self.assertIn("Найдено поддерживаемых файлов: 1", scan_stdout.getvalue())
+
+        profile = {
+            "schema_version": 1,
+            "name": "Clean onboarding",
+            "research_area": "Synthetic setup verification",
+            "result_language": "en",
+            "max_results": 1,
+            "interests": [
+                {
+                    "id": "signal",
+                    "label": "signal",
+                    "terms": ["signal"],
+                    "weight": 1.0,
+                }
+            ],
+            "focus_people": [],
+            "material_types": ["historical", "literary", "scholarship", "other"],
+            "include_sources": [],
+            "exclude_sources": [],
+            "finding_preferences": {
+                "preferred_kinds": ["clear source-supported finding"],
+                "include_unlisted_people": True,
+                "avoid_person_repetition": True,
+                "notes": "Explain why the finding matters.",
+            },
+        }
+        profile_path.write_text(
+            json.dumps(profile, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+        database.parent.mkdir(parents=True)
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(
+            io.StringIO()
+        ):
+            build_code = build_index.main(
+                [
+                    str(corpus),
+                    "--db",
+                    str(database),
+                    "--drive-csv",
+                    str(scenario / "work" / "drive.csv"),
+                    "--drive-jsonl",
+                    str(scenario / "work" / "drive.jsonl"),
+                    "--log",
+                    str(scenario / "work" / "index.log"),
+                ]
+            )
+        self.assertEqual(build_code, 0)
+        self.assertTrue(database.is_file())
+
+        used_path.write_text(USED_HEADER, encoding="utf-8-sig")
+        journal_before = used_path.read_bytes()
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            preview_code = taira_search.main(
+                [
+                    "research-findings",
+                    "--db",
+                    str(database),
+                    "--profile",
+                    str(profile_path),
+                    "--used-finds",
+                    str(used_path),
+                    "--output",
+                    str(output_path),
+                    "--preview",
+                    "--count",
+                    "1",
+                ]
+            )
+        self.assertEqual(preview_code, 0, stderr.getvalue())
+        payload = json.loads(output_path.read_text(encoding="utf-8"))
+        self.assertEqual(len(payload["final"]), 1)
+        self.assertTrue(payload["final"][0]["chunk_id"].startswith("ch_"))
+        self.assertEqual(payload["final"][0]["relative_path"], "open-example.txt")
+        self.assertEqual(used_path.read_bytes(), journal_before)
+
     def test_rome_works_without_known_people_or_japanese_rules(self) -> None:
         payload = self.run_profile(
             "rome",
@@ -542,6 +650,8 @@ class ResearchProfileTests(unittest.TestCase):
                 self.assertIn("finding_preferences.notes", prompt)
                 self.assertIn("--continue-from", prompt)
                 self.assertIn("codex://automations", prompt)
+                self.assertIn("source-discovery-prompt.md", prompt)
+                self.assertIn("0.4", prompt)
                 self.assertIn(profile_name, documentation)
                 self.assertIn("research-findings", documentation)
                 self.assertIn("used_finds.csv", documentation)
@@ -550,11 +660,33 @@ class ResearchProfileTests(unittest.TestCase):
                 self.assertIn("notes", normalized_documentation)
                 self.assertIn("codex://automations", documentation)
                 if prompt_path.name.endswith("ru.md"):
+                    self.assertLess(
+                        normalized_prompt.index("Сначала проведи короткое интервью"),
+                        normalized_prompt.index(
+                            "Только после подтверждения интересов выясни"
+                        ),
+                    )
+                    self.assertIn("У меня есть папка документов", normalized_prompt)
+                    self.assertIn("У меня есть готовый индекс", normalized_prompt)
+                    self.assertIn("У меня пока ничего нет", normalized_prompt)
+                    self.assertIn("Ничего не скачивай без явного", normalized_prompt)
+                    self.assertIn("Если инструментов поиска", normalized_prompt)
                     self.assertIn("Без явного согласия", normalized_prompt)
                     self.assertIn("периодичность", normalized_prompt)
                     self.assertIn("часовой пояс", normalized_prompt)
                     self.assertIn("живой развёрнутый стиль", normalized_prompt)
                 else:
+                    self.assertLess(
+                        normalized_prompt.index("First ask about the research area"),
+                        normalized_prompt.index(
+                            "Only after confirming my interests"
+                        ),
+                    )
+                    self.assertIn("I have a folder of documents", normalized_prompt)
+                    self.assertIn("I have a ready TairaSearch index", normalized_prompt)
+                    self.assertIn("I have nothing yet", normalized_prompt)
+                    self.assertIn("Download nothing until", normalized_prompt)
+                    self.assertIn("If search or download tools", normalized_prompt)
                     self.assertIn("without my explicit agreement", normalized_prompt)
                     self.assertIn("cadence", normalized_prompt)
                     self.assertIn("time zone", normalized_prompt)
