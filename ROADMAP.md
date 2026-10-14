@@ -59,6 +59,13 @@ as two visible, separately testable parts.
 - [ ] Calibrate retrieval and editorial decisions on reviewed open-material
   examples; do not treat variable model prose as a byte-for-byte artifact.
 
+## 0.4 — automatic acquisition of new materials
+
+- [ ] Prepare a separately reviewed, opt-in plan for discovering and downloading
+  new permitted public materials, with source provenance, reuse of previously
+  processed documents, failure recovery, and strict separation from the private
+  local corpus. Implementation has not started.
+
 Production migration remains separate from public development. Any switch must
 first be tested against copies of the corpus and index, comparing document
 membership and search availability before and after the change.
