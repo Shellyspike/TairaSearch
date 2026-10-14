@@ -13,7 +13,9 @@ from typing import Any, Callable
 
 from daily_five import (
     _evidence_readable,
-    _lexical_similarity,
+    _auto_excluded,
+    attach_semantic_reviews,
+    candidate_pair_check,
     duplicate_check,
     load_used_finds,
     source_group,
@@ -111,19 +113,7 @@ def _collapse_candidates(candidates: list[dict[str, Any]]) -> list[dict[str, Any
     kept: list[dict[str, Any]] = []
     for candidate in sorted(candidates, key=lambda item: -item["retrieval_score"]):
         duplicate = any(
-            (
-                prior["relative_path"] == candidate["relative_path"]
-                and abs(prior["chunk_no"] - candidate["chunk_no"]) <= 2
-                and bool(set(prior["topics"]) & set(candidate["topics"]))
-            )
-            or (
-                prior["source_group"] == candidate["source_group"]
-                and bool(set(prior["topics"]) & set(candidate["topics"]))
-                and _lexical_similarity(
-                    prior["what_happened"], candidate["what_happened"]
-                )
-                >= 0.62
-            )
+            candidate_pair_check(prior, candidate)["action"] == "collapse"
             for prior in kept
         )
         if not duplicate:
@@ -134,9 +124,7 @@ def _collapse_candidates(candidates: list[dict[str, Any]]) -> list[dict[str, Any
 def _select_diverse(
     candidates: list[dict[str, Any]], count: int, profile: dict[str, Any]
 ) -> list[dict[str, Any]]:
-    eligible = [
-        item for item in candidates if item["duplicate_check"]["status"] == "clear"
-    ]
+    eligible = [item for item in candidates if not _auto_excluded(item)]
     selected: list[dict[str, Any]] = []
     source_counts: Counter[str] = Counter()
     topic_counts: Counter[str] = Counter()
@@ -309,11 +297,10 @@ def build_research_findings(
         event["duplicate_check"] = duplicate_check(event, used)
         if event["duplicate_check"]["status"] == "duplicate":
             rejected["used_duplicate"] += 1
-        elif event["duplicate_check"]["status"] == "duplicate_risk":
-            rejected["duplicate_risk"] += 1
         verified.append(event)
 
     verified = _collapse_candidates(verified)
+    attach_semantic_reviews(verified)
     verified.sort(
         key=lambda item: (
             item["duplicate_check"]["status"] != "clear",
@@ -334,6 +321,18 @@ def build_research_findings(
         for item in profile["interests"]
         if verified_interest_mentions[item["id"]] == 0
     ]
+    review_stats = {
+        "candidates_requiring_editorial_review": sum(
+            bool(item["semantic_review"]["required"]) for item in verified
+        ),
+        "history_match_candidates": sum(
+            bool(item["semantic_review"]["history_matches"]) for item in verified
+        ),
+        "candidate_pair_relations": sum(
+            len(item["semantic_review"]["candidate_matches"]) for item in verified
+        )
+        // 2,
+    }
     return {
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "mode": "research-findings",
@@ -363,6 +362,7 @@ def build_research_findings(
             "rejected": dict(rejected),
             "final_count": len(final),
             "alternate_count": len(alternates),
+            "semantic_review": review_stats,
         },
         "final": final,
         "alternates": alternates,

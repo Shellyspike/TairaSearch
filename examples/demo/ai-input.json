@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "demo": true,
   "material_status": "synthetic_demo_not_historical_evidence",
   "notice_ru": "Все тексты и события вымышлены для демонстрации TairaSearch; их нельзя представлять как реальные исторические сведения.",
@@ -61,7 +61,30 @@
         "status": "clear",
         "confidence": 0.0,
         "reason": "not found in used_finds.csv",
-        "matched_id": null
+        "matched_id": null,
+        "python_disposition": "no_plausible_history_match",
+        "auto_exclude": false,
+        "requires_editorial_review": false,
+        "allowed_semantic_decisions": [
+          "confirmed_repeat",
+          "probable_repeat_review",
+          "new_angle",
+          "new_finding"
+        ],
+        "review_matches": []
+      },
+      "semantic_review": {
+        "required": false,
+        "decision_owner": "python_technical_rules",
+        "allowed_decisions": [
+          "confirmed_repeat",
+          "probable_repeat_review",
+          "new_angle",
+          "new_finding"
+        ],
+        "history_matches": [],
+        "candidate_matches": [],
+        "instruction": "Compare supported claims, actions, objects, outcomes, and source roles. Shared people, topics, dates, or sources are not a duplicate verdict."
       }
     },
     {
@@ -117,7 +140,30 @@
         "status": "clear",
         "confidence": 0.0,
         "reason": "not found in used_finds.csv",
-        "matched_id": null
+        "matched_id": null,
+        "python_disposition": "no_plausible_history_match",
+        "auto_exclude": false,
+        "requires_editorial_review": false,
+        "allowed_semantic_decisions": [
+          "confirmed_repeat",
+          "probable_repeat_review",
+          "new_angle",
+          "new_finding"
+        ],
+        "review_matches": []
+      },
+      "semantic_review": {
+        "required": false,
+        "decision_owner": "python_technical_rules",
+        "allowed_decisions": [
+          "confirmed_repeat",
+          "probable_repeat_review",
+          "new_angle",
+          "new_finding"
+        ],
+        "history_matches": [],
+        "candidate_matches": [],
+        "instruction": "Compare supported claims, actions, objects, outcomes, and source roles. Shared people, topics, dates, or sources are not a duplicate verdict."
       }
     },
     {
@@ -173,7 +219,30 @@
         "status": "clear",
         "confidence": 0.0,
         "reason": "not found in used_finds.csv",
-        "matched_id": null
+        "matched_id": null,
+        "python_disposition": "no_plausible_history_match",
+        "auto_exclude": false,
+        "requires_editorial_review": false,
+        "allowed_semantic_decisions": [
+          "confirmed_repeat",
+          "probable_repeat_review",
+          "new_angle",
+          "new_finding"
+        ],
+        "review_matches": []
+      },
+      "semantic_review": {
+        "required": false,
+        "decision_owner": "python_technical_rules",
+        "allowed_decisions": [
+          "confirmed_repeat",
+          "probable_repeat_review",
+          "new_angle",
+          "new_finding"
+        ],
+        "history_matches": [],
+        "candidate_matches": [],
+        "instruction": "Compare supported claims, actions, objects, outcomes, and source roles. Shared people, topics, dates, or sources are not a duplicate verdict."
       }
     },
     {
@@ -229,7 +298,30 @@
         "status": "clear",
         "confidence": 0.0,
         "reason": "not found in used_finds.csv",
-        "matched_id": null
+        "matched_id": null,
+        "python_disposition": "no_plausible_history_match",
+        "auto_exclude": false,
+        "requires_editorial_review": false,
+        "allowed_semantic_decisions": [
+          "confirmed_repeat",
+          "probable_repeat_review",
+          "new_angle",
+          "new_finding"
+        ],
+        "review_matches": []
+      },
+      "semantic_review": {
+        "required": false,
+        "decision_owner": "python_technical_rules",
+        "allowed_decisions": [
+          "confirmed_repeat",
+          "probable_repeat_review",
+          "new_angle",
+          "new_finding"
+        ],
+        "history_matches": [],
+        "candidate_matches": [],
+        "instruction": "Compare supported claims, actions, objects, outcomes, and source roles. Shared people, topics, dates, or sources are not a duplicate verdict."
       }
     },
     {
@@ -285,7 +377,30 @@
         "status": "clear",
         "confidence": 0.0,
         "reason": "not found in used_finds.csv",
-        "matched_id": null
+        "matched_id": null,
+        "python_disposition": "no_plausible_history_match",
+        "auto_exclude": false,
+        "requires_editorial_review": false,
+        "allowed_semantic_decisions": [
+          "confirmed_repeat",
+          "probable_repeat_review",
+          "new_angle",
+          "new_finding"
+        ],
+        "review_matches": []
+      },
+      "semantic_review": {
+        "required": false,
+        "decision_owner": "python_technical_rules",
+        "allowed_decisions": [
+          "confirmed_repeat",
+          "probable_repeat_review",
+          "new_angle",
+          "new_finding"
+        ],
+        "history_matches": [],
+        "candidate_matches": [],
+        "instruction": "Compare supported claims, actions, objects, outcomes, and source roles. Shared people, topics, dates, or sources are not a duplicate verdict."
       }
     }
   ]

@@ -91,6 +91,13 @@ KNOWN_PLACES = (
     "一ノ谷", "一の谷", "屋島", "壇ノ浦", "比叡山", "六波羅", "大宰府",
 )
 WORD_RE = re.compile(r"[0-9A-Za-zА-Яа-яЁё一-龯々ぁ-ゖァ-ヺー]{2,}")
+SEMANTIC_DECISIONS = (
+    "confirmed_repeat",
+    "probable_repeat_review",
+    "new_angle",
+    "new_finding",
+)
+MAX_HISTORY_REVIEW_MATCHES = 3
 
 
 def load_used_finds(path: Path) -> list[dict[str, Any]]:
@@ -105,6 +112,7 @@ def load_used_finds(path: Path) -> list[dict[str, Any]]:
             records.append(
                 {
                     "id": normalize_text(row.get("id", "")),
+                    "type": normalize_text(row.get("type", "")),
                     "persons": _split_values(row.get("persons", "")),
                     "topics": _split_values(row.get("topics", "")),
                     "description": normalize_text(row.get("short_description", "")),
@@ -150,59 +158,322 @@ def _lexical_similarity(left: str, right: str) -> float:
     return max(sequence, word_jaccard, gram_jaccard)
 
 
+def candidate_pair_check(
+    left: dict[str, Any], right: dict[str, Any]
+) -> dict[str, Any]:
+    """Decide whether two candidates may be collapsed without semantic guesswork.
+
+    ``collapse`` is deliberately limited to the same chunk or near-identical
+    evidence from the same document/work.  Positional proximity and shared
+    labels only create a ``review`` relation; they never delete a candidate.
+    """
+    left_text = normalize_text(str(left.get("what_happened", "")))
+    right_text = normalize_text(str(right.get("what_happened", "")))
+    exact_text = bool(
+        left_text
+        and right_text
+        and left_text.casefold() == right_text.casefold()
+    )
+    lexical = _lexical_similarity(left_text, right_text)
+    left_id = normalize_text(str(left.get("chunk_id", "")))
+    right_id = normalize_text(str(right.get("chunk_id", "")))
+    same_id = bool(left_id and left_id == right_id)
+    if same_id and exact_text:
+        return {
+            "action": "collapse",
+            "confidence": 1.0,
+            "reason": "exact same chunk_id and normalized evidence",
+        }
+
+    shared_topics = sorted(set(left.get("topics", [])) & set(right.get("topics", [])))
+    shared_people = sorted(set(left.get("person", [])) & set(right.get("person", [])))
+    same_path = bool(
+        left.get("relative_path")
+        and left.get("relative_path") == right.get("relative_path")
+    )
+    same_source = bool(
+        left.get("source_group")
+        and left.get("source_group") == right.get("source_group")
+    )
+    chunk_distance: int | None = None
+    if same_path and left.get("chunk_no") is not None and right.get("chunk_no") is not None:
+        chunk_distance = abs(int(left["chunk_no"]) - int(right["chunk_no"]))
+
+    same_scope = same_path or same_source
+    if exact_text and same_scope:
+        return {
+            "action": "collapse",
+            "confidence": round(lexical, 3),
+            "reason": "exact normalized evidence in the same document or source group",
+        }
+
+    review_reasons: list[str] = []
+    if same_id:
+        review_reasons.append(
+            "same positional chunk_id but non-identical evidence"
+        )
+    if same_path and chunk_distance is not None and chunk_distance <= 2 and shared_topics:
+        review_reasons.append("nearby chunks in the same document with a shared topic")
+    if same_source and shared_topics and shared_people:
+        review_reasons.append("same source group with shared people and topics")
+    if lexical >= 0.45 and (same_scope or shared_topics or shared_people):
+        review_reasons.append(f"material similarity {lexical:.2f}")
+    if review_reasons:
+        return {
+            "action": "review",
+            "confidence": round(lexical, 3),
+            "reason": "; ".join(review_reasons),
+        }
+    return {
+        "action": "distinct",
+        "confidence": round(lexical, 3),
+        "reason": "no strong technical evidence that the candidates are the same finding",
+    }
+
+
+def attach_semantic_reviews(
+    candidates: list[dict[str, Any]], *, limit: int = 3
+) -> list[dict[str, Any]]:
+    """Attach bounded evidence packets for Codex without removing candidates."""
+    for candidate in candidates:
+        candidate_matches: list[dict[str, Any]] = []
+        for other in candidates:
+            if other is candidate:
+                continue
+            pair = candidate_pair_check(candidate, other)
+            if pair["action"] != "review":
+                continue
+            candidate_matches.append(
+                {
+                    "matched_chunk_id": other.get("chunk_id"),
+                    "confidence": pair["confidence"],
+                    "reason": pair["reason"],
+                    "candidate": {
+                        "title": other.get("title"),
+                        "person": list(other.get("person", [])),
+                        "topics": list(other.get("topics", [])),
+                        "date": other.get("date"),
+                        "source": other.get("source"),
+                        "source_type": other.get("index_source_type")
+                        or other.get("source_type"),
+                        "relative_path": other.get("relative_path"),
+                        "chunk_id": other.get("chunk_id"),
+                        "what_happened": other.get("what_happened"),
+                        "verified_context": other.get("verified_context", {}),
+                    },
+                }
+            )
+        candidate_matches.sort(
+            key=lambda item: (
+                -float(item["confidence"]),
+                str(item["matched_chunk_id"] or ""),
+            )
+        )
+        candidate_matches = candidate_matches[:limit]
+        duplicate = candidate.get("duplicate_check", {})
+        history_matches = list(duplicate.get("review_matches", []))
+        required = bool(
+            duplicate.get("requires_editorial_review") or candidate_matches
+        )
+        candidate["semantic_review"] = {
+            "required": required,
+            "decision_owner": "codex" if required else "python_technical_rules",
+            "allowed_decisions": list(SEMANTIC_DECISIONS),
+            "history_matches": history_matches,
+            "candidate_matches": candidate_matches,
+            "instruction": (
+                "Compare supported claims, actions, objects, outcomes, and source roles. "
+                "Shared people, topics, dates, or sources are not a duplicate verdict."
+            ),
+        }
+    return candidates
+
+
+def _auto_excluded(candidate: dict[str, Any]) -> bool:
+    decision = candidate.get("duplicate_check", {})
+    return bool(
+        decision.get("auto_exclude", decision.get("status") == "duplicate")
+    )
+
+
+def _claim_type(candidate: dict[str, Any]) -> str:
+    explicit = normalize_text(str(candidate.get("type", ""))).casefold()
+    if explicit in {"event", "interpretation"}:
+        return explicit
+    source_type = normalize_text(
+        str(candidate.get("index_source_type") or candidate.get("source_type") or "")
+    ).casefold()
+    return "interpretation" if source_type == "scholarship" else "event"
+
+
+def _history_match(
+    candidate: dict[str, Any], record: dict[str, Any]
+) -> dict[str, Any] | None:
+    candidate_id = normalize_text(str(candidate.get("chunk_id", "")))
+    record_id = normalize_text(str(record.get("id", "")))
+    candidate_claim = normalize_text(str(candidate.get("what_happened", "")))
+    prior_claim = normalize_text(str(record.get("description", "")))
+    exact_id = bool(candidate_id and candidate_id == record_id)
+    exact_claim = bool(
+        candidate_claim
+        and prior_claim
+        and candidate_claim.casefold() == prior_claim.casefold()
+    )
+
+    candidate_people = set(candidate.get("person", []))
+    candidate_topics = set(candidate.get("topics", []))
+    people_overlap = sorted(candidate_people & set(record.get("persons", [])))
+    topics_overlap = sorted(candidate_topics & set(record.get("topics", [])))
+    candidate_source = normalize_text(
+        str(candidate.get("source_group") or candidate.get("source") or "")
+    )
+    prior_source = normalize_text(str(record.get("source", "")))
+    same_source = bool(
+        prior_source
+        and candidate_source
+        and source_group(prior_source) == source_group(candidate_source)
+    )
+    source_similarity = _lexical_similarity(candidate_source, prior_source)
+    related_source_name = bool(source_similarity >= 0.45)
+    candidate_date = normalize_text(str(candidate.get("date") or ""))
+    same_date = bool(
+        candidate_date
+        and candidate_date.casefold() in prior_claim.casefold()
+    )
+    material = " ".join(
+        [str(candidate.get("title", "")), candidate_claim]
+    ).strip()
+    lexical = max(
+        _lexical_similarity(candidate_claim, prior_claim),
+        _lexical_similarity(material, prior_claim),
+    )
+    candidate_type = _claim_type(candidate)
+    prior_type = normalize_text(str(record.get("type", ""))).casefold() or "unknown"
+    possible_new_angle = bool(
+        candidate_type == "interpretation" and prior_type != "interpretation"
+    )
+
+    reasons: list[str] = []
+    if exact_id:
+        reasons.append("exact chunk_id")
+    if exact_claim:
+        reasons.append("exact normalized published claim")
+    if people_overlap:
+        reasons.append("shared people: " + ", ".join(people_overlap))
+    if topics_overlap:
+        reasons.append("shared topics: " + ", ".join(topics_overlap))
+    if same_source:
+        reasons.append("same source group")
+    elif related_source_name:
+        reasons.append(f"related source name {source_similarity:.2f}")
+    if same_date:
+        reasons.append("same stated date")
+    if lexical >= 0.28:
+        reasons.append(f"claim similarity {lexical:.2f}")
+    if possible_new_angle:
+        reasons.append("scholarship may add an interpretation to a known event")
+
+    anchor_count = sum(
+        [bool(people_overlap), bool(topics_overlap), same_source or related_source_name, same_date]
+    )
+    plausible = bool(
+        exact_id
+        or exact_claim
+        or lexical >= 0.28
+        or anchor_count >= 2
+        or topics_overlap
+    )
+    if not plausible:
+        return None
+    score = lexical
+    score += 0.12 * bool(people_overlap)
+    score += 0.08 * bool(topics_overlap)
+    score += 0.10 * bool(same_source)
+    score += 0.05 * bool(related_source_name and not same_source)
+    score += 0.10 * bool(same_date)
+    if exact_claim:
+        strength = "confirmed"
+        score = 1.0
+    elif exact_id:
+        strength = "strong"
+        score = max(score, 0.95)
+    elif lexical >= 0.60 or (lexical >= 0.38 and anchor_count >= 2):
+        strength = "strong"
+    elif lexical >= 0.28 or anchor_count >= 2:
+        strength = "moderate"
+    else:
+        strength = "weak"
+    return {
+        "matched_id": record_id or None,
+        "strength": strength,
+        "match_score": round(min(score, 1.0), 3),
+        "reason": "; ".join(reasons) or "weak shared topic",
+        "signals": {
+            "lexical_similarity": round(lexical, 3),
+            "shared_people": people_overlap,
+            "shared_topics": topics_overlap,
+            "same_source_group": same_source,
+            "source_name_similarity": round(source_similarity, 3),
+            "same_date": same_date,
+            "exact_chunk_id": exact_id,
+            "exact_claim": exact_claim,
+            "positional_id_claim_changed": bool(exact_id and not exact_claim),
+        },
+        "candidate_claim_type": candidate_type,
+        "prior_claim_type": prior_type,
+        "possible_new_angle": possible_new_angle,
+        "prior": {
+            "id": record_id or None,
+            "type": prior_type,
+            "persons": list(record.get("persons", [])),
+            "topics": list(record.get("topics", [])),
+            "description": prior_claim,
+            "source": prior_source,
+        },
+    }
+
+
 def duplicate_check(candidate: dict[str, Any], used: list[dict[str, Any]]) -> dict[str, Any]:
-    best_score = 0.0
-    best_reason = "not found in used_finds.csv"
-    best_id = ""
-    candidate_people = set(candidate["person"])
-    candidate_topics = set(candidate["topics"])
-    candidate_date = candidate.get("date") or ""
-    material = " ".join([candidate["title"], candidate["what_happened"]])
-    for record in used:
-        if record["id"] and record["id"] == candidate["chunk_id"]:
-            return {
-                "status": "duplicate",
-                "confidence": 1.0,
-                "reason": "exact chunk_id in used_finds.csv",
-                "matched_id": record["id"],
-            }
-        people_overlap = bool(candidate_people & set(record["persons"]))
-        topics_overlap = bool(candidate_topics & set(record["topics"]))
-        same_source = bool(
-            record["source"]
-            and source_group(record["source"]) == candidate["source_group"]
+    matches = [
+        match
+        for record in used
+        if (match := _history_match(candidate, record)) is not None
+    ]
+    matches.sort(
+        key=lambda item: (
+            item["strength"] != "confirmed",
+            -item["match_score"],
+            str(item["matched_id"] or ""),
         )
-        used_dates = DATE_RE.findall(record["description"]) + WESTERN_DATE_RE.findall(
-            record["description"]
-        )
-        same_date = bool(candidate_date and candidate_date in used_dates)
-        lexical = _lexical_similarity(material, record["description"])
-        score = lexical
-        reasons: list[str] = []
-        if people_overlap:
-            score += 0.18
-            reasons.append("same person")
-        if topics_overlap:
-            score += 0.12
-            reasons.append("same topic")
-        if same_source:
-            score += 0.18
-            reasons.append("same source")
-        if same_date:
-            score += 0.25
-            reasons.append("same date")
-        if lexical >= 0.45:
-            reasons.append(f"summary similarity {lexical:.2f}")
-        if score > best_score:
-            best_score = score
-            best_reason = ", ".join(reasons) or "weak lexical overlap"
-            best_id = record["id"]
-    status = "duplicate" if best_score >= 0.78 else "duplicate_risk" if best_score >= 0.52 else "clear"
+    )
+    matches = matches[:MAX_HISTORY_REVIEW_MATCHES]
+    confirmed = next(
+        (item for item in matches if item["strength"] == "confirmed"), None
+    )
+    best = confirmed or (matches[0] if matches else None)
+    status = "duplicate" if confirmed else "duplicate_risk" if matches else "clear"
     return {
         "status": status,
-        "confidence": round(min(best_score, 1.0), 3),
-        "reason": best_reason if used else "not found in used_finds.csv",
-        "matched_id": best_id or None,
+        "confidence": best["match_score"] if best else 0.0,
+        "reason": (
+            best["reason"]
+            if best
+            else "no plausible match in used_finds.csv"
+            if used
+            else "not found in used_finds.csv"
+        ),
+        "matched_id": best["matched_id"] if best else None,
+        "python_disposition": (
+            "confirmed_repeat"
+            if confirmed
+            else "needs_semantic_review"
+            if matches
+            else "no_plausible_history_match"
+        ),
+        "auto_exclude": bool(confirmed),
+        "requires_editorial_review": bool(matches and not confirmed),
+        "allowed_semantic_decisions": list(SEMANTIC_DECISIONS),
+        "review_matches": matches,
     }
 
 
@@ -379,21 +650,7 @@ def _collapse_neighbours(candidates: list[dict[str, Any]]) -> list[dict[str, Any
     kept: list[dict[str, Any]] = []
     for candidate in sorted(candidates, key=lambda item: -item["retrieval_score"]):
         duplicate_neighbour = any(
-            (
-                prior["relative_path"] == candidate["relative_path"]
-                and abs(prior["chunk_no"] - candidate["chunk_no"]) <= 2
-                and bool(set(prior["person"]) & set(candidate["person"]))
-                and bool(set(prior["topics"]) & set(candidate["topics"]))
-            )
-            or (
-                prior["source_group"] == candidate["source_group"]
-                and prior["primary_topic"] == candidate["primary_topic"]
-                and bool(set(prior["person"]) & set(candidate["person"]))
-                and _lexical_similarity(
-                    prior["what_happened"], candidate["what_happened"]
-                )
-                >= 0.62
-            )
+            candidate_pair_check(prior, candidate)["action"] == "collapse"
             for prior in kept
         )
         if not duplicate_neighbour:
@@ -402,7 +659,7 @@ def _collapse_neighbours(candidates: list[dict[str, Any]]) -> list[dict[str, Any
 
 
 def _select_diverse(candidates: list[dict[str, Any]], count: int = 5) -> list[dict[str, Any]]:
-    eligible = [item for item in candidates if item["duplicate_check"]["status"] == "clear"]
+    eligible = [item for item in candidates if not _auto_excluded(item)]
     selected: list[dict[str, Any]] = []
     source_counts: Counter[str] = Counter()
     people_counts: Counter[str] = Counter()
@@ -555,11 +812,10 @@ def build_daily_five(
         event["duplicate_check"] = duplicate_check(event, used)
         if event["duplicate_check"]["status"] == "duplicate":
             rejected["used_duplicate"] += 1
-        elif event["duplicate_check"]["status"] == "duplicate_risk":
-            rejected["duplicate_risk"] += 1
         verified.append(event)
 
     verified = _collapse_neighbours(verified)
+    attach_semantic_reviews(verified)
     verified.sort(
         key=lambda item: (
             item["duplicate_check"]["status"] != "clear",
@@ -572,6 +828,18 @@ def build_daily_five(
     alternates = [item for item in verified if item["chunk_id"] not in final_ids][
         : (20 if dry_run else 15)
     ]
+    review_stats = {
+        "candidates_requiring_editorial_review": sum(
+            bool(item["semantic_review"]["required"]) for item in verified
+        ),
+        "history_match_candidates": sum(
+            bool(item["semantic_review"]["history_matches"]) for item in verified
+        ),
+        "candidate_pair_relations": sum(
+            len(item["semantic_review"]["candidate_matches"]) for item in verified
+        )
+        // 2,
+    }
     return {
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "mode": "historical-events",
@@ -592,6 +860,7 @@ def build_daily_five(
             "rejected": dict(rejected),
             "final_count": len(final),
             "alternate_count": len(alternates),
+            "semantic_review": review_stats,
         },
         "final": final,
         "alternates": alternates,

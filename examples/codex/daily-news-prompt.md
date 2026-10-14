@@ -25,6 +25,35 @@ This is a sanitized prompt template, not an active automation configuration.
 > and any scholarship reference in one compact source block at the end rather
 > than interrupting the story with technical metadata.
 >
+> Before choosing cards, inspect `semantic_review` for every candidate. Compare
+> the supported claim in the candidate with every supplied history match and
+> candidate match: actor, action or scholarly thesis, object, time and place
+> when stated, outcome, source role, and the material detail or interpretation
+> that would actually be new. Shared people, topics, dates, or source names are
+> reasons to compare; none is a duplicate verdict by itself. OCR changes,
+> reindexing, paraphrase, and translation require this claim-level comparison.
+> A matching `chunk_id` is only a positional clue: if the supported claim has
+> changed, do not treat it as a confirmed repeat. Likewise, near-identical
+> wording can reverse meaning through a changed number, date, negation, action,
+> or outcome; compare those facts explicitly.
+>
+> Classify every reviewed relation as exactly one of:
+>
+> - `confirmed_repeat`: the same event or scholarly conclusion with no supported
+>   substantive addition;
+> - `probable_repeat_review`: the core claim may be the same, but the supplied
+>   evidence is insufficient for a confident decision;
+> - `new_angle`: a known story gains a supported material detail, different
+>   outcome, or independent scholarly interpretation;
+> - `new_finding`: the supported action, object, outcome, or context is distinct.
+>
+> State the classification and a short evidence-based reason.
+> Do not make a card from `confirmed_repeat`. Keep `probable_repeat_review` visible for human review
+> instead of silently deleting or publishing it. `new_angle` and `new_finding`
+> remain eligible for cards. A new publication date or source is not a new angle
+> unless its evidence adds something substantive; scholarship must be compared
+> by its actual conclusion, not merely by article title or source type.
+>
 > Do not modify retrieval rules or rebuild the index during the editorial run.
 
 If `daily-five` returns zero candidates, report only that no new finding passed

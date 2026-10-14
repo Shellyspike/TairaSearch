@@ -35,6 +35,22 @@ synthetic scenarios.
 Legacy `daily-five`, existing indexes, and the five-card demonstration below
 retain their existing contracts.
 
+## Semantic deduplication (0.3)
+
+The 0.3 benchmark preserves the historical 0.2 result for 13 fictional Japan
+and Rome cases, then measures the corrected logic separately. Python now
+collapses only identical normalized evidence, keeps uncertain OCR, reindexing,
+paraphrase, translation, and history matches in the candidate pool, and passes
+bounded comparison evidence to Codex. Codex applies the four semantic classes;
+shared people, topics, dates, source names, or a positional `chunk_id` never
+decide a repeat by themselves. See the
+[audit and implementation result](docs/dedup-audit.md) or
+run:
+
+```powershell
+.venv\Scripts\python run_dedup_audit.py --check
+```
+
 ## Quick start: get five AI cards
 
 You need Python 3.11 and access to the Codex desktop app. Git is optional and
@@ -192,6 +208,7 @@ verified environment; see the official
 ```powershell
 .venv\Scripts\python -m unittest discover -s tests -v
 .venv\Scripts\python run_demo.py
+.venv\Scripts\python run_dedup_audit.py --check
 .venv\Scripts\python make_release.py --check-only
 ```
 

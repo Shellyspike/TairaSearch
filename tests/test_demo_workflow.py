@@ -193,6 +193,7 @@ class DemoWorkflowTests(unittest.TestCase):
         serialized = json.dumps(generated_ai_input, ensure_ascii=False)
         self.assertNotIn(str(PROJECT), serialized)
         self.assertNotIn("generated_at_utc", serialized)
+        self.assertEqual(generated_ai_input["schema_version"], 3)
         self.assertTrue(
             all(
                 item["material_status"]
@@ -201,6 +202,16 @@ class DemoWorkflowTests(unittest.TestCase):
             )
         )
         for candidate in generated_ai_input["candidates"]:
+            review = candidate["semantic_review"]
+            self.assertEqual(
+                set(review["allowed_decisions"]),
+                {
+                    "confirmed_repeat",
+                    "probable_repeat_review",
+                    "new_angle",
+                    "new_finding",
+                },
+            )
             self.assertEqual(len(candidate["related_scholarship"]), 1)
             related = candidate["related_scholarship"][0]
             self.assertEqual(related["index_source_type"], "scholarship")
