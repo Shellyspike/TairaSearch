@@ -28,6 +28,7 @@ DEFAULT_TOPICS = PROJECT_DIR / "topics.json"
 DEFAULT_PEOPLE = PROJECT_DIR / "people.json"
 DEFAULT_SOURCE_TYPES = PROJECT_DIR / "source_types.json"
 DEFAULT_USED_FINDS = PROJECT_DIR / "used_finds.csv"
+DEFAULT_RESEARCH_PROFILE = PROJECT_DIR / "research_profile.json"
 DEFAULT_DAILY_OUTPUT = PROJECT_DIR / "daily_five_candidates.json"
 DEFAULT_RESEARCH_OUTPUT = PROJECT_DIR / "research_candidates.json"
 DEFAULT_EVENT_CARDS = PROJECT_DIR / "event_cards.json"
@@ -401,7 +402,7 @@ def _paths_refer_to_same_file(left: Path, right: Path) -> bool:
 def validate_research_output_path(args: argparse.Namespace) -> None:
     """Prevent candidate JSON from replacing any input needed by the command."""
     output = Path(args.output)
-    protected_inputs = (
+    protected_inputs = [
         ("--db", Path(args.db)),
         ("--profile", Path(args.profile)),
         ("--used-finds", Path(args.used_finds)),
@@ -409,6 +410,9 @@ def validate_research_output_path(args: argparse.Namespace) -> None:
         ("--topics-config", Path(args.topics_config)),
         ("--people-config", Path(args.people_config)),
         ("--source-types-config", Path(args.source_types_config)),
+    ]
+    protected_inputs.extend(
+        ("--continue-from", Path(path)) for path in args.continue_from
     )
     for option, input_path in protected_inputs:
         if _paths_refer_to_same_file(output, input_path):
@@ -458,11 +462,26 @@ def make_parser() -> argparse.ArgumentParser:
         help="Отобрать находки по локальному исследовательскому профилю",
     )
     add_config_arguments(research_parser)
-    research_parser.add_argument("--profile", required=True)
+    research_parser.add_argument("--profile", default=str(DEFAULT_RESEARCH_PROFILE))
     research_parser.add_argument("--used-finds", default=str(DEFAULT_USED_FINDS))
     research_parser.add_argument("--count", type=int)
     research_parser.add_argument("--top-per-interest", type=int, default=30)
     research_parser.add_argument("--pool-size", type=int, default=160)
+    research_parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=25,
+        help="Максимум кандидатов final + alternates в одной партии",
+    )
+    research_parser.add_argument(
+        "--continue-from",
+        action="append",
+        default=[],
+        help=(
+            "Предыдущий JSON research-findings; можно повторять для следующей "
+            "партии без уже просмотренных chunk_id"
+        ),
+    )
     research_parser.add_argument("--output", default=str(DEFAULT_RESEARCH_OUTPUT))
     research_parser.add_argument(
         "--preview",
@@ -563,6 +582,10 @@ def main(argv: list[str] | None = None) -> int:
             parser.error("--top-per-interest должен быть от 1 до 100")
         if not 10 <= args.pool_size <= 500:
             parser.error("--pool-size должен быть от 10 до 500")
+        if not 1 <= args.batch_size <= 100:
+            parser.error("--batch-size должен быть от 1 до 100")
+        if args.count is not None and args.batch_size < args.count:
+            parser.error("--batch-size не может быть меньше --count")
     connection: sqlite3.Connection | None = None
     try:
         if args.command == "research-findings":
@@ -653,11 +676,19 @@ def main(argv: list[str] | None = None) -> int:
             print_daily_result(result, json_output=args.json)
         elif args.command == "research-findings":
             from daily_five import save_result
-            from research_findings import build_research_findings, print_research_result
+            from research_findings import (
+                build_research_findings,
+                load_continuation_chunk_ids,
+                print_research_result,
+            )
             from research_profile import load_research_profile
 
             profile_path = Path(args.profile).expanduser().resolve()
             profile = load_research_profile(profile_path)
+            excluded_chunk_ids = load_continuation_chunk_ids(
+                [Path(path).expanduser().resolve() for path in args.continue_from],
+                profile,
+            )
             result = build_research_findings(
                 connection,
                 topics,
@@ -669,7 +700,9 @@ def main(argv: list[str] | None = None) -> int:
                 count=args.count,
                 top_per_interest=args.top_per_interest,
                 pool_size=args.pool_size,
+                batch_size=args.batch_size,
                 preview=args.preview,
+                excluded_chunk_ids=excluded_chunk_ids,
             )
             output = Path(args.output).expanduser().resolve()
             save_result(result, output)

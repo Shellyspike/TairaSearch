@@ -29,6 +29,57 @@ GENERIC_DATE_RE = re.compile(
 )
 
 
+def load_continuation_chunk_ids(
+    paths: list[Path], profile: dict[str, Any]
+) -> set[str]:
+    """Load run-local continuation state from earlier research result files."""
+    excluded: set[str] = set()
+    for path in paths:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8-sig"))
+        except FileNotFoundError as exc:
+            raise RuntimeError(f"Не найден предыдущий результат: {path}") from exc
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(
+                f"Ошибка JSON в предыдущем результате {path}: {exc}"
+            ) from exc
+        if not isinstance(payload, dict) or payload.get("mode") != "research-findings":
+            raise ValueError(
+                f"{path}: --continue-from ожидает результат research-findings"
+            )
+        if payload.get("profile") != profile:
+            raise ValueError(
+                f"{path}: профиль предыдущего результата отличается от текущего"
+            )
+
+        continuation = payload.get("continuation", {})
+        if continuation and not isinstance(continuation, dict):
+            raise ValueError(f"{path}: повреждено состояние continuation")
+        has_stored_state = isinstance(continuation, dict) and (
+            "exclude_on_next_run" in continuation
+        )
+        stored = continuation.get("exclude_on_next_run", []) if has_stored_state else []
+        if has_stored_state:
+            if not isinstance(stored, list) or not all(
+                isinstance(item, str) and item for item in stored
+            ):
+                raise ValueError(f"{path}: повреждено состояние continuation")
+            excluded.update(stored)
+            continue
+
+        # Compatibility with 0.2/0.3 result files created before continuation
+        # metadata existed. Only candidates exposed to the editor are skipped;
+        # unseen verified candidates remain available.
+        for section in ("final", "alternates"):
+            rows = payload.get(section, [])
+            if not isinstance(rows, list):
+                raise ValueError(f"{path}: поле {section} должно быть массивом")
+            for row in rows:
+                if isinstance(row, dict) and row.get("chunk_id"):
+                    excluded.add(str(row["chunk_id"]))
+    return excluded
+
+
 def _quoted_query(terms: list[str]) -> str:
     return " OR ".join('"' + term.replace('"', '""') + '"' for term in terms)
 
@@ -175,13 +226,18 @@ def build_research_findings(
     count: int | None = None,
     top_per_interest: int = 30,
     pool_size: int = 160,
+    batch_size: int = 25,
     preview: bool = False,
+    excluded_chunk_ids: set[str] | None = None,
 ) -> dict[str, Any]:
     """Retrieve candidates without changing the index, profile, or journal."""
     requested_count = profile["max_results"] if count is None else count
     if not 1 <= requested_count <= 20:
         raise ValueError("count должен быть от 1 до 20")
+    if not requested_count <= batch_size <= 100:
+        raise ValueError("batch_size должен быть не меньше count и не больше 100")
     used = load_used_finds(used_finds_path)
+    excluded_before = set(excluded_chunk_ids or ())
     by_chunk: dict[str, dict[str, Any]] = {}
     interest_hits: dict[str, int] = {}
     for interest in profile["interests"]:
@@ -202,11 +258,17 @@ def build_research_findings(
             candidate["retrieval_score"] += interest["weight"] / max(row["rank"], 1)
 
     interest_by_id = {item["id"]: item for item in profile["interests"]}
-    ranked_pool = sorted(
-        by_chunk.values(),
+    ranked_unseen = sorted(
+        (
+            item
+            for item in by_chunk.values()
+            if str(item["chunk_id"]) not in excluded_before
+        ),
         key=lambda item: (-item["retrieval_score"], -item["score"], item["chunk_id"]),
-    )[:pool_size]
+    )
+    ranked_pool = ranked_unseen[:pool_size]
     verified: list[dict[str, Any]] = []
+    python_rejected_ids: set[str] = set()
     rejected: Counter[str] = Counter()
     focus_mentions: Counter[str] = Counter()
     verified_interest_mentions: Counter[str] = Counter()
@@ -216,6 +278,7 @@ def build_research_findings(
         target = next((row for row in context if row["target"]), None)
         if target is None or target["text_quality"] != "good":
             rejected["quality_or_context"] += 1
+            python_rejected_ids.add(str(raw["chunk_id"]))
             continue
         matched_interests = [
             interest_by_id[item] for item in raw["matched_interests"]
@@ -225,9 +288,11 @@ def build_research_findings(
         )
         if excerpt is None or matched_term is None:
             rejected["interest_not_in_target_chunk"] += 1
+            python_rejected_ids.add(str(raw["chunk_id"]))
             continue
         if not _evidence_readable(excerpt):
             rejected["unreliable_local_ocr"] += 1
+            python_rejected_ids.add(str(raw["chunk_id"]))
             continue
         if (
             profile["focus_people"]
@@ -235,6 +300,7 @@ def build_research_findings(
             and not matched_focus_people
         ):
             rejected["focus_person_not_in_target_chunk"] += 1
+            python_rejected_ids.add(str(raw["chunk_id"]))
             continue
         focus_mentions.update(matched_focus_people)
         candidate_people = unique_normalized(
@@ -299,7 +365,14 @@ def build_research_findings(
             rejected["used_duplicate"] += 1
         verified.append(event)
 
-    verified = _collapse_candidates(verified)
+    verified_before_collapse = verified
+    verified = _collapse_candidates(verified_before_collapse)
+    kept_ids = {str(item["chunk_id"]) for item in verified}
+    collapsed_ids = {
+        str(item["chunk_id"])
+        for item in verified_before_collapse
+        if str(item["chunk_id"]) not in kept_ids
+    }
     attach_semantic_reviews(verified)
     verified.sort(
         key=lambda item: (
@@ -310,7 +383,16 @@ def build_research_findings(
     )
     final = _select_diverse(verified, requested_count, profile)
     final_ids = {item["chunk_id"] for item in final}
-    alternates = [item for item in verified if item["chunk_id"] not in final_ids][:20]
+    alternates = [item for item in verified if item["chunk_id"] not in final_ids][
+        : max(0, batch_size - len(final))
+    ]
+    batch_chunk_ids = [str(item["chunk_id"]) for item in [*final, *alternates]]
+    # Only candidates actually exposed to Codex and exact technical collapses are
+    # consumed. A row rejected before editorial review may be a context neighbour
+    # or become useful at another retrieval depth, so it must remain searchable.
+    exclude_on_next_run = excluded_before | set(batch_chunk_ids) | collapsed_ids
+    verified_not_emitted = max(0, len(verified) - len(batch_chunk_ids))
+    beyond_pool = max(0, len(ranked_unseen) - len(ranked_pool))
     missing_people = [
         item["name"]
         for item in profile["focus_people"]
@@ -319,7 +401,7 @@ def build_research_findings(
     missing_interests = [
         item["id"]
         for item in profile["interests"]
-        if verified_interest_mentions[item["id"]] == 0
+        if interest_hits[item["id"]] == 0
     ]
     review_stats = {
         "candidates_requiring_editorial_review": sum(
@@ -350,13 +432,17 @@ def build_research_findings(
             "focus_people_mentions": dict(focus_mentions),
             "focus_people_without_hits": missing_people,
             "note": (
-                "No hit means the indexed corpus did not support that preference; "
-                "it is not evidence that the subject is absent from the original corpus."
+                "Zero search_hits means the configured retrieval found no indexed "
+                "match at its current depth. A zero verified count can also mean that "
+                "matches were filtered or appeared in an earlier batch. Neither is "
+                "evidence that the subject is absent from the original corpus."
             ),
         },
         "stats": {
             "unique_pool": len(by_chunk),
+            "excluded_from_previous_batches": len(set(by_chunk) & excluded_before),
             "pool_checked": len(ranked_pool),
+            "batch_size": batch_size,
             "verified_candidates": len(verified),
             "used_finds_records": len(used),
             "rejected": dict(rejected),
@@ -366,6 +452,24 @@ def build_research_findings(
         },
         "final": final,
         "alternates": alternates,
+        "continuation": {
+            "seen_before_count": len(excluded_before),
+            "candidate_chunk_ids": batch_chunk_ids,
+            "python_rejected_chunk_ids": sorted(python_rejected_ids),
+            "collapsed_duplicate_chunk_ids": sorted(collapsed_ids),
+            "exclude_on_next_run": sorted(exclude_on_next_run),
+            "verified_candidates_not_emitted": verified_not_emitted,
+            "retrieved_chunks_beyond_pool": beyond_pool,
+            "has_more_in_current_retrieval": bool(verified_not_emitted or beyond_pool),
+            "note": (
+                "Pass this result to --continue-from to request another batch "
+                "without repeating candidates already exposed to Codex. "
+                "Pre-editorial rejects and context-only chunks stay eligible; only "
+                "exposed candidates and exact technical collapses are consumed. "
+                "Increase --top-per-interest or --pool-size only when the current retrieval "
+                "does not contain enough new candidates."
+            ),
+        },
     }
 
 
@@ -376,10 +480,16 @@ def print_research_result(result: dict[str, Any], *, json_output: bool) -> None:
     coverage = result["coverage"]
     print(f"Профиль: {result['profile']['name']}")
     print(f"Область: {result['profile']['research_area']}")
-    print(f"Найдено кандидатов: {len(result['final'])}")
+    print(f"Python-шортлист: {len(result['final'])}")
+    continuation = result.get("continuation", {})
+    if continuation.get("seen_before_count"):
+        print(
+            "Исключено ранее просмотренных/технически отклонённых chunk_id: "
+            f"{continuation['seen_before_count']}"
+        )
     if coverage["interests_without_hits"]:
         print(
-            "Нет совпадений по интересам: "
+            "Нет поисковых совпадений на текущей глубине: "
             + ", ".join(coverage["interests_without_hits"])
         )
     if coverage["focus_people_without_hits"]:
@@ -393,3 +503,8 @@ def print_research_result(result: dict[str, Any], *, json_output: bool) -> None:
         print(f"Источник: {item['relative_path']} · {item['chunk_id']}")
     if result["preview"]:
         print("\nПробная подборка: журнал публикаций не изменялся.")
+    if continuation.get("candidate_chunk_ids"):
+        print(
+            "Для следующей непересекающейся партии передайте этот JSON через "
+            "--continue-from."
+        )

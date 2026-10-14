@@ -16,6 +16,7 @@ import sys
 sys.path.insert(0, str(PROJECT))
 
 import build_index  # noqa: E402
+import research_findings  # noqa: E402
 import taira_search  # noqa: E402
 from research_profile import load_research_profile  # noqa: E402
 
@@ -79,6 +80,7 @@ class ResearchProfileTests(unittest.TestCase):
         output_name: str,
         used_path: Path | None = None,
         count: int | None = None,
+        extra_arguments: tuple[str, ...] = (),
     ) -> dict:
         if used_path is None:
             used_path = self.root / f"{output_name}-used.csv"
@@ -98,6 +100,7 @@ class ResearchProfileTests(unittest.TestCase):
         ]
         if count is not None:
             arguments.extend(["--count", str(count)])
+        arguments.extend(extra_arguments)
         stdout = io.StringIO()
         stderr = io.StringIO()
         with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
@@ -115,6 +118,124 @@ class ResearchProfileTests(unittest.TestCase):
         self.assertIn("Япония", japan["research_area"])
         self.assertIn("Рим", rome["research_area"])
         self.assertEqual(rome["focus_people"], [])
+
+    def test_missing_default_profile_routes_user_to_codex_onboarding(self) -> None:
+        parser = taira_search.make_parser()
+        arguments = parser.parse_args(["research-findings"])
+        self.assertEqual(
+            Path(arguments.profile).resolve(),
+            (PROJECT / "research_profile.json").resolve(),
+        )
+        with self.assertRaisesRegex(RuntimeError, "research-onboarding.ru.md"):
+            load_research_profile(self.root / "missing-profile.json")
+
+    def test_clean_onboarding_folder_path_scans_builds_and_previews(self) -> None:
+        scenario = self.root / "clean-onboarding"
+        corpus = scenario / "new-library"
+        corpus.mkdir(parents=True)
+        (corpus / "open-example.txt").write_text(
+            "Synthetic onboarding material. The signal appears in a complete "
+            "account with enough context to test a first research preview. "
+            "This is not a historical claim.",
+            encoding="utf-8",
+        )
+        database = scenario / "work" / "index.sqlite3"
+        profile_path = scenario / "research_profile.json"
+        used_path = scenario / "used.csv"
+        output_path = scenario / "work" / "candidates.json"
+        self.assertFalse(database.exists())
+        self.assertFalse(profile_path.exists())
+
+        scan_stdout = io.StringIO()
+        with contextlib.redirect_stdout(scan_stdout), mock.patch.object(
+            build_index,
+            "parse_file",
+            side_effect=AssertionError("scan-only read document contents"),
+        ):
+            scan_code = build_index.main(
+                [str(corpus), "--scan-only", "--db", str(database)]
+            )
+        self.assertEqual(scan_code, 0)
+        self.assertFalse(database.exists())
+        self.assertIn("Найдено поддерживаемых файлов: 1", scan_stdout.getvalue())
+
+        profile = {
+            "schema_version": 1,
+            "name": "Clean onboarding",
+            "research_area": "Synthetic setup verification",
+            "result_language": "en",
+            "max_results": 1,
+            "interests": [
+                {
+                    "id": "signal",
+                    "label": "signal",
+                    "terms": ["signal"],
+                    "weight": 1.0,
+                }
+            ],
+            "focus_people": [],
+            "material_types": ["historical", "literary", "scholarship", "other"],
+            "include_sources": [],
+            "exclude_sources": [],
+            "finding_preferences": {
+                "preferred_kinds": ["clear source-supported finding"],
+                "include_unlisted_people": True,
+                "avoid_person_repetition": True,
+                "notes": "Explain why the finding matters.",
+            },
+        }
+        profile_path.write_text(
+            json.dumps(profile, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+        database.parent.mkdir(parents=True)
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(
+            io.StringIO()
+        ):
+            build_code = build_index.main(
+                [
+                    str(corpus),
+                    "--db",
+                    str(database),
+                    "--drive-csv",
+                    str(scenario / "work" / "drive.csv"),
+                    "--drive-jsonl",
+                    str(scenario / "work" / "drive.jsonl"),
+                    "--log",
+                    str(scenario / "work" / "index.log"),
+                ]
+            )
+        self.assertEqual(build_code, 0)
+        self.assertTrue(database.is_file())
+
+        used_path.write_text(USED_HEADER, encoding="utf-8-sig")
+        journal_before = used_path.read_bytes()
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            preview_code = taira_search.main(
+                [
+                    "research-findings",
+                    "--db",
+                    str(database),
+                    "--profile",
+                    str(profile_path),
+                    "--used-finds",
+                    str(used_path),
+                    "--output",
+                    str(output_path),
+                    "--preview",
+                    "--count",
+                    "1",
+                ]
+            )
+        self.assertEqual(preview_code, 0, stderr.getvalue())
+        payload = json.loads(output_path.read_text(encoding="utf-8"))
+        self.assertEqual(len(payload["final"]), 1)
+        self.assertTrue(payload["final"][0]["chunk_id"].startswith("ch_"))
+        self.assertEqual(payload["final"][0]["relative_path"], "open-example.txt")
+        self.assertEqual(used_path.read_bytes(), journal_before)
 
     def test_rome_works_without_known_people_or_japanese_rules(self) -> None:
         payload = self.run_profile(
@@ -244,6 +365,192 @@ class ResearchProfileTests(unittest.TestCase):
         self.assertEqual(len(payload["final"]), 2)
         self.assertEqual(used_path.read_bytes(), before)
 
+    def test_codex_can_reject_first_batch_and_request_disjoint_next_batch(self) -> None:
+        profile = PROJECT / "examples" / "profiles" / "ancient-rome.json"
+        first = self.run_profile(
+            "rome",
+            profile,
+            output_name="first-batch",
+            count=1,
+            extra_arguments=("--pool-size", "10", "--batch-size", "2"),
+        )
+        first_path = self.root / "first-batch.json"
+        first_ids = {
+            item["chunk_id"] for item in [*first["final"], *first["alternates"]]
+        }
+        self.assertTrue(first_ids)
+        self.assertEqual(
+            set(first["continuation"]["candidate_chunk_ids"]), first_ids
+        )
+
+        second = self.run_profile(
+            "rome",
+            profile,
+            output_name="second-batch",
+            count=1,
+            extra_arguments=(
+                "--pool-size",
+                "10",
+                "--batch-size",
+                "2",
+                "--continue-from",
+                str(first_path),
+            ),
+        )
+        second_ids = {
+            item["chunk_id"] for item in [*second["final"], *second["alternates"]]
+        }
+        self.assertTrue(second_ids)
+        self.assertTrue(first_ids.isdisjoint(second_ids))
+        self.assertGreaterEqual(
+            second["continuation"]["seen_before_count"], len(first_ids)
+        )
+        self.assertEqual(
+            second["stats"]["excluded_from_previous_batches"], len(first_ids)
+        )
+        self.assertGreater(second["coverage"]["search_hits"]["daily-life"], 0)
+        self.assertNotIn(
+            "daily-life", second["coverage"]["interests_without_hits"]
+        )
+
+    def test_continuation_accepts_legacy_result_without_new_metadata(self) -> None:
+        profile = PROJECT / "examples" / "profiles" / "ancient-rome.json"
+        first = self.run_profile(
+            "rome",
+            profile,
+            output_name="legacy-source",
+            count=1,
+            extra_arguments=("--pool-size", "10", "--batch-size", "2"),
+        )
+        first.pop("continuation")
+        legacy_path = self.root / "legacy-result.json"
+        legacy_path.write_text(
+            json.dumps(first, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+        first_ids = {
+            item["chunk_id"] for item in [*first["final"], *first["alternates"]]
+        }
+
+        second = self.run_profile(
+            "rome",
+            profile,
+            output_name="legacy-continuation",
+            count=1,
+            extra_arguments=(
+                "--pool-size",
+                "10",
+                "--batch-size",
+                "2",
+                "--continue-from",
+                str(legacy_path),
+            ),
+        )
+        second_ids = {
+            item["chunk_id"] for item in [*second["final"], *second["alternates"]]
+        }
+        self.assertTrue(second_ids)
+        self.assertTrue(first_ids.isdisjoint(second_ids))
+
+    def test_pre_editorial_rejects_remain_available_to_later_batches(self) -> None:
+        used_path = self.root / "continuation-rejects-used.csv"
+        used_path.write_text(USED_HEADER, encoding="utf-8-sig")
+        profile = {
+            "version": 1,
+            "name": "Continuation regression",
+            "research_area": "Synthetic",
+            "result_language": "en",
+            "max_results": 1,
+            "interests": [
+                {
+                    "id": "signal",
+                    "label": "signal",
+                    "terms": ["signal"],
+                    "weight": 1.0,
+                }
+            ],
+            "focus_people": [],
+            "material_types": ["primary"],
+            "include_sources": [],
+            "exclude_sources": [],
+            "finding_preferences": {
+                "include_unlisted_people": True,
+                "avoid_person_repetition": False,
+                "notes": "",
+            },
+        }
+        rows = [
+            {
+                "chunk_id": "shown",
+                "rank": 1,
+                "score": 2.0,
+                "relative_path": "source.txt",
+            },
+            {
+                "chunk_id": "context-only",
+                "rank": 2,
+                "score": 1.0,
+                "relative_path": "source.txt",
+            },
+        ]
+
+        def fake_search(*args, **kwargs):
+            return rows
+
+        def fake_context(connection, chunk_id, before, after):
+            text = (
+                "The signal appears in a complete and readable account of a distinct event. "
+                "Enough context is present for editorial review and source verification."
+                if chunk_id == "shown"
+                else "This neighbouring passage is readable but does not contain the query term."
+            )
+            return [
+                {
+                    "target": True,
+                    "chunk_id": chunk_id,
+                    "chunk_no": 1 if chunk_id == "shown" else 2,
+                    "page_start": 1,
+                    "page_end": 1,
+                    "text": text,
+                    "text_quality": "good",
+                    "people": [],
+                    "source": "Synthetic Source",
+                    "source_type": "primary",
+                    "filename": "source.txt",
+                    "path": "source.txt",
+                }
+            ]
+
+        result = research_findings.build_research_findings(
+            None,
+            {},
+            {},
+            profile,
+            used_path,
+            search_function=fake_search,
+            context_function=fake_context,
+            count=1,
+            top_per_interest=5,
+            pool_size=5,
+            batch_size=1,
+            preview=True,
+        )
+
+        continuation = result["continuation"]
+        self.assertEqual(continuation["candidate_chunk_ids"], ["shown"])
+        self.assertIn("context-only", continuation["python_rejected_chunk_ids"])
+        self.assertNotIn("context-only", continuation["exclude_on_next_run"])
+        self.assertIn("shown", continuation["exclude_on_next_run"])
+
+        result_path = self.root / "continuation-rejects.json"
+        result_path.write_text(
+            json.dumps(result, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(
+            research_findings.load_continuation_chunk_ids([result_path], profile),
+            {"shown"},
+        )
+
     def test_output_cannot_replace_any_critical_input_after_normalization(self) -> None:
         inputs = {
             "--db": self.databases["rome"],
@@ -253,11 +560,13 @@ class ResearchProfileTests(unittest.TestCase):
             "--topics-config": self.root / "protected-topics.json",
             "--people-config": self.root / "protected-people.json",
             "--source-types-config": self.root / "protected-source-types.json",
+            "--continue-from": self.root / "protected-continuation.json",
         }
         inputs["--profile"].write_bytes(
             (PROJECT / "examples" / "profiles" / "ancient-rome.json").read_bytes()
         )
         inputs["--used-finds"].write_text(USED_HEADER, encoding="utf-8-sig")
+        inputs["--continue-from"].write_text("{}\n", encoding="utf-8")
         for option, source_name in (
             ("--aliases", "aliases.json"),
             ("--topics-config", "topics.json"),
@@ -308,14 +617,14 @@ class ResearchProfileTests(unittest.TestCase):
                 PROJECT / "docs" / "research-onboarding.md",
                 "short, natural conversation",
                 "research_profile.json",
-                "`notes` are explanatory only and do not affect search",
+                "never store a preference that should change selection only there",
             ),
             (
                 PROJECT / "examples" / "codex" / "research-onboarding.ru.md",
                 PROJECT / "docs" / "research-onboarding.ru.md",
                 "короткий естественный диалог",
                 "research_profile.json",
-                "нельзя сохранять рабочее пожелание только там",
+                "нельзя сохранять только там пожелание, которое должно менять отбор",
             ),
         )
         for (
@@ -338,16 +647,80 @@ class ResearchProfileTests(unittest.TestCase):
                 self.assertIn("interests[].terms", prompt)
                 self.assertIn("weight", prompt)
                 self.assertIn(effective_preference_rule, normalized_prompt)
+                self.assertIn("finding_preferences.notes", prompt)
+                self.assertIn("--continue-from", prompt)
+                self.assertIn("codex://automations", prompt)
+                self.assertIn("source-discovery-prompt.md", prompt)
+                self.assertIn("0.4", prompt)
                 self.assertIn(profile_name, documentation)
                 self.assertIn("research-findings", documentation)
                 self.assertIn("used_finds.csv", documentation)
                 self.assertIn("interests[].terms", documentation)
                 self.assertIn("weight", documentation)
                 self.assertIn("notes", normalized_documentation)
+                self.assertIn("codex://automations", documentation)
+                if prompt_path.name.endswith("ru.md"):
+                    self.assertLess(
+                        normalized_prompt.index("Сначала проведи короткое интервью"),
+                        normalized_prompt.index(
+                            "Только после подтверждения интересов выясни"
+                        ),
+                    )
+                    self.assertIn("У меня есть папка документов", normalized_prompt)
+                    self.assertIn("У меня есть готовый индекс", normalized_prompt)
+                    self.assertIn("У меня пока ничего нет", normalized_prompt)
+                    self.assertIn("Ничего не скачивай без явного", normalized_prompt)
+                    self.assertIn("Если инструментов поиска", normalized_prompt)
+                    self.assertIn("Без явного согласия", normalized_prompt)
+                    self.assertIn("периодичность", normalized_prompt)
+                    self.assertIn("часовой пояс", normalized_prompt)
+                    self.assertIn("живой развёрнутый стиль", normalized_prompt)
+                else:
+                    self.assertLess(
+                        normalized_prompt.index("First ask about the research area"),
+                        normalized_prompt.index(
+                            "Only after confirming my interests"
+                        ),
+                    )
+                    self.assertIn("I have a folder of documents", normalized_prompt)
+                    self.assertIn("I have a ready TairaSearch index", normalized_prompt)
+                    self.assertIn("I have nothing yet", normalized_prompt)
+                    self.assertIn("Download nothing until", normalized_prompt)
+                    self.assertIn("If search or download tools", normalized_prompt)
+                    self.assertIn("without my explicit agreement", normalized_prompt)
+                    self.assertIn("cadence", normalized_prompt)
+                    self.assertIn("time zone", normalized_prompt)
+                    self.assertIn("vivid, expanded cards", normalized_prompt)
 
         ignore = (PROJECT / ".gitignore").read_text(encoding="utf-8")
         self.assertIn("research_profile.json", ignore)
         self.assertIn("/research_profiles/", ignore)
+
+    def test_codex_workflow_owns_semantic_review_and_continuation(self) -> None:
+        for path in (
+            PROJECT / "examples" / "codex" / "research-workflow.md",
+            PROJECT / "examples" / "codex" / "research-workflow.ru.md",
+        ):
+            with self.subTest(prompt=path.name):
+                prompt = path.read_text(encoding="utf-8")
+                self.assertIn("research-findings", prompt)
+                self.assertIn("--continue-from", prompt)
+                self.assertIn("`search`", prompt)
+                self.assertIn("`context`", prompt)
+                self.assertIn("semantic_review", prompt)
+                self.assertIn("confirmed_repeat", prompt)
+                self.assertIn("probable_repeat_review", prompt)
+                self.assertIn("new_angle", prompt)
+                self.assertIn("new_finding", prompt)
+                self.assertIn("research-onboarding", prompt)
+                self.assertIn("record-publication", prompt)
+                self.assertIn("daily-five", prompt)
+                self.assertIn("used_finds.csv", prompt)
+                self.assertIn("finding_preferences.notes", prompt)
+                if path.name.endswith("ru.md"):
+                    self.assertIn("живой развёрнутой подачи", prompt)
+                else:
+                    self.assertIn("vivid, expanded cards", prompt)
 
 
 if __name__ == "__main__":

@@ -59,6 +59,19 @@ as two visible, separately testable parts.
 - [ ] Calibrate retrieval and editorial decisions on reviewed open-material
   examples; do not treat variable model prose as a byte-for-byte artifact.
 
+## 0.3.1 — Codex-controlled research continuation
+
+- [x] Make profile-driven `research-findings` the primary retrieval tool for
+  Codex while retaining legacy `daily-five` unchanged.
+- [x] Let Codex request disjoint later batches with `--continue-from` after
+  source or semantic review rejects earlier candidates.
+- [x] Keep final selection with Codex and source evidence with each Python
+  candidate; treat Python `final` as a shortlist rather than a verdict.
+- [x] Route a missing local profile to the existing conversational onboarding
+  flow, without built-in people or historical topics.
+- [x] Preserve the 0.3 semantic-review classes and the existing explicit,
+  recovery-safe publication-journal boundary.
+
 ## 0.4 — automatic acquisition of new materials
 
 - [ ] Prepare a separately reviewed, opt-in plan for discovering and downloading
