@@ -16,6 +16,7 @@ import sys
 sys.path.insert(0, str(PROJECT))
 
 import build_index  # noqa: E402
+import research_findings  # noqa: E402
 import taira_search  # noqa: E402
 from research_profile import load_research_profile  # noqa: E402
 
@@ -342,6 +343,106 @@ class ResearchProfileTests(unittest.TestCase):
         self.assertTrue(second_ids)
         self.assertTrue(first_ids.isdisjoint(second_ids))
 
+    def test_pre_editorial_rejects_remain_available_to_later_batches(self) -> None:
+        used_path = self.root / "continuation-rejects-used.csv"
+        used_path.write_text(USED_HEADER, encoding="utf-8-sig")
+        profile = {
+            "version": 1,
+            "name": "Continuation regression",
+            "research_area": "Synthetic",
+            "result_language": "en",
+            "max_results": 1,
+            "interests": [
+                {
+                    "id": "signal",
+                    "label": "signal",
+                    "terms": ["signal"],
+                    "weight": 1.0,
+                }
+            ],
+            "focus_people": [],
+            "material_types": ["primary"],
+            "include_sources": [],
+            "exclude_sources": [],
+            "finding_preferences": {
+                "include_unlisted_people": True,
+                "avoid_person_repetition": False,
+                "notes": "",
+            },
+        }
+        rows = [
+            {
+                "chunk_id": "shown",
+                "rank": 1,
+                "score": 2.0,
+                "relative_path": "source.txt",
+            },
+            {
+                "chunk_id": "context-only",
+                "rank": 2,
+                "score": 1.0,
+                "relative_path": "source.txt",
+            },
+        ]
+
+        def fake_search(*args, **kwargs):
+            return rows
+
+        def fake_context(connection, chunk_id, before, after):
+            text = (
+                "The signal appears in a complete and readable account of a distinct event. "
+                "Enough context is present for editorial review and source verification."
+                if chunk_id == "shown"
+                else "This neighbouring passage is readable but does not contain the query term."
+            )
+            return [
+                {
+                    "target": True,
+                    "chunk_id": chunk_id,
+                    "chunk_no": 1 if chunk_id == "shown" else 2,
+                    "page_start": 1,
+                    "page_end": 1,
+                    "text": text,
+                    "text_quality": "good",
+                    "people": [],
+                    "source": "Synthetic Source",
+                    "source_type": "primary",
+                    "filename": "source.txt",
+                    "path": "source.txt",
+                }
+            ]
+
+        result = research_findings.build_research_findings(
+            None,
+            {},
+            {},
+            profile,
+            used_path,
+            search_function=fake_search,
+            context_function=fake_context,
+            count=1,
+            top_per_interest=5,
+            pool_size=5,
+            batch_size=1,
+            preview=True,
+        )
+
+        continuation = result["continuation"]
+        self.assertEqual(continuation["candidate_chunk_ids"], ["shown"])
+        self.assertIn("context-only", continuation["python_rejected_chunk_ids"])
+        self.assertNotIn("context-only", continuation["exclude_on_next_run"])
+        self.assertIn("shown", continuation["exclude_on_next_run"])
+
+        result_path = self.root / "continuation-rejects.json"
+        result_path.write_text(
+            json.dumps(result, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(
+            research_findings.load_continuation_chunk_ids([result_path], profile),
+            {"shown"},
+        )
+
     def test_output_cannot_replace_any_critical_input_after_normalization(self) -> None:
         inputs = {
             "--db": self.databases["rome"],
@@ -408,14 +509,14 @@ class ResearchProfileTests(unittest.TestCase):
                 PROJECT / "docs" / "research-onboarding.md",
                 "short, natural conversation",
                 "research_profile.json",
-                "`notes` are explanatory only and do not affect search",
+                "never store a preference that should change selection only there",
             ),
             (
                 PROJECT / "examples" / "codex" / "research-onboarding.ru.md",
                 PROJECT / "docs" / "research-onboarding.ru.md",
                 "короткий естественный диалог",
                 "research_profile.json",
-                "нельзя сохранять рабочее пожелание только там",
+                "нельзя сохранять только там пожелание, которое должно менять отбор",
             ),
         )
         for (
@@ -438,12 +539,26 @@ class ResearchProfileTests(unittest.TestCase):
                 self.assertIn("interests[].terms", prompt)
                 self.assertIn("weight", prompt)
                 self.assertIn(effective_preference_rule, normalized_prompt)
+                self.assertIn("finding_preferences.notes", prompt)
+                self.assertIn("--continue-from", prompt)
+                self.assertIn("codex://automations", prompt)
                 self.assertIn(profile_name, documentation)
                 self.assertIn("research-findings", documentation)
                 self.assertIn("used_finds.csv", documentation)
                 self.assertIn("interests[].terms", documentation)
                 self.assertIn("weight", documentation)
                 self.assertIn("notes", normalized_documentation)
+                self.assertIn("codex://automations", documentation)
+                if prompt_path.name.endswith("ru.md"):
+                    self.assertIn("Без явного согласия", normalized_prompt)
+                    self.assertIn("периодичность", normalized_prompt)
+                    self.assertIn("часовой пояс", normalized_prompt)
+                    self.assertIn("живой развёрнутый стиль", normalized_prompt)
+                else:
+                    self.assertIn("without my explicit agreement", normalized_prompt)
+                    self.assertIn("cadence", normalized_prompt)
+                    self.assertIn("time zone", normalized_prompt)
+                    self.assertIn("vivid, expanded cards", normalized_prompt)
 
         ignore = (PROJECT / ".gitignore").read_text(encoding="utf-8")
         self.assertIn("research_profile.json", ignore)
@@ -469,6 +584,11 @@ class ResearchProfileTests(unittest.TestCase):
                 self.assertIn("record-publication", prompt)
                 self.assertIn("daily-five", prompt)
                 self.assertIn("used_finds.csv", prompt)
+                self.assertIn("finding_preferences.notes", prompt)
+                if path.name.endswith("ru.md"):
+                    self.assertIn("живой развёрнутой подачи", prompt)
+                else:
+                    self.assertIn("vivid, expanded cards", prompt)
 
 
 if __name__ == "__main__":

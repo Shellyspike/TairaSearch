@@ -387,8 +387,10 @@ def build_research_findings(
         : max(0, batch_size - len(final))
     ]
     batch_chunk_ids = [str(item["chunk_id"]) for item in [*final, *alternates]]
-    technical_exclusions = python_rejected_ids | collapsed_ids
-    exclude_on_next_run = excluded_before | set(batch_chunk_ids) | technical_exclusions
+    # Only candidates actually exposed to Codex and exact technical collapses are
+    # consumed. A row rejected before editorial review may be a context neighbour
+    # or become useful at another retrieval depth, so it must remain searchable.
+    exclude_on_next_run = excluded_before | set(batch_chunk_ids) | collapsed_ids
     verified_not_emitted = max(0, len(verified) - len(batch_chunk_ids))
     beyond_pool = max(0, len(ranked_unseen) - len(ranked_pool))
     missing_people = [
@@ -453,15 +455,18 @@ def build_research_findings(
         "continuation": {
             "seen_before_count": len(excluded_before),
             "candidate_chunk_ids": batch_chunk_ids,
-            "python_rejected_chunk_ids": sorted(technical_exclusions),
+            "python_rejected_chunk_ids": sorted(python_rejected_ids),
+            "collapsed_duplicate_chunk_ids": sorted(collapsed_ids),
             "exclude_on_next_run": sorted(exclude_on_next_run),
             "verified_candidates_not_emitted": verified_not_emitted,
             "retrieved_chunks_beyond_pool": beyond_pool,
             "has_more_in_current_retrieval": bool(verified_not_emitted or beyond_pool),
             "note": (
                 "Pass this result to --continue-from to request another batch "
-                "without repeating candidates already exposed to Codex. Increase "
-                "--top-per-interest or --pool-size only when the current retrieval "
+                "without repeating candidates already exposed to Codex. "
+                "Pre-editorial rejects and context-only chunks stay eligible; only "
+                "exposed candidates and exact technical collapses are consumed. "
+                "Increase --top-per-interest or --pool-size only when the current retrieval "
                 "does not contain enough new candidates."
             ),
         },

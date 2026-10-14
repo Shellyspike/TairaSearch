@@ -31,14 +31,16 @@ The profile is a small auditable JSON containing:
 - named interests with confirmed search terms;
 - optional focus people and name variants;
 - material types;
-- preferred kinds of findings and diversity preferences;
+- preferred kinds of findings, diversity preferences, and editorial style;
 - a result count from one to twenty, with five as the default.
 
 Only fields used by retrieval change the results. Codex must translate a
 free-form preference into confirmed `interests[].terms`, an interest `weight`,
 material types, or source filters as appropriate. `finding_preferences.notes`
-is explanatory metadata and does not affect ranking or filtering; saving a
-request only in `notes` does not apply it.
+does not affect ranking or filtering, so it cannot be the only place for a
+preference that should alter retrieval. It can store purely editorial choices,
+such as vivid, expanded cards; the supplied Codex workflow reads and applies
+those choices when writing the result.
 
 The profile does not rewrite index annotations. New names and topics become
 direct FTS queries over stored text, so a preview does not require reindexing.
@@ -86,13 +88,14 @@ novelty, it requests a disjoint next batch instead of stopping:
 .venv\Scripts\python taira_search.py research-findings --db work/research/index.sqlite3 --profile research_profile.json --used-finds used_finds.csv --output work/research/candidates-2.json --preview --continue-from work/research/candidates.json
 ```
 
-The previous JSON records the exposed and technically rejected `chunk_id`
-values. `--continue-from` excludes them while keeping verified but not yet
-shown candidates available. It can be repeated for further batches. If the
+The previous JSON records exposed `chunk_id` values and only confirmed exact
+technical collapses. `--continue-from` excludes those while leaving
+pre-editorial rejects and context-only chunks available: they may become useful
+at another retrieval depth. It can be repeated for further batches. If the
 current retrieval depth is exhausted, Codex may make one bounded run with a
-larger `--top-per-interest` or `--pool-size`, without changing the profile.
-An empty batch is not an index error, and an index or data-reading error must
-not be presented as an empty result.
+larger `--top-per-interest` or `--pool-size`, without changing the profile. An
+empty batch is not an index error, and an index or data-reading error must not
+be presented as an empty result.
 
 ## Later manual runs
 
@@ -108,8 +111,21 @@ existing `record-publication` command described in
 [ai-workflow.md](ai-workflow.md). One to the configured maximum number of
 strong results is valid; an empty selection is also valid.
 
-This is a manual workflow. Version 0.3.1 does not create a schedule or alter any
-existing Codex automation.
+## Optional recurring findings
+
+After the user explicitly confirms the profile and approves the preview, Codex
+offers a choice between manual runs and a recurring schedule. No automation is
+created without separate consent. If the user opts in, Codex asks for cadence,
+local time, and time zone, repeats them for confirmation, and creates a task
+that uses the saved `research_profile.json` and
+[`examples/codex/research-workflow.md`](../examples/codex/research-workflow.md).
+It does not alter unrelated schedules.
+
+If the current session cannot create the task automatically, open
+`codex://automations` (Scheduled) and create it with the same workflow and
+profile path. Codex should provide a short ready-to-paste task so the user does
+not need to rewrite the research prompt. Declining a schedule is a complete and
+supported outcome; the saved profile remains available for manual runs.
 
 ## Two reproducible scenarios
 

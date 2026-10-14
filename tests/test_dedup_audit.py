@@ -303,6 +303,71 @@ class DedupAuditTests(unittest.TestCase):
             ["same-location"],
         )
 
+    def test_published_neighbour_is_sent_to_review_by_both_selectors(self) -> None:
+        candidate = {
+            "chunk_id": "new-target",
+            "retrieval_score": 2.0,
+            "relative_path": "journal.pdf",
+            "chunk_no": 3,
+            "source": "Theatre Studies",
+            "source_group": "Theatre Studies",
+            "primary_topic": "zeami",
+            "person": ["Zeami"],
+            "topics": ["zeami"],
+            "what_happened": "The next section discusses transmission among pupils.",
+            "verified_context": {
+                "chunks": [
+                    {
+                        "chunk_id": "published-neighbour",
+                        "chunk_no": 2,
+                        "text": "The earlier section describes the formation of the treatise.",
+                    },
+                    {
+                        "chunk_id": "new-target",
+                        "chunk_no": 3,
+                        "text": "The next section discusses transmission among pupils.",
+                    },
+                ]
+            },
+        }
+        used = [
+            {
+                "id": "published-neighbour",
+                "description": "A study of how the treatise took shape.",
+                "persons": ["Zeami"],
+                "topics": ["zeami"],
+                "source": "Theatre Studies",
+            }
+        ]
+
+        result = daily_five.duplicate_check(candidate, used)
+        candidate["duplicate_check"] = result
+        daily_five.attach_semantic_reviews([candidate])
+
+        self.assertEqual(result["status"], "duplicate_risk")
+        self.assertFalse(result["auto_exclude"])
+        self.assertTrue(result["requires_editorial_review"])
+        self.assertTrue(
+            result["review_matches"][0]["signals"][
+                "published_chunk_in_verified_context"
+            ]
+        )
+        self.assertEqual(
+            [item["chunk_id"] for item in daily_five._select_diverse([candidate], 1)],
+            ["new-target"],
+        )
+        self.assertEqual(
+            [
+                item["chunk_id"]
+                for item in research_findings._select_diverse(
+                    [candidate],
+                    1,
+                    {"finding_preferences": {"avoid_person_repetition": False}},
+                )
+            ],
+            ["new-target"],
+        )
+
     def test_uncertain_history_match_remains_eligible_in_both_selectors(self) -> None:
         uncertain = {
             "chunk_id": "uncertain",

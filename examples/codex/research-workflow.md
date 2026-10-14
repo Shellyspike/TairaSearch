@@ -12,6 +12,9 @@ needed, and choose the final findings.
 2. If `research_profile.json` does not exist, follow
    `examples/codex/research-onboarding.md`: interview me briefly, confirm the
    interpretation, create the ignored local profile, and run its preview.
+   If the profile exists, read `finding_preferences.notes` and apply its saved
+   preferences for detail, tone, and presentation. Those notes do not alter
+   Python ranking and never replace source verification.
 3. Resolve the intended existing index from my request or the project. If none
    is clear, or several are plausible, ask me for the path instead of guessing.
    Do not rebuild the index, alter the corpus, change the profile's interests,
@@ -40,7 +43,10 @@ needed, and choose the final findings.
    scholarship, and distinguish it from evidence in historical sources.
 8. Write only the findings that survive your source and semantic review, with
    exact `relative_path`, `chunk_id`, source role, and cautious attribution.
-   Explain briefly when fewer results were justified.
+   Follow the saved style: for vivid, expanded cards, open with a strong
+   supported detail or conflict, give enough context, and explain why the
+   finding matters without dramatizing beyond the source. Explain briefly when
+   fewer results were justified.
 9. Retrieval and preview must not change the journal. Only if my request
    explicitly includes publication, save the exact finalized cards to a local
    manifest under `work/` and use the existing `record-publication` command.

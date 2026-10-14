@@ -319,6 +319,18 @@ def _history_match(
         and prior_claim
         and candidate_claim.casefold() == prior_claim.casefold()
     )
+    verified_context = candidate.get("verified_context", {})
+    context_chunks = (
+        verified_context.get("chunks", [])
+        if isinstance(verified_context, dict)
+        else []
+    )
+    context_chunk_ids = {
+        normalize_text(str(item.get("chunk_id", "")))
+        for item in context_chunks
+        if isinstance(item, dict) and item.get("chunk_id")
+    }
+    nearby_published_chunk = bool(record_id and record_id in context_chunk_ids)
 
     candidate_people = set(candidate.get("person", []))
     candidate_topics = set(candidate.get("topics", []))
@@ -358,6 +370,8 @@ def _history_match(
         reasons.append("exact chunk_id")
     if exact_claim:
         reasons.append("exact normalized published claim")
+    if nearby_published_chunk:
+        reasons.append("published chunk_id appears in verified neighbouring context")
     if people_overlap:
         reasons.append("shared people: " + ", ".join(people_overlap))
     if topics_overlap:
@@ -379,6 +393,7 @@ def _history_match(
     plausible = bool(
         exact_id
         or exact_claim
+        or nearby_published_chunk
         or lexical >= 0.28
         or anchor_count >= 2
         or topics_overlap
@@ -391,12 +406,16 @@ def _history_match(
     score += 0.10 * bool(same_source)
     score += 0.05 * bool(related_source_name and not same_source)
     score += 0.10 * bool(same_date)
+    score += 0.25 * nearby_published_chunk
     if exact_claim:
         strength = "confirmed"
         score = 1.0
     elif exact_id:
         strength = "strong"
         score = max(score, 0.95)
+    elif nearby_published_chunk:
+        strength = "strong"
+        score = max(score, 0.85)
     elif lexical >= 0.60 or (lexical >= 0.38 and anchor_count >= 2):
         strength = "strong"
     elif lexical >= 0.28 or anchor_count >= 2:
@@ -417,6 +436,7 @@ def _history_match(
             "same_date": same_date,
             "exact_chunk_id": exact_id,
             "exact_claim": exact_claim,
+            "published_chunk_in_verified_context": nearby_published_chunk,
             "positional_id_claim_changed": bool(exact_id and not exact_claim),
         },
         "candidate_claim_type": candidate_type,
