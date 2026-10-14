@@ -41,12 +41,14 @@ change pass.
 
 ## Implemented 0.3 behaviour
 
-- `candidate_pair_check()` collapses only an exact `chunk_id` or near-identical
-  evidence in the same source scope. Proximity and a shared topic now create a
-  review relation instead of deleting either candidate. Both `daily_five` and
+- `candidate_pair_check()` collapses only identical normalized evidence in the
+  same source scope (or the same `chunk_id` with identical evidence). A changed
+  number, date, negation, action, or outcome keeps both candidates for review,
+  even when lexical similarity is very high. Both `daily_five` and
   `research_findings` use the same rule.
-- Publication-history matching auto-excludes only an exact `chunk_id` or exact
-  normalized published claim. Person, topic, date, source, OCR-like text
+- Publication-history matching auto-excludes only an exact normalized published
+  claim. A reused positional `chunk_id` with changed content becomes a strong
+  review match, not a verdict. Person, topic, date, source, OCR-like text
   similarity, and source-name similarity can shortlist a match but never
   confirm it by accumulating label bonuses.
 - Every retained candidate can carry a bounded `semantic_review` packet with
@@ -81,7 +83,7 @@ The 13 fictional Japan and Rome cases live in
 
 | Case | Expected | 0.2 baseline | Current branch | Current assessment |
 | --- | --- | --- | --- | --- |
-| `jp-01-exact-chunk-id` | confirmed repeat | `duplicate` | `duplicate` | correct technical exclusion |
+| `jp-01-exact-chunk-id` | confirmed repeat | `duplicate` | `kept_for_review` | positional ID is insufficient; Codex receives both claims |
 | `jp-02-same-story-neighbouring-chunks` | confirmed repeat | `collapsed` | `kept_for_review` | underconfident; Codex receives both excerpts |
 | `rome-01-distinct-neighbouring-events` | new finding | `collapsed` | `kept_for_review` | false collapse removed |
 | `jp-03-paraphrase-across-books` | probable repeat | `duplicate_risk` | `kept_for_review` | correct handoff |
@@ -96,9 +98,9 @@ The 13 fictional Japan and Rome cases live in
 | `rome-07-same-person-topic-source-different-event` | new finding | `duplicate` | `kept_for_review` | false history veto removed |
 
 Baseline totals: 4 correct, 4 false repeats, 3 missed repeats, and 2 new angles
-whose relation is not represented. Current totals: 5 correct technical or
-review handoffs, 4 new findings preserved for review, 2 new angles pending
-review, and 2 confirmed repeats handled conservatively rather than suppressed.
+whose relation is not represented. Current totals: 4 correct review handoffs,
+4 new findings preserved for review, 2 new angles pending review, and 3
+confirmed repeats handled conservatively rather than suppressed.
 No known new finding in the fixture is automatically removed. This deliberately
 adversarial fixture is a regression benchmark, not an estimate of production
 error prevalence.
@@ -141,7 +143,8 @@ readable as legacy chunk references and must never be silently rewritten.
 ## Remaining limitations
 
 - Python does not understand historical meaning. It deliberately produces some
-  underconfident review pairs, including near-identical OCR cases.
+  underconfident review pairs, including near-identical OCR cases and a reused
+  positional ID whose current claim is not identical to the published summary.
 - Cross-language discovery relies on available shared metadata or other weak
   signals; unrelated records with only a broad topic can create review noise,
   while a translation with no shared signal can still be missed.

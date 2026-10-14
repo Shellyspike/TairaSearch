@@ -392,6 +392,8 @@ class DedupAuditTests(unittest.TestCase):
             self.assertIn(f"`{decision}`", prompt)
         self.assertIn("semantic_review", prompt)
         self.assertIn("Shared people, topics, dates, or source names", prompt)
+        self.assertIn("matching `chunk_id` is only a positional clue", prompt)
+        self.assertIn("number, date, negation, action", prompt)
         self.assertIn("Keep `probable_repeat_review` visible", prompt)
         self.assertIn("Do not make a card from `confirmed_repeat`", prompt)
 

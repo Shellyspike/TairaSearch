@@ -39,11 +39,12 @@ retain their existing contracts.
 
 The 0.3 benchmark preserves the historical 0.2 result for 13 fictional Japan
 and Rome cases, then measures the corrected logic separately. Python now
-collapses only strong technical matches, keeps uncertain OCR, reindexing,
+collapses only identical normalized evidence, keeps uncertain OCR, reindexing,
 paraphrase, translation, and history matches in the candidate pool, and passes
 bounded comparison evidence to Codex. Codex applies the four semantic classes;
-shared people, topics, dates, or source names never decide a repeat by
-themselves. See the [audit and implementation result](docs/dedup-audit.md) or
+shared people, topics, dates, source names, or a positional `chunk_id` never
+decide a repeat by themselves. See the
+[audit and implementation result](docs/dedup-audit.md) or
 run:
 
 ```powershell

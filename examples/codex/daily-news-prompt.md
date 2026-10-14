@@ -32,6 +32,10 @@ This is a sanitized prompt template, not an active automation configuration.
 > that would actually be new. Shared people, topics, dates, or source names are
 > reasons to compare; none is a duplicate verdict by itself. OCR changes,
 > reindexing, paraphrase, and translation require this claim-level comparison.
+> A matching `chunk_id` is only a positional clue: if the supported claim has
+> changed, do not treat it as a confirmed repeat. Likewise, near-identical
+> wording can reverse meaning through a changed number, date, negation, action,
+> or outcome; compare those facts explicitly.
 >
 > Classify every reviewed relation as exactly one of:
 >
