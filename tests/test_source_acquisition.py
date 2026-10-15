@@ -8,6 +8,7 @@ import sqlite3
 import tempfile
 import threading
 import unittest
+import urllib.request
 import zipfile
 from pathlib import Path
 from unittest import mock
@@ -110,7 +111,80 @@ class SourceAcquisitionTests(unittest.TestCase):
         return path
 
     def run_cli(self, *arguments: str) -> int:
+        return source_acquisition.main(
+            list(arguments), allow_private_network_for_tests=True
+        )
+
+    def run_public_cli(self, *arguments: str) -> int:
         return source_acquisition.main(list(arguments))
+
+    def test_public_downloader_blocks_local_internal_and_service_targets(self) -> None:
+        blocked = (
+            "http://127.0.0.1/source.txt",
+            "http://[::1]/source.txt",
+            "http://localhost/source.txt",
+            "http://10.0.0.1/source.txt",
+            "http://169.254.169.254/latest/meta-data",
+            "http://metadata.google.internal/computeMetadata/v1/",
+            "http://service.internal/source.txt",
+        )
+        for url in blocked:
+            with self.subTest(url=url), self.assertRaises(
+                source_acquisition.AcquisitionError
+            ):
+                source_acquisition.validate_public_download_target(url)
+
+    def test_public_downloader_rejects_dns_answer_containing_private_address(
+        self,
+    ) -> None:
+        answers = [
+            (2, 1, 6, "", ("93.184.216.34", 443)),
+            (2, 1, 6, "", ("10.0.0.7", 443)),
+        ]
+        with mock.patch.object(
+            source_acquisition.socket, "getaddrinfo", return_value=answers
+        ):
+            with self.assertRaises(source_acquisition.AcquisitionError):
+                source_acquisition.validate_public_download_target(
+                    "https://public.example/source.pdf"
+                )
+
+    def test_redirect_to_local_target_is_rejected_before_following(self) -> None:
+        handler = source_acquisition.SafeRedirectHandler()
+        request = urllib.request.Request("https://example.org/start")
+        with self.assertRaises(source_acquisition.AcquisitionError):
+            handler.redirect_request(
+                request,
+                None,
+                302,
+                "Found",
+                {},
+                "http://127.0.0.1/private",
+            )
+
+    def test_cli_has_no_private_network_bypass(self) -> None:
+        manifest = self.manifest("txt")
+        code = self.run_public_cli(
+            "stage",
+            "--manifest",
+            str(manifest),
+            "--profile",
+            str(self.profile),
+            "--journal",
+            str(self.journal),
+            "--staging",
+            str(self.staging),
+            "--report",
+            str(self.root / "blocked-local.json"),
+            "--approve-downloads",
+        )
+        self.assertEqual(code, 1)
+        payload = json.loads(
+            (self.root / "blocked-local.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(payload["summary"]["error"], 1)
+        self.assertIn("запрещена", payload["items"][0]["reason"])
+        self.assertFalse(self.journal.exists())
 
     def test_stage_requires_explicit_consent_and_downloads_nothing_on_refusal(self) -> None:
         manifest = self.manifest("txt")
@@ -164,8 +238,8 @@ class SourceAcquisitionTests(unittest.TestCase):
             str(policy),
             "--approve-downloads",
         )
-        self.assertEqual(code, 0)
         payload = json.loads(report.read_text(encoding="utf-8"))
+        self.assertEqual(code, 0, payload)
         self.assertEqual(payload["summary"]["staged"], 6)
         for item in payload["items"]:
             self.assertEqual(item["status"], "staged")
@@ -293,6 +367,53 @@ class SourceAcquisitionTests(unittest.TestCase):
             str(policy),
         )
         self.assertEqual(code, 0)
+        self.assertFalse((self.root / "corpus").exists())
+        self.assertFalse((self.root / "index.sqlite3").exists())
+
+    def test_promotion_without_separate_consent_changes_nothing(self) -> None:
+        manifest = self.manifest("txt", title_prefix="Promotion refusal")
+        stage_report = self.root / "stage-before-refusal.json"
+        self.assertEqual(
+            self.run_cli(
+                "stage",
+                "--manifest",
+                str(manifest),
+                "--profile",
+                str(self.profile),
+                "--journal",
+                str(self.journal),
+                "--staging",
+                str(self.staging),
+                "--report",
+                str(stage_report),
+                "--approve-downloads",
+            ),
+            0,
+        )
+        source_id = json.loads(stage_report.read_text(encoding="utf-8"))["items"][0][
+            "source_id"
+        ]
+        corpus = self.root / "corpus"
+        corpus.mkdir()
+        code = self.run_cli(
+            "promote",
+            "--source-id",
+            source_id,
+            "--staging",
+            str(self.staging),
+            "--corpus",
+            str(corpus),
+            "--journal",
+            str(self.journal),
+            "--db",
+            str(self.root / "index.sqlite3"),
+            "--report",
+            str(self.root / "refused-promotion.json"),
+            "--index",
+        )
+        self.assertEqual(code, 1)
+        self.assertEqual(list(corpus.iterdir()), [])
+        self.assertFalse((self.root / "index.sqlite3").exists())
 
     def test_approved_promotion_is_idempotent_and_can_increment_index(self) -> None:
         manifest = self.manifest("html")
@@ -445,6 +566,65 @@ class SourceAcquisitionTests(unittest.TestCase):
         self.assertFalse((self.staging / "broken-xml").exists())
         self.assertFalse(self.journal.exists())
 
+    def test_partial_stage_failure_keeps_successful_source_for_review(self) -> None:
+        (self.web / "broken.xml").write_text("<TEI><broken>", encoding="utf-8")
+        manifest = self.root / "partial-manifest.json"
+        manifest.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "sources": [
+                        {
+                            "id": "valid-txt",
+                            "title": "Valid public text",
+                            "author": "Test",
+                            "url": f"{self.base_url}/source.txt",
+                            "format": "txt",
+                            "filename": "valid-source.txt",
+                            "access": "open",
+                            "interest_id": "daily-life",
+                        },
+                        {
+                            "id": "broken-xml",
+                            "title": "Broken XML",
+                            "author": "Test",
+                            "url": f"{self.base_url}/broken.xml",
+                            "format": "xml",
+                            "filename": "broken.xml",
+                            "access": "open",
+                            "interest_id": "daily-life",
+                        },
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        report = self.root / "partial-report.json"
+        code = self.run_cli(
+            "stage",
+            "--manifest",
+            str(manifest),
+            "--profile",
+            str(self.profile),
+            "--journal",
+            str(self.journal),
+            "--staging",
+            str(self.staging),
+            "--report",
+            str(report),
+            "--approve-downloads",
+        )
+        self.assertEqual(code, 1)
+        payload = json.loads(report.read_text(encoding="utf-8"))
+        self.assertEqual(payload["summary"]["staged"], 1)
+        self.assertEqual(payload["summary"]["error"], 1)
+        self.assertTrue((self.staging / "valid-txt" / "metadata.json").is_file())
+        self.assertFalse((self.staging / "broken-xml").exists())
+        journal = json.loads(self.journal.read_text(encoding="utf-8"))
+        self.assertEqual(
+            [entry["source_id"] for entry in journal["entries"]], ["valid-txt"]
+        )
+
     def test_onboarding_keeps_acquisition_and_findings_opt_in_and_separate(self) -> None:
         variants = (
             (
@@ -477,6 +657,14 @@ class SourceAcquisitionTests(unittest.TestCase):
                 self.assertIn("used_finds.csv", workflow)
                 self.assertIn("--approve-downloads", workflow)
                 self.assertIn("--approve --index", workflow)
+                self.assertIn("ready_for_review", workflow)
+                self.assertIn("build_index.py", workflow)
+                if onboarding_path.name.endswith("ru.md"):
+                    self.assertIn("не запускай `promote`", workflow)
+                    self.assertIn("отдельное явное согласие", workflow)
+                else:
+                    self.assertIn("do not run `promote`", workflow)
+                    self.assertIn("separate explicit consent", workflow)
 
     def test_public_examples_are_safe_defaults(self) -> None:
         policy = json.loads(

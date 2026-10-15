@@ -13,10 +13,12 @@ import argparse
 import contextlib
 import hashlib
 import html
+import ipaddress
 import json
 import os
 import re
 import shutil
+import socket
 import sqlite3
 import subprocess
 import sys
@@ -66,6 +68,21 @@ DEFAULT_MAX_FILE_BYTES = 20 * 1024 * 1024
 DEFAULT_MAX_TOTAL_BYTES = 50 * 1024 * 1024
 DEFAULT_MIN_TEXT_CHARS = 200
 MAX_EPUB_UNCOMPRESSED_BYTES = 100 * 1024 * 1024
+BLOCKED_HOSTS = {
+    "instance-data",
+    "localhost",
+    "localhost.localdomain",
+    "metadata.azure.internal",
+    "metadata.google.internal",
+}
+BLOCKED_HOST_SUFFIXES = (
+    ".home.arpa",
+    ".internal",
+    ".lan",
+    ".local",
+    ".localhost",
+    ".localdomain",
+)
 
 
 class AcquisitionError(RuntimeError):
@@ -156,13 +173,90 @@ def canonical_url(value: str) -> str:
         raise AcquisitionError("Разрешены только обычные HTTP/HTTPS URL")
     if not parsed.hostname or parsed.username or parsed.password:
         raise AcquisitionError("URL должен содержать публичный хост без учётных данных")
-    host = parsed.hostname.casefold()
-    port = parsed.port
-    netloc = host if port is None else f"{host}:{port}"
+    host = parsed.hostname.casefold().rstrip(".")
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise AcquisitionError("URL содержит некорректный порт") from exc
+    display_host = f"[{host}]" if ":" in host else host
+    netloc = display_host if port is None else f"{display_host}:{port}"
     path = parsed.path or "/"
     return urllib.parse.urlunsplit(
         (parsed.scheme.casefold(), netloc, path, parsed.query, "")
     )
+
+
+def validate_public_download_target(
+    value: str, *, allow_private_network_for_tests: bool = False
+) -> str:
+    """Return a canonical URL only when every resolved address is public.
+
+    The private-network escape hatch is deliberately an internal Python
+    argument used by the local HTTP test fixture. It is not exposed by the
+    command-line interface or acquisition policy.
+    """
+
+    url = canonical_url(value)
+    if allow_private_network_for_tests:
+        return url
+    parsed = urllib.parse.urlsplit(url)
+    host = (parsed.hostname or "").casefold().rstrip(".")
+    if host in BLOCKED_HOSTS or any(
+        host.endswith(suffix) for suffix in BLOCKED_HOST_SUFFIXES
+    ):
+        raise AcquisitionError(
+            f"загрузка с локального или служебного хоста запрещена: {host}"
+        )
+    try:
+        resolved = socket.getaddrinfo(
+            host,
+            parsed.port or (443 if parsed.scheme == "https" else 80),
+            type=socket.SOCK_STREAM,
+        )
+    except (OSError, UnicodeError) as exc:
+        raise AcquisitionError(
+            f"не удалось безопасно разрешить адрес {host}: {exc}"
+        ) from exc
+    addresses = {item[4][0].split("%", 1)[0] for item in resolved if item[4]}
+    if not addresses:
+        raise AcquisitionError(f"хост {host} не вернул ни одного сетевого адреса")
+    for address in addresses:
+        try:
+            parsed_address = ipaddress.ip_address(address)
+        except ValueError as exc:
+            raise AcquisitionError(
+                f"хост {host} разрешился в некорректный адрес: {address}"
+            ) from exc
+        if not parsed_address.is_global:
+            raise AcquisitionError(
+                "загрузка с локального, внутреннего или служебного адреса "
+                f"запрещена: {host} -> {parsed_address}"
+            )
+    return url
+
+
+class SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Validate every HTTP redirect before urllib follows it."""
+
+    def __init__(self, *, allow_private_network_for_tests: bool = False) -> None:
+        super().__init__()
+        self.allow_private_network_for_tests = allow_private_network_for_tests
+
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: Any,
+        code: int,
+        msg: str,
+        headers: Any,
+        newurl: str,
+    ) -> urllib.request.Request | None:
+        target = urllib.parse.urljoin(req.full_url, newurl)
+        validate_public_download_target(
+            target,
+            allow_private_network_for_tests=self.allow_private_network_for_tests,
+        )
+        return super().redirect_request(req, fp, code, msg, headers, target)
 
 
 def normalize_identifier(value: str) -> str:
@@ -543,14 +637,30 @@ def check_candidates(
     }
 
 
-def download_bytes(url: str, maximum: int) -> tuple[bytes, str, str]:
+def download_bytes(
+    url: str,
+    maximum: int,
+    *,
+    allow_private_network_for_tests: bool = False,
+) -> tuple[bytes, str, str]:
+    safe_url = validate_public_download_target(
+        url, allow_private_network_for_tests=allow_private_network_for_tests
+    )
     request = urllib.request.Request(
-        url,
+        safe_url,
         headers={"User-Agent": "TairaSearch/0.4 (+local research library)"},
     )
+    opener = urllib.request.build_opener(
+        SafeRedirectHandler(
+            allow_private_network_for_tests=allow_private_network_for_tests
+        )
+    )
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            final_url = canonical_url(response.geturl())
+        with opener.open(request, timeout=30) as response:
+            final_url = validate_public_download_target(
+                response.geturl(),
+                allow_private_network_for_tests=allow_private_network_for_tests,
+            )
             declared = response.headers.get("Content-Length")
             if declared:
                 try:
@@ -706,6 +816,7 @@ def stage_candidates(
     journal_path: Path,
     db_path: Path | None,
     limits: Limits,
+    allow_private_network_for_tests: bool = False,
 ) -> dict[str, Any]:
     if len(candidates) > limits.max_files:
         raise AcquisitionError(
@@ -773,7 +884,9 @@ def stage_candidates(
         temporary = Path(tempfile.mkdtemp(prefix=f".{candidate['id']}.", dir=staging_root))
         try:
             data, final_url, content_type = download_bytes(
-                candidate["url"], limits.max_file_bytes
+                candidate["url"],
+                limits.max_file_bytes,
+                allow_private_network_for_tests=allow_private_network_for_tests,
             )
             total_bytes += len(data)
             if total_bytes > limits.max_total_bytes:
@@ -1043,7 +1156,9 @@ def print_report(report: dict[str, Any], report_path: Path) -> None:
     print(f"Отчёт: {report_path}")
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(
+    argv: list[str] | None = None, *, allow_private_network_for_tests: bool = False
+) -> int:
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8", errors="replace")
@@ -1081,6 +1196,7 @@ def main(argv: list[str] | None = None) -> int:
                     journal_path=arguments.journal,
                     db_path=db_path,
                     limits=limits,
+                    allow_private_network_for_tests=allow_private_network_for_tests,
                 )
         else:
             ensure_distinct_files(

@@ -48,6 +48,12 @@ page, not an automated legal opinion by Python.
    invokes the existing `build_index.py` incrementally. A failed index run
    leaves staging and the journal available for recovery.
 
+After `stage`, Codex shows each document's title, author, URL, staging paths,
+and quality measurements. It then separately asks which `source_id` values to
+move into the named corpus and whether to update the named index. Refusal or no
+answer leaves everything in staging. A successful automatic download is never
+consent for `promote --index`.
+
 PDF checks sample the beginning, middle, and end; a partial read is not marked
 ready. HTML keeps unchanged source bytes and extracted visible text. EPUB and
 XML/TEI extraction does not rewrite the content. SHA-256 verifies originals.
@@ -59,10 +65,17 @@ local journal and SQLite. This does not scan Google Drive and cannot decide
 whether two genuinely different editions are semantically identical; Codex or
 the user reviews ambiguity. The downloader does not bypass site controls,
 accept URL credentials, or fetch a source Codex has classified as unauthorised.
+It also rejects localhost, loopback, private, link-local, reserved, and service
+addresses, including HTTP redirects to them. The private-network allowance is
+an internal hook solely for the isolated test HTTP server; neither the CLI nor
+a policy file can enable it.
 
 Download consent and indexing consent are separate. Scheduled library
 acquisition and scheduled research cards are two independent automations. One
-never authorises creating or changing the other.
+never authorises creating or changing the other. A pre-approved automatic
+policy lets a scheduled run discover and download into staging only; moving
+files into the corpus and updating SQLite always remain interactive actions
+requiring separate explicit consent.
 
 ## Testing a real open site
 

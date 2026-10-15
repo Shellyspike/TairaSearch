@@ -48,17 +48,28 @@ generation: do not run `research-workflow` and do not change `used_finds.csv`.
    extracts text, and technically checks PDF, HTML, TXT, Markdown, XML/TEI, and
    EPUB. You judge completeness, bibliography, relevance, and the legitimacy of
    the selected source. Do not correct OCR, historical wording, or spelling in
-   either the original or extracted text.
-9. Nothing leaves staging automatically. Show all `ready_for_review` items.
-   After separate approval of exact IDs, promotion and incremental indexing may
-   call the existing indexer:
+   either the original or extracted text. Show every result with its `source_id`,
+   title, author, URL, format, size, staging paths for the original and extracted
+   text, extracted character count, and, for PDF, the sampled beginning, middle,
+   and end pages. List duplicates, errors, and partial-run failures separately
+   with reasons; successfully staged items remain available for review.
+9. Nothing leaves staging automatically. Show all `ready_for_review` items,
+   then ask a separate question: “Add approved SOURCE_ID values to corpus
+   PATH_TO_CORPUS and update index PATH_TO_INDEX?” On refusal or without an
+   answer, do not run `promote`, `build_index.py`, or indexing; leave the files
+   in staging. Only separate explicit consent for the named IDs, corpus, and
+   index permits promotion and incremental indexing through the existing
+   indexer:
 
    ```powershell
    python source_acquisition.py promote --source-id SOURCE_ID --staging work/library-staging --corpus PATH_TO_CORPUS --journal work/source-acquisition/downloads.json --db PATH_TO_INDEX --approve --index --report work/source-acquisition/promote-report.json
    ```
 
-   Repeat the paths and IDs first. Never use `--rebuild`, delete missing
-   documents, or replace an existing index.
+   Repeat the paths and IDs first. Afterwards, show the promotion and indexing
+   status from the report. If indexing fails, explain that files were promoted
+   but staging and the journal remain for diagnosis; do not claim that the
+   index was updated. Never use `--rebuild`, delete missing documents, or
+   replace an existing index.
 10. Report every run: found and downloaded titles, authors, and URLs; staging
     paths and text quality; duplicate, unusable, and inaccessible counts; and
     items awaiting approval and indexing. If no suitable source exists, say so.
@@ -67,7 +78,12 @@ generation: do not run `research-workflow` and do not change `used_finds.csv`.
     time zone, limits, and `automatic_downloads`. Check existing automations
     first and do not create a duplicate acquisition task for the same project. The
     acquisition task uses this workflow; the research-card task uses
-    `research-workflow.md`. They are independent.
+    `research-workflow.md`. They are independent. A pre-approved policy permits
+    a scheduled task to discover sources and run only `check` and `stage` into
+    staging. A scheduled run must not call `promote`, `build_index.py`, or
+    `--index`, and must not copy files into the corpus. It reports pending
+    materials; promotion and indexing always require separate explicit consent
+    from the user in an interactive conversation.
 
 If web search, downloads, or scheduling are unavailable in the current Codex,
 state the limitation and provide manual commands. Never pretend that a source
