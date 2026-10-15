@@ -14,6 +14,25 @@ Japanese, and English fixtures (including PDFs), not the author's personal
 library, production database, publication journal, active automation, or chat
 history.
 
+## Codex-assisted library acquisition (0.4)
+
+After creating `research_profile.json`, open the project in Codex and send:
+
+> Read `examples/codex/source-acquisition-workflow.md` and help me safely grow
+> my research library from `research_profile.json`.
+
+Codex derives search directions from the profile and discovers and evaluates
+open sources. `source_acquisition.py` applies local duplicate checks, limits,
+and format validation, then preserves original bytes, extracted text, and
+metadata in staging. Download, corpus promotion, and indexing remain separate
+consent boundaries. PDF, HTML, TXT, Markdown, XML/TEI, and EPUB are supported;
+PDF quality samples the beginning, middle, and end. See
+[docs/source-acquisition.md](docs/source-acquisition.md) for exact commands.
+
+Scheduled acquisition and scheduled research cards are two independent
+automations. Codex checks existing tasks and creates neither without explicit
+consent. No OpenAI API or separate LLM service is required.
+
 ## Profile-driven Codex research (0.3.1)
 
 A new user can configure retrieval by conversation instead of editing JSON.

@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "automatic_downloads": false,
+  "max_files_per_run": 5,
+  "max_file_bytes": 20971520,
+  "max_total_bytes": 52428800,
+  "min_text_chars": 200
+}

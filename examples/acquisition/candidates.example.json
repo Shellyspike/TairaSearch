@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "id": "gutenberg-declaration-1",
+      "title": "The Declaration of Independence of the United States of America",
+      "author": "United States",
+      "year": "1776",
+      "url": "https://www.gutenberg.org/cache/epub/1/pg1.txt",
+      "doi": "",
+      "format": "txt",
+      "filename": "pg1.txt",
+      "title_variants": [
+        "United States Declaration of Independence"
+      ],
+      "language": "English",
+      "repository": "Project Gutenberg",
+      "access": "public-domain",
+      "reuse_terms": "Check the current Project Gutenberg ebook page and local law before use.",
+      "interest_id": "replace-with-profile-interest",
+      "why_useful": "Public example only; replace it with a candidate relevant to the confirmed profile."
+    }
+  ]
+}

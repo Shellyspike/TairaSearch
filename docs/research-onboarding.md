@@ -2,7 +2,7 @@
 
 [Русская версия](research-onboarding.ru.md)
 
-TairaSearch 0.3.1 uses a local research profile on top of the existing FTS5
+TairaSearch 0.4 uses a local research profile on top of the existing FTS5
 index. It does not change the SQLite schema, `chunk_id`, legacy `daily-five`,
 or `used_finds.csv`.
 
@@ -74,17 +74,29 @@ visible, after which the user can select another index or a document folder.
 
 ### 3. No materials yet
 
-When web search, a browser, or catalogue tools are available, Codex finds a
-small set of suitable open sources for the confirmed profile. Before any
-download it shows each owner or repository, URL, format, stated reuse terms,
-and expected relevance. The user explicitly selects and authorizes concrete
-sources. Files are saved only to a local folder under `work/`; Codex then runs
-`--scan-only` and asks separately before indexing.
+When web search, a browser, or catalogue tools are available, Codex follows
+[`source-acquisition-workflow.md`](../examples/codex/source-acquisition-workflow.md):
+it finds a small set of suitable open sources, creates a manifest, and first
+runs the read-only duplicate check. Before any download it shows each owner or
+repository, URL, format, stated reuse terms, expected relevance, and limits.
+The user explicitly selects concrete sources and authorizes staging under
+`work/library-staging/`. Promotion and incremental indexing require a separate
+decision after the quality report.
 
 If the required tools are unavailable, Codex says that it cannot search or
 download in the current session and asks the user to return with a folder or a
-ready index. Onboarding does not start continuous acquisition; automatic
-library growth remains a 0.4 feature.
+ready index. It never simulates an external result or presents a local fixture
+as proof that a real site works.
+
+## Optional library acquisition
+
+As soon as a folder, ready index, or initial source set is connected, Codex
+separately offers recurring library acquisition. Consent is independent from a
+research-card schedule. If the user opts in, Codex asks for cadence, time, time
+zone, file-count and byte limits, and whether qualifying files may be downloaded
+automatically to staging. A refusal leaves manual runs available. Codex checks
+existing tasks first and does not duplicate an acquisition task for the same
+project. Promotion and indexing still require separate approval.
 
 ## Preview selection
 
@@ -137,7 +149,7 @@ existing `record-publication` command described in
 [ai-workflow.md](ai-workflow.md). One to the configured maximum number of
 strong results is valid; an empty selection is also valid.
 
-## Optional recurring findings
+## Optional recurring research cards
 
 After the user explicitly confirms the profile and approves the preview, Codex
 offers a choice between manual runs and a recurring schedule. No automation is
@@ -145,7 +157,9 @@ created without separate consent. If the user opts in, Codex asks for cadence,
 local time, and time zone, repeats them for confirmation, and creates a task
 that uses the saved `research_profile.json` and
 [`examples/codex/research-workflow.md`](../examples/codex/research-workflow.md).
-It does not alter unrelated schedules.
+It does not alter unrelated schedules. This is independent from library
+acquisition: one writes reviewed cards, while the other only discovers and
+stages new source material.
 
 If the current session cannot create the task automatically, open
 `codex://automations` (Scheduled) and create it with the same workflow and
