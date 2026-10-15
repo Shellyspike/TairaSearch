@@ -35,40 +35,45 @@ the index schema.
    the corpus or index. Check availability with a safe read command. If the
    format is incompatible or the file is unavailable, report the error and
    return to the material choice without attempting an automatic repair.
-7. If there are no materials, use available web search, browser, or connected
-   catalogues to find a small set of suitable open sources for the confirmed
-   profile. Use `examples/codex/source-discovery-prompt.md` only as a checklist,
-   not as an automation. For every option state the owner or repository, URL,
-   format, stated reuse terms, and expected relevance. Download nothing until
-   I explicitly select and authorize the sources. After consent, download only
-   the selected material to a local folder under `work/`, run `--scan-only`,
-   show the result, and ask again before indexing. If search or download tools
-   are unavailable, explain the limitation honestly and ask me for a document
-   folder or ready index. Do not turn this one-time setup step into automatic
-   library acquisition; that belongs to version 0.4.
-8. Once the library and index are ready, run `taira_search.py research-findings`
+7. If there are no materials, offer an initial selection of open sources and,
+   after consent, follow `examples/codex/source-acquisition-workflow.md`.
+   Find and show options first, then run the read-only `check`; download to
+   `work/library-staging/` only after I select exact items. Show technical
+   quality and ask separately before promotion and indexing. If web search or
+   download tools are unavailable, explain that honestly and ask for a folder
+   or ready index. Never simulate external results or create a parallel
+   downloader.
+8. Once a folder, index, or initial source set is connected, separately offer
+   recurring library acquisition. It uses `source-acquisition-workflow.md`, not
+   the card workflow. Without explicit consent create nothing. If I opt in,
+   ask cadence, time, time zone, maximum files, per-file and total byte limits,
+   and whether qualifying items may be downloaded automatically to staging.
+   Inspect existing tasks and do not create a duplicate acquisition task for
+   this project. Promotion and indexing still require separate approval.
+9. Once the library and index are ready, run `taira_search.py research-findings`
    with the confirmed profile, an output under
    `work/`, and `--preview`. Never run `record-publication` or change
    `used_finds.csv`.
-9. Read the candidates and `examples/codex/daily-news-prompt.md`. Use only the
+10. Read the candidates and `examples/codex/daily-news-prompt.md`. Use only the
    latter's editorial, style, and accuracy rules—not its manifest or
    publication instructions. Show a small preview with exact `relative_path`
    and `chunk_id` references, keeping source report, literary narrative,
    scholarship, and cautious inference distinct.
-10. Ask whether the findings and presentation feel right. Apply retrieval
+11. Ask whether the findings and presentation feel right. Apply retrieval
    feedback by changing effective terms, weights, and filters and rerunning the
    preview, not by changing search code. Save style-only feedback in
    `finding_preferences.notes` and apply it when rewriting the cards. If the
    profile is right but individual candidates fail source or semantic review,
    keep the profile and request a disjoint next batch with `--continue-from`.
-11. After I explicitly confirm the profile and accept the preview, explain how
+12. After I explicitly confirm the profile and accept the preview, explain how
    to reuse it with `examples/codex/research-workflow.md` for manual runs. Then
    separately ask whether I want recurring automatic findings. Do not create
    or change any schedule without my explicit agreement.
-12. If I agree, ask for cadence, local time, and time zone, then repeat the
+13. If I agree, ask for cadence, local time, and time zone, then repeat the
    settings before creation. Create a Codex automation that uses the saved
    `research_profile.json` and follows `examples/codex/research-workflow.md`;
-   do not alter other automations. If automatic creation is unavailable, open
+   identify it as a findings task and keep it separate from library
+   acquisition; do not alter other automations. If automatic creation is unavailable, open
    or offer `codex://automations` (Scheduled) and provide a ready-to-paste task
    with the same paths, profile, and workflow. If I decline, leave manual runs
    available and do not keep prompting.

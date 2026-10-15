@@ -74,10 +74,21 @@ as two visible, separately testable parts.
 
 ## 0.4 — automatic acquisition of new materials
 
-- [ ] Prepare a separately reviewed, opt-in plan for discovering and downloading
-  new permitted public materials, with source provenance, reuse of previously
-  processed documents, failure recovery, and strict separation from the private
-  local corpus. Implementation has not started.
+- [x] Make Codex discovery profile-driven and keep it independent from the
+  research-card workflow and schedule.
+- [x] Add bounded, opt-in downloads with immutable originals, extracted text,
+  provenance metadata, and an atomic local acquisition journal.
+- [x] Support PDF, HTML, TXT, Markdown, XML/TEI, and EPUB in staging, including
+  PDF sampling at the beginning, middle, and end.
+- [x] Check exact metadata and existing-index duplicates without scanning a
+  cloud drive, and preserve ambiguous editorial decisions for Codex.
+- [x] Require a second explicit approval for promotion and optional incremental
+  indexing through the existing `build_index.py`.
+- [x] Extend onboarding for an empty library, an existing folder or index,
+  refusal, and independently consented scheduling without duplicate tasks.
+- [ ] Calibrate repository-specific searches on a wider reviewed set of real
+  open sites. Local CI fixtures deliberately do not claim to prove live-site
+  availability or rights.
 
 Production migration remains separate from public development. Any switch must
 first be tested against copies of the corpus and index, comparing document

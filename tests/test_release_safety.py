@@ -124,8 +124,17 @@ class ReleaseSafetyTests(unittest.TestCase):
             self.assertIn("examples/profiles/ancient-rome.json", names)
             self.assertIn("research_findings.py", names)
             self.assertIn("run_research_demo.py", names)
+            self.assertIn("source_acquisition.py", names)
+            self.assertIn("docs/source-acquisition.ru.md", names)
+            self.assertIn(
+                "examples/codex/source-acquisition-workflow.md", names
+            )
+            self.assertIn(
+                "examples/acquisition/policy.example.json", names
+            )
             self.assertIn("sample_corpus_rome/Market/bread.txt", names)
             self.assertIn("tests/test_research_profiles.py", names)
+            self.assertIn("tests/test_source_acquisition.py", names)
             self.assertNotIn("used_finds.csv", names)
             self.assertFalse(any(name.endswith(".sqlite3") for name in names))
             self.assertFalse(any(name.startswith("new_sources/") for name in names))

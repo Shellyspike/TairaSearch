@@ -1,21 +1,32 @@
-# Example: source-discovery checklist
+# Source-discovery criteria
 
-This is a sanitized checklist, not an active automation configuration. The
-0.3.1 onboarding may use it for a one-time, user-approved search when no local
-materials exist. Continuous acquisition remains planned for 0.4.
+This sanitized checklist captures the useful parts of the original local
+source-discovery automation. It contains no active schedule, private path, or
+built-in research subject. The executable 0.4 workflow is
+`source-acquisition-workflow.md` (or `.ru.md`).
 
-> Search public catalogues, institutional repositories, and other permitted
-> sources for materials relevant to the configured historical scope. Compare
-> each candidate with the local index so existing documents are not downloaded
-> again. Place new candidates in a dated staging directory, record the source
-> URL and bibliographic metadata, inspect representative pages, and write a
-> short quality report. Do not move staged files into the main corpus and do not
-> rebuild the production index without explicit approval.
-
-Before downloading, show the user the exact proposed sources, URLs, formats,
-and stated reuse terms, and request explicit permission. If search or download
-tools are unavailable, report that limitation instead of inventing sources or
-pretending that files were acquired.
-
-Replace staging and index placeholders only in a private automation setup.
+- Derive every search direction from the confirmed `research_profile.json`.
+  Rotate several narrow directions instead of repeating one broad query.
+- Prefer complete machine-readable full text from official repositories,
+  libraries, university archives, and other lawful sources: HTML, TXT,
+  Markdown, XML/TEI, EPUB, or PDF with a usable text layer.
+- A catalogue record, abstract, limited preview, scan without OCR, or noisy
+  extraction is not a downloadable full-text result. A unique visual primary
+  source may be reported separately but should not be staged as searchable
+  text.
+- Compare title, author, DOI, URL, title variants, repository, and filename
+  with the local acquisition journal and existing index. Do not scan a whole
+  cloud drive to find duplicates.
+- Never bypass authentication, access restrictions, robots controls, or rate
+  limits. Do not download from pirate or clearly unauthorised sites. A relevant
+  lead there may be reported as not downloaded.
+- Preserve original bytes. Extract a separate text copy without correcting OCR,
+  spelling, or historical language. Sample the beginning, middle, and end of a
+  PDF; preserve both original HTML and extracted visible text.
+- Stage first. Never move a source into the corpus, rebuild an index, or change
+  an existing automation without separate permission.
+- Prefer one strong, relevant, complete source over many random documents.
+  Report successful downloads, duplicates, unusable items, errors, staging
+  paths, and sources awaiting approval. Distinguish no suitable result from a
+  failed search.
 
