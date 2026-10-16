@@ -1,6 +1,7 @@
 [release]
 version = 1
 files = [
+  "AGENTS.md",
   ".github/workflows/ci.yml",
   ".gitignore",
   "LICENSE",
@@ -16,6 +17,8 @@ files = [
   "docs/daily-automation-proposal.md",
   "docs/dedup-audit.md",
   "docs/dedup-audit.ru.md",
+  "docs/development.md",
+  "docs/development.ru.md",
   "docs/research-onboarding.md",
   "docs/research-onboarding.ru.md",
   "docs/source-acquisition.md",
@@ -98,6 +101,7 @@ files = [
   "tests/test_incremental_safety.py",
   "tests/test_release_safety.py",
   "tests/test_pdf_handling.py",
+  "tests/test_product_onboarding.py",
   "tests/test_publication_journal.py",
   "tests/test_research_profiles.py",
   "tests/test_source_acquisition.py",
