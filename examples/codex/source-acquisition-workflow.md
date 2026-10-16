@@ -13,15 +13,23 @@ generation: do not run `research-workflow` and do not change `used_finds.csv`.
    A refusal permits a report of candidates only; it permits neither downloads
    nor a schedule.
 3. Choose a few narrow directions from the profile and rotate them between
-   runs. Search open scholarly repositories, libraries, university archives,
-   and other relevant lawful sources. Record tried directions under
-   `work/source-acquisition/` so future runs do not repeat one query forever.
-4. Never bypass authentication, paywalls, robots controls, or rate limits.
-   Never download from pirate or clearly unauthorised libraries. A useful lead
-   there may be reported separately as “not downloaded”, but must not enter the
-   download manifest. Do not present a catalogue record, abstract, or preview
-   as a complete text.
-5. Put strong candidates in a JSON manifest following
+   runs. Discovery may search official repositories and also unofficial
+   libraries, mirrors, community archives, and sites of uncertain reputation.
+   Do not discard or hide a useful bibliographic lead solely because of the
+   site's category. Record tried directions under `work/source-acquisition/`
+   so future runs do not repeat one query forever.
+4. Separate discovery from download permission. Record unclear,
+   apparently unauthorised, paywalled, or uncertain-provenance leads in the
+   report as “found but not downloaded”; do not put them in the download
+   manifest or automatic staging. Search title, author, DOI, identifiers, and
+   title variants for an accessible lawful alternative. If a site is blocked
+   geographically or fails technically, look for legitimate repository,
+   author, publisher, preprint, library, or archive copies. Never bypass
+   authentication, paywalls, robots controls, regional restrictions, or rate
+   limits. Do not present a catalogue record, abstract, or preview as a
+   complete text.
+5. Put only candidates with evidence-backed `open`, `public-domain`, or
+   `authorized` access in a JSON download manifest following
    `examples/acquisition/candidates.example.json`. Include title, author or
    organisation, direct URL, format, access status, and the matching profile
    interest. Include DOI, title variants, language, repository, and reuse terms
@@ -70,10 +78,13 @@ generation: do not run `research-workflow` and do not change `used_finds.csv`.
    but staging and the journal remain for diagnosis; do not claim that the
    index was updated. Never use `--rebuild`, delete missing documents, or
    replace an existing index.
-10. Report every run: found and downloaded titles, authors, and URLs; staging
-    paths and text quality; duplicate, unusable, and inaccessible counts; and
-    items awaiting approval and indexing. If no suitable source exists, say so.
-    Never disguise a search, network, index, or parsing error as zero results.
+10. Report every run in separate groups: downloadable or staged sources;
+    valuable leads found but not downloaded because rights or provenance are
+    unclear; geographically or technically inaccessible leads and alternatives
+    searched; duplicates, unusable items, and errors; and items awaiting
+    approval and indexing. Include titles, authors, URLs, staging paths, and
+    text quality where applicable. If no suitable source exists, say so. Never
+    disguise a search, network, index, or parsing error as zero results.
 11. Create a schedule only after explicit agreement on cadence, local time,
     time zone, limits, and `automatic_downloads`. Check existing automations
     first and do not create a duplicate acquisition task for the same project. The

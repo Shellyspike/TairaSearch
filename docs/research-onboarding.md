@@ -15,8 +15,8 @@ or `used_finds.csv`.
    [`examples/codex/research-onboarding.md`](../examples/codex/research-onboarding.md)
    request.
 4. Answer a few plain-language questions about your interests, then choose a
-   material source: a document folder, a ready index, or help finding open
-   sources.
+   material source: a document folder, a ready index, or help discovering
+   research sources.
 5. After the library is ready, review the preview findings and describe any
    preference change naturally.
 
@@ -76,12 +76,15 @@ visible, after which the user can select another index or a document folder.
 
 When web search, a browser, or catalogue tools are available, Codex follows
 [`source-acquisition-workflow.md`](../examples/codex/source-acquisition-workflow.md):
-it finds a small set of suitable open sources, creates a manifest, and first
-runs the read-only duplicate check. Before any download it shows each owner or
-repository, URL, format, stated reuse terms, expected relevance, and limits.
-The user explicitly selects concrete sources and authorizes staging under
-`work/library-staging/`. Promotion and incremental indexing require a separate
-decision after the quality report.
+it discovers a small set of relevant leads across official and unofficial
+libraries, mirrors, and archives. It reports unclear or apparently
+unauthorised copies without downloading them, seeks lawful accessible
+alternatives, and creates a download manifest only for sources with supported
+access evidence. It then runs the read-only duplicate check. Before any
+download it shows each owner or repository, URL, format, stated reuse terms,
+expected relevance, and limits. The user explicitly selects concrete eligible
+sources and authorizes staging under `work/library-staging/`. Promotion and
+incremental indexing require a separate decision after the quality report.
 
 If the required tools are unavailable, Codex says that it cannot search or
 download in the current session and asks the user to return with a folder or a

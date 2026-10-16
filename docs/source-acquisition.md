@@ -31,11 +31,14 @@ Git ignores all of these working files. The public example policy at
 
 ## Manifest and formats
 
-A manifest has `version: 1` and a `sources` array. Every source needs `title`,
-`author`, `url`, `format`, and `access`. Formats are `pdf`, `html`, `txt`, `md`,
-`xml`, `tei`, and `epub`. Access must be `open`, `public-domain`, or
-`authorized`. This is Codex's evidence-based statement from the official source
-page, not an automated legal opinion by Python.
+A download manifest has `version: 1` and a `sources` array. Every source needs
+`title`, `author`, `url`, `format`, and `access`. Formats are `pdf`, `html`,
+`txt`, `md`, `xml`, `tei`, and `epub`. Access must be `open`,
+`public-domain`, or `authorized`. This is Codex's evidence-based statement from
+the source page or another reliable rights statement, not an automated legal
+opinion by Python. A discovery lead with unclear rights does not enter this
+manifest; it remains in the research report until suitable evidence or a
+lawfully accessible alternative is found.
 
 ## Three safe steps
 
@@ -58,17 +61,39 @@ PDF checks sample the beginning, middle, and end; a partial read is not marked
 ready. HTML keeps unchanged source bytes and extracted visible text. EPUB and
 XML/TEI extraction does not rewrite the content. SHA-256 verifies originals.
 
-## Duplicates and boundaries
+## Discovery and download are separate decisions
+
+Research discovery may use official repositories as well as unofficial
+libraries, mirrors, community archives, and sites of uncertain reputation. A
+site category alone is not a reason to hide a potentially valuable
+bibliographic lead. Record the title, author, stable identifiers, landing-page
+URL, why it matters, the site's character, and the known access or rights
+evidence.
+
+Discovery does not authorise downloading. Sources with unclear rights,
+apparently unauthorised copies, login or paywall requirements, or uncertain
+provenance are reported as **found but not downloaded** and are excluded from
+automatic staging. Search by title, author, DOI, catalogue identifier, and
+title variants for an accessible lawful copy in repositories, author or
+publisher pages, preprint servers, national libraries, or other archives. A
+geographic or technical failure should trigger this alternative search, not
+proxying around the restriction or bypassing controls. If rights evidence is
+later established, the source can be reconsidered under the normal manifest
+and consent rules.
+
+## Duplicates and safety boundaries
 
 Exact URL, DOI, title and title variants, and filenames are checked against the
 local journal and SQLite. This does not scan Google Drive and cannot decide
 whether two genuinely different editions are semantically identical; Codex or
-the user reviews ambiguity. The downloader does not bypass site controls,
-accept URL credentials, or fetch a source Codex has classified as unauthorised.
-It also rejects localhost, loopback, private, link-local, reserved, and service
-addresses, including HTTP redirects to them. The private-network allowance is
-an internal hook solely for the isolated test HTTP server; neither the CLI nor
-a policy file can enable it.
+the user reviews ambiguity. The downloader still does not bypass
+authentication, paywalls, robots controls, rate limits, regional blocks, or
+other site controls; it does not accept URL credentials or fetch report-only
+leads whose download rights remain unclear. It also rejects localhost,
+loopback, private, link-local, reserved, and service addresses, including HTTP
+redirects to them. The private-network allowance is an internal hook solely
+for the isolated test HTTP server; neither the CLI nor a policy file can enable
+it.
 
 Download consent and indexing consent are separate. Scheduled library
 acquisition and scheduled research cards are two independent automations. One
