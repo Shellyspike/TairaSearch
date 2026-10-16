@@ -21,12 +21,18 @@ After creating `research_profile.json`, open the project in Codex and send:
 > Read `examples/codex/source-acquisition-workflow.md` and help me safely grow
 > my research library from `research_profile.json`.
 
-Codex derives search directions from the profile and discovers and evaluates
-open sources. `source_acquisition.py` applies local duplicate checks, limits,
-and format validation, then preserves original bytes, extracted text, and
-metadata in staging. Download, corpus promotion, and indexing remain separate
-consent boundaries. PDF, HTML, TXT, Markdown, XML/TEI, and EPUB are supported;
-PDF quality samples the beginning, middle, and end. See
+Codex derives search directions from the profile and may discover leads in
+official or unofficial libraries, mirrors, and archives. Discovery is broader
+than download permission: unclear or unauthorised leads stay in the report,
+while only evidence-backed open, public-domain, or authorised sources may enter
+the download manifest and staging. Codex also looks for lawful accessible
+copies when a site is geographically or technically unavailable, without
+bypassing access controls. `source_acquisition.py` applies local duplicate
+checks, limits, network protections, and format validation, then preserves
+original bytes, extracted text, and metadata in staging. Download, corpus
+promotion, and indexing remain separate consent boundaries. PDF, HTML, TXT,
+Markdown, XML/TEI, and EPUB are supported; PDF quality samples the beginning,
+middle, and end. See
 [docs/source-acquisition.md](docs/source-acquisition.md) for exact commands.
 
 Scheduled acquisition and scheduled research cards are two independent
@@ -42,9 +48,9 @@ Open the project in Codex and send one request:
 > research setup.
 
 Codex first asks a few short questions about your interests, then offers three
-material sources: a document folder, a ready index, or help finding open
-sources. Downloads and indexing require explicit consent. After the library is
-ready, you review a preview and refine preferences in plain language. Prepare
+material sources: a document folder, a ready index, or help discovering
+research sources. Downloads and indexing require explicit consent. After the
+library is ready, you review a preview and refine preferences in plain language. Prepare
 the Python environment using the instructions below before starting this
 workflow.
 

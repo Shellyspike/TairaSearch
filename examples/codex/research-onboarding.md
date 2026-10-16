@@ -24,7 +24,7 @@ the index schema.
    library is already known. Offer three plain-language choices:
    1) “I have a folder of documents”;
    2) “I have a ready TairaSearch index”;
-   3) “I have nothing yet—help me find open sources.”
+   3) “I have nothing yet—help me find research sources.”
 5. For a document folder, ask for its path and run only
    `build_index.py <folder> --scan-only`. Explain supported-file counts and
    errors; scanning must not create a database. Separately ask permission to
@@ -35,14 +35,16 @@ the index schema.
    the corpus or index. Check availability with a safe read command. If the
    format is incompatible or the file is unavailable, report the error and
    return to the material choice without attempting an automatic repair.
-7. If there are no materials, offer an initial selection of open sources and,
-   after consent, follow `examples/codex/source-acquisition-workflow.md`.
-   Find and show options first, then run the read-only `check`; download to
-   `work/library-staging/` only after I select exact items. Show technical
-   quality and ask separately before promotion and indexing. If web search or
-   download tools are unavailable, explain that honestly and ask for a folder
-   or ready index. Never simulate external results or create a parallel
-   downloader.
+7. If there are no materials, offer an initial source discovery and, after
+   consent, follow `examples/codex/source-acquisition-workflow.md`. Discovery
+   may include unofficial libraries, mirrors, and archives, but unclear or
+   apparently unauthorised copies are report-only until a lawful accessible
+   alternative or reliable rights evidence is found. Find and show options
+   first, then run the read-only `check`; download to `work/library-staging/`
+   only after I select exact items that are eligible. Show technical quality and ask
+   separately before promotion and indexing. If web search or download tools
+   are unavailable, explain that honestly and ask for a folder or ready index.
+   Never simulate external results or create a parallel downloader.
 8. Once a folder, index, or initial source set is connected, separately offer
    recurring library acquisition. It uses `source-acquisition-workflow.md`, not
    the card workflow. Without explicit consent create nothing. If I opt in,
