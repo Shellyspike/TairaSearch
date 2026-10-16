@@ -1,260 +1,143 @@
 # TairaSearch
 
-**[Русская инструкция](README.ru.md)** · [Detailed AI demo](docs/ai-demo.md) ·
-[Copy-ready English Codex request](examples/demo/codex-request.md)
+**[Русская версия](README.ru.md)** · [How setup works](docs/research-onboarding.md) ·
+[View the AI demo](docs/ai-demo.md)
 
-TairaSearch is a small local AI-assisted project for finding human-scale
-episodes in a multilingual historical corpus. Deterministic Python code reads
-documents, builds a SQLite FTS5/BM25 index, verifies context, removes repeats,
-and selects candidates. Codex reads that evidence and writes source-aware
-cards for a human to review.
+## Tired of the news? Make your own!
 
-The public repository is self-contained. It contains synthetic Russian,
-Japanese, and English fixtures (including PDFs), not the author's personal
-library, production database, publication journal, active automation, or chat
-history.
+Had enough of politics, scandals, and an endless stream of alarming headlines?
+What if every day brought news about something you genuinely care about?
 
-## Codex-assisted library acquisition (0.4)
+Medieval Japan, Ancient Rome, art history, forgotten civilizations—or any
+other subject you choose.
 
-After creating `research_profile.json`, open the project in Codex and send:
+TairaSearch turns books, historical sources, and scholarship into your
+personal news feed. An AI agent finds surprising stories, unusual details, and
+interesting discoveries, checks the supporting sources, and tries not to
+repeat itself.
 
-> Read `examples/codex/source-acquisition-workflow.md` and help me safely grow
-> my research library from `research_profile.json`.
+**You choose what you want to read about. The agent does the rest.**
 
-Codex derives search directions from the profile and may discover leads in
-official or unofficial libraries, mirrors, and archives. Discovery is broader
-than download permission: unclear or unauthorised leads stay in the report,
-while only evidence-backed open, public-domain, or authorised sources may enter
-the download manifest and staging. Codex also looks for lawful accessible
-copies when a site is geographically or technically unavailable, without
-bypassing access controls. `source_acquisition.py` applies local duplicate
-checks, limits, network protections, and format validation, then preserves
-original bytes, extracted text, and metadata in staging. Download, corpus
-promotion, and indexing remain separate consent boundaries. PDF, HTML, TXT,
-Markdown, XML/TEI, and EPUB are supported; PDF quality samples the beginning,
-middle, and end. See
-[docs/source-acquisition.md](docs/source-acquisition.md) for exact commands.
+These are the news stories we deserve.
 
-Scheduled acquisition and scheduled research cards are two independent
-automations. Codex checks existing tasks and creates neither without explicit
-consent. No OpenAI API or separate LLM service is required.
+> TairaSearch is not a breaking-news search engine. It prepares personal
+> editions from your research library and from new sources you have approved.
 
-## Profile-driven Codex research (0.3.1)
+### What could appear in your edition
 
-A new user can configure retrieval by conversation instead of editing JSON.
-Open the project in Codex and send one request:
+- why a banquet stopped for a rain-soaked messenger;
+- how a box of letters became less valuable than the fire around it;
+- why illness at court may be more visible in an empty seat than in a list of
+  symptoms.
 
-> Read `examples/codex/research-onboarding.md` and guide me through the initial
-> research setup.
+These are headlines from the [fictional demonstration edition](examples/demo/ai-output.en.md),
+not real historical claims. Your feed depends on your interests and library.
 
-Codex first asks a few short questions about your interests, then offers three
-material sources: a document folder, a ready index, or help discovering
-research sources. Downloads and indexing require explicit consent. After the
-library is ready, you review a preview and refine preferences in plain language. Prepare
-the Python environment using the instructions below before starting this
-workflow.
+## Start with one request
 
-Codex saves an ignored local `research_profile.json`. `research-findings` is
-the primary candidate source for Codex: it reuses FTS5 search, neighbouring
-context, and the 0.3 repeat checks. Codex can request disjoint later batches
-with `--continue-from`, review their evidence, and make the final editorial
-choice. A preview never updates `used_finds.csv`. See
-[docs/research-onboarding.md](docs/research-onboarding.md) for details and two
-synthetic scenarios.
+Open Codex—or another AI agent that can work with local files and run shell
+commands—and send:
 
-For later runs, send the ready-made
-[research workflow request](examples/codex/research-workflow.md). Legacy
-`daily-five`, existing indexes, and the five-card demonstration below retain
-their existing contracts.
+> **Install TairaSearch from https://github.com/Shellyspike/TairaSearch and help me configure my news.**
 
-## Semantic deduplication (0.3)
+There is nothing else to copy. After downloading the repository, the agent
+reads the root `AGENTS.md`, prepares an isolated Python environment, verifies
+the synthetic demo pipeline, and starts a conversational setup. You do not
+need to edit JSON or understand SQLite.
 
-The 0.3 benchmark preserves the historical 0.2 result for 13 fictional Japan
-and Rome cases, then measures the corrected logic separately. Python now
-collapses only identical normalized evidence, keeps uncertain OCR, reindexing,
-paraphrase, translation, and history matches in the candidate pool, and passes
-bounded comparison evidence to Codex. Codex applies the four semantic classes;
-shared people, topics, dates, source names, or a positional `chunk_id` never
-decide a repeat by themselves. See the
-[audit and implementation result](docs/dedup-audit.md) or
-run:
+If an agent cannot download the project, the no-Git fallback is GitHub →
+**Code → Download ZIP**. Open the extracted folder in the agent and send the
+same request; manual developer setup remains optional.
 
-```powershell
-.venv\Scripts\python run_dedup_audit.py --check
-```
+If the agent cannot access the network, local files, Python, or scheduled
+tasks, it must explain the exact limitation and offer a clear next step. It
+must not pretend that installation or source discovery succeeded.
 
-## Quick start: get five AI cards
+## What happens during setup
 
-You need Python 3.11 and access to the Codex desktop app. Git is optional and
-only needed by developers who prefer to clone the repository. Python does not
-call a model or require an OpenAI API key. Codex access is required only for
-the AI-written cards.
+1. **Safe installation.** The agent downloads the project into a separate
+   folder, checks Python, creates `.venv`, installs dependencies only inside
+   it, and verifies the pipeline against the synthetic demo.
+2. **A short interview.** You describe the subjects and stories you enjoy,
+   result language, level of detail, and writing style. The agent summarizes
+   its understanding and creates a local `research_profile.json` only after
+   you confirm it.
+3. **Personal editions.** The agent offers a recurring edition and asks for
+   schedule and time zone. It creates nothing without consent, and execution
+   starts only after the library and index are ready.
+4. **Research materials.** The agent offers three choices: a folder of books
+   and articles, an existing TairaSearch index, or help discovering open
+   research sources. Scanning, downloading, and indexing have separate,
+   explicit approval boundaries.
+5. **Library acquisition.** Once materials are connected, the agent separately
+   offers a second automation for discovering and downloading new sources. It
+   does not replace the personal edition and is not duplicated if it already
+   exists.
+6. **A preview edition.** The agent shows initial cards with exact file and
+   fragment references. You can ask for more context, fewer military stories,
+   a different style, or new subjects; the profile is refined without
+   rewriting the search engine.
 
-### 1. Download without Git and install
+## Two independent automations
 
-On the repository page, choose **Code → Download ZIP**, extract the archive,
-and open PowerShell in the extracted folder (normally `TairaSearch-main`). Then
-run:
+| Task | What it may do automatically | What still needs separate consent |
+| --- | --- | --- |
+| Personal news | Retrieve candidates, check context and repeats, and prepare an edition from the profile | It does not invent cards to reach a quota or modify the library |
+| Library acquisition | Discover suitable sources and optionally save approved material to staging | It does not promote files into the main corpus or update the index |
 
-```powershell
-python -m venv .venv
-.venv\Scripts\python -c "import sys; assert sys.prefix != sys.base_prefix, 'Broken virtual environment'; print(sys.version); print(sys.prefix)"
-.venv\Scripts\python -m pip install -r requirements.txt
-```
+Both tasks are opt-in. Cadence, local time, time zone, and limits are repeated
+before creation. New documents first enter `work/library-staging/`; promotion
+and indexing require separate approval.
 
-Developers may use Git instead:
+## What TairaSearch can do
 
-```powershell
-git clone https://github.com/Shellyspike/TairaSearch.git
-cd TairaSearch
-```
+- search multilingual TXT, Markdown, JSON, and PDF documents, while the
+  acquisition workflow can also validate HTML, XML/TEI, and EPUB;
+- retrieve neighbouring context instead of quoting one isolated line;
+- combine fast, reproducible Python retrieval with AI editorial review;
+- distinguish a confirmed repeat, a probable repeat, a new angle, and a new
+  finding;
+- request disjoint later batches when the first candidates fail review;
+- update the publication journal atomically and idempotently;
+- run without the OpenAI API or a separate LLM service.
 
-After cloning, run the same `.venv` creation and verification commands above.
+## Important limitations
 
-The version check should report Python 3.11 and a prefix ending in `.venv`.
-Stop if the assertion fails: installing after that may target the base Python.
-On macOS/Linux, use `python3.11 -m venv .venv` and
-`.venv/bin/python -m pip install -r requirements.txt`.
+- Edition quality depends on the coverage and quality of the research library.
+- AI reviews meaning and writes prose, but historical claims still deserve
+  critical human review.
+- Unclear or apparently unauthorised copies may be reported but are not
+  downloaded automatically. Access controls are never bypassed.
+- A private corpus may be indexed locally without licence metadata, but it is
+  not part of the public release.
+- The public repository contains only synthetic Russian, Japanese, and English
+  material. It contains no personal library, production database, publication
+  journal, secrets, automation, or chat history.
+- Installation through an arbitrary AI agent depends on its filesystem, shell,
+  network, and scheduling permissions. If a capability is unavailable, the
+  agent must stop at that boundary and explain it.
 
-### 2. Open once, ask once
+## Try it without a personal library
 
-Open the cloned `TairaSearch` folder as a local project in the Codex desktop
-app, start a chat in that folder, and paste the complete request from
-[examples/demo/codex-request.md](examples/demo/codex-request.md).
+Ask the agent:
 
-Codex will run `run_demo.py`, read the resulting `work/demo/ai-input.json`,
-write exactly five English `[DEMO]` cards to `work/demo/ai-cards.en.md`, and
-check their source links. You do **not** run `run_demo.py` first on this primary
-path. The official
-[Codex projects guide](https://learn.chatgpt.com/docs/projects?surface=app)
-explains how a local project gives a chat access to a folder.
+> **Show me the reproducible TairaSearch demo in this repository and explain what Python did and what the AI did.**
 
-For Russian instructions, prompt, and output, use
-[README.ru.md](README.ru.md).
+The demo builds a separate index from fictional material and creates five
+`[DEMO]` cards. It does not use the internet, personal files, or the OpenAI API.
+See [docs/ai-demo.md](docs/ai-demo.md).
 
-### 3. Fallback when Python does not run inside Codex
+Python does not call or impersonate a model: it produces candidates and source
+context, while the agent performs the editorial analysis. For a manual setup,
+the environment guard is `assert sys.prefix != sys.base_prefix`; the complete
+commands remain in the developer guide.
 
-From a normal PowerShell window opened in the project folder, run:
+## Developer and manual setup
 
-```powershell
-.venv\Scripts\python run_demo.py
-```
+Architecture, manual installation, indexing commands, tests, and public-build
+instructions live in [docs/development.md](docs/development.md). The complete
+first-run conversation is documented in
+[docs/research-onboarding.md](docs/research-onboarding.md), and safe library
+acquisition in [docs/source-acquisition.md](docs/source-acquisition.md).
 
-This must create `work/demo/ai-input.json`. Return to the Codex project chat
-and paste the short request from
-[examples/demo/codex-request-existing-input.md](examples/demo/codex-request-existing-input.md).
-It explicitly tells Codex not to run Python again: Codex reads the prepared
-JSON and writes the cards. Never run `pip` against the system Python after a
-failed `.venv` verification.
-
-## Python-only demo
-
-If you want to inspect retrieval without Codex, run:
-
-```powershell
-.venv\Scripts\python run_demo.py
-```
-
-On macOS/Linux:
-
-```bash
-.venv/bin/python run_demo.py
-```
-
-This offline command builds `work/demo/index.sqlite3`, runs a multilingual
-search, selects five candidates, finds one synthetic scholarship note for each,
-and writes `work/demo/ai-input.json`. It makes no network or model call. The
-checked-in [Russian](examples/demo/ai-output.md) and
-[English](examples/demo/ai-output.en.md) results show what the AI stage can
-produce without pretending that tests generated the prose.
-
-## What Python and Codex do
-
-| Stage | Owner |
-| --- | --- |
-| Text/PDF/JSON extraction, chunking, stable position IDs | Python |
-| SQLite FTS5 search, BM25 ranking, adjacent context | Python |
-| Candidate checks, deduplication, diversity, scholarship lookup | Python |
-| Narrative angle, careful synthesis, readable cards | Codex |
-| Evidence and publication review | Human |
-
-Literary narrative, research interpretation, and model inference must stay
-visibly separate. An interesting card is never permission to invent facts.
-
-## Main commands
-
-Build an index:
-
-```powershell
-.venv\Scripts\python build_index.py sample_corpus --db work/index.sqlite3 --drive-csv work/drive.csv --drive-jsonl work/drive.jsonl --log work/index.log --rebuild
-```
-
-Search it:
-
-```powershell
-.venv\Scripts\python taira_search.py search --db work/index.sqlite3 --query "維盛" --json
-```
-
-Retrieve a profile-driven shortlist for Codex:
-
-```powershell
-.venv\Scripts\python taira_search.py research-findings --db work/index.sqlite3 --profile research_profile.json --used-finds work/demo-used.csv --output work/research-1.json --preview
-```
-
-If editorial review rejects it, add
-`--continue-from work/research-1.json` and use a new output path. The legacy
-daily selector remains available:
-
-```powershell
-.venv\Scripts\python taira_search.py daily-five --db work/index.sqlite3 --used-finds work/demo-used.csv --output work/candidates.json --json
-```
-
-Zero candidates and one-to-four candidates are successful outcomes. A non-zero
-exit means a real index/search/data error. Only the synthetic `run_demo.py`
-fixture requires exactly five.
-
-Record already-finalized cards atomically:
-
-```powershell
-.venv\Scripts\python taira_search.py record-publication work/publications/example.json --used-finds used_finds.csv
-```
-
-The CSV update is atomic, idempotent, and protected by a Windows/Linux
-interprocess lock around the whole read/check/write cycle. The saved JSON is
-the recovery copy if chat delivery or journal writing fails.
-
-## Reliability and privacy boundaries
-
-- Read-only search uses SQLite `mode=ro`, sees committed WAL updates, and
-  rejects writes. Legacy indexes can still take the existing migration path.
-- Re-indexing prepares a document first and replaces its chunks in one
-  transaction. A parse/write failure keeps the last valid version.
-- Missing files are not pruned automatically. Cleanup remains an explicit
-  future feature.
-- The local corpus may be indexed without licence metadata. Distribution
-  checks apply to the public release, not to private local search.
-- `make_release.py` copies only the exact `release_manifest.toml` allowlist and
-  rejects databases, journals, secrets, local paths, and generated files.
-
-The current development host has a Codex Windows sandbox quirk where
-`.venv\Scripts\python` can resolve to the base interpreter. The fail-fast
-prefix check above detects it. This is not known to be a general Windows or
-Unicode-path problem. A Codex worktree is a separate checkout and needs its own
-verified environment; see the official
-[local environment guide](https://learn.chatgpt.com/docs/environments/local-environment).
-
-## Tests and public build
-
-```powershell
-.venv\Scripts\python -m unittest discover -s tests -v
-.venv\Scripts\python run_demo.py
-.venv\Scripts\python run_research_demo.py
-.venv\Scripts\python run_dedup_audit.py --check
-.venv\Scripts\python make_release.py --check-only
-```
-
-GitHub Actions runs these checks on Windows and Linux with Python 3.11. The
-project is MIT-licensed; the synthetic sample corpus is distributed under the
-same licence. See [ROADMAP.md](ROADMAP.md) and
-[docs/ai-workflow.md](docs/ai-workflow.md) for design limits and future work.
-
+The project is distributed under the [MIT License](LICENSE).

@@ -1,183 +1,123 @@
-# Universal research onboarding through Codex
+# First-run personal news setup
 
 [Русская версия](research-onboarding.ru.md)
 
-TairaSearch 0.4 uses a local research profile on top of the existing FTS5
-index. It does not change the SQLite schema, `chunk_id`, legacy `daily-five`,
-or `used_finds.csv`.
+A regular user does not need to install TairaSearch manually or edit
+configuration. They can ask an agent:
 
-## Start without editing configuration
+> **Install TairaSearch from https://github.com/Shellyspike/TairaSearch and help me configure my news.**
 
-1. Download the project and prepare `.venv` as described in
-   [README.md](../README.md).
-2. Open the folder in the Codex desktop app.
-3. Paste the complete
-   [`examples/codex/research-onboarding.md`](../examples/codex/research-onboarding.md)
-   request.
-4. Answer a few plain-language questions about your interests, then choose a
-   material source: a document folder, a ready index, or help discovering
-   research sources.
-5. After the library is ready, review the preview findings and describe any
-   preference change naturally.
+After the downloaded project is opened, Codex reads the root `AGENTS.md` and
+follows the flow below. Another agent must be able to use local files and a
+shell and follow repository guidance. If a capability is unavailable, it must
+stop honestly at that boundary.
 
-The user never edits configuration. After confirming its interpretation,
-Codex saves an ignored local `research_profile.json`.
-The two committed examples in [`examples/profiles/`](../examples/profiles/)
-show the exact schema; they are test fixtures, not profiles the user must edit.
+## Complete user journey
 
-## Profile contents
+### 1. Safe installation
 
-The profile is a small auditable JSON containing:
+The agent downloads the canonical repository into a separate folder, checks
+Python 3.11, creates `.venv`, installs dependencies only into the verified
+environment, and runs the synthetic `run_demo.py`. It does not overwrite an
+existing checkout or fall back to system Python after an environment failure.
+The demo verifies the distributed project, not access to real books, websites,
+or scheduling.
 
-- research area and result language;
-- named interests with confirmed search terms;
-- optional focus people and name variants;
-- material types;
-- preferred kinds of findings, diversity preferences, and editorial style;
-- a result count from one to twenty, with five as the default.
+Manual commands and Windows `.venv` recovery are in
+[development.md](development.md); the agent performs them when it has shell
+access.
 
-Only fields used by retrieval change the results. Codex must translate a
-free-form preference into confirmed `interests[].terms`, an interest `weight`,
-material types, or source filters as appropriate. `finding_preferences.notes`
-does not affect ranking or filtering, so it cannot be the only place for a
-preference that should alter retrieval. It can store purely editorial choices,
-such as vivid, expanded cards; the supplied Codex workflow reads and applies
-those choices when writing the result.
+### 2. Interview and `research_profile.json`
 
-The profile does not rewrite index annotations. New names and topics become
-direct FTS queries over stored text, so a preview does not require reindexing.
-Adding new metadata annotations for other CLI commands would be a separate
-production migration and is outside this feature.
+In plain language the agent asks about subjects, desired kinds of stories,
+language, detail, and style. Named people and events are optional: a profile
+may describe a whole field. The agent summarizes its understanding and accepts
+corrections before creating the local, Git-ignored `research_profile.json`.
 
-## Choose a material source
+Retrieval is actually controlled by `interests[].terms`, `weight`, material
+types, and filters. Pure editorial preferences belong in
+`finding_preferences.notes`; a retrieval preference must not exist only in
+`notes`. `examples/profiles/` documents the format, but the user does not edit
+it manually.
 
-After the interests are confirmed, Codex offers three choices.
+### 3. Offer personal editions
 
-### 1. Document folder
+Immediately after profile confirmation, the agent offers recurring personal
+news. If the user opts in, it asks for cadence, local time, and time zone and
+retains them as pending settings. The task is not created or run yet: a ready
+library, index, and accepted preview come first. Declining leaves a complete
+manual workflow.
 
-Codex asks for the path and first runs a non-mutating scan:
+### 4. Prepare the research library
 
-```powershell
-.venv\Scripts\python build_index.py "CORPUS_PATH" --scan-only
-```
+The agent offers three plain choices.
 
-`--scan-only` reports supported files without reading their contents or
-creating SQLite. Only after separate confirmation does the existing indexer
-create a new database under `work/`. It never uses `--rebuild` on an existing
-user database. Temporarily missing documents are not automatically removed.
+#### A document folder exists
 
-### 2. Ready index
+After receiving the path, the agent first runs only `build_index.py <path>
+--scan-only`. Scanning creates no SQLite file and reports supported files and
+errors. A new index under `work/` is created only after separate consent. The
+agent never uses `--rebuild` on an existing database or automatically removes
+temporarily unavailable documents.
 
-Codex asks for its path and opens it read-only. It does not rebuild the corpus
-or automatically repair or migrate an incompatible file. Access failures stay
-visible, after which the user can select another index or a document folder.
+#### A ready index exists
 
-### 3. No materials yet
+The agent connects it read-only and verifies it with a safe search. It does
+not rebuild the corpus or repair or migrate an incompatible file without a
+request. An error remains visible and returns the user to material selection.
 
-When web search, a browser, or catalogue tools are available, Codex follows
+#### No materials exist yet
+
+After consent, the agent follows
 [`source-acquisition-workflow.md`](../examples/codex/source-acquisition-workflow.md):
-it discovers a small set of relevant leads across official and unofficial
-libraries, mirrors, and archives. It reports unclear or apparently
-unauthorised copies without downloading them, seeks lawful accessible
-alternatives, and creates a download manifest only for sources with supported
-access evidence. It then runs the read-only duplicate check. Before any
-download it shows each owner or repository, URL, format, stated reuse terms,
-expected relevance, and limits. The user explicitly selects concrete eligible
-sources and authorizes staging under `work/library-staging/`. Promotion and
-incremental indexing require a separate decision after the quality report.
+it discovers and shows options, checks metadata and duplicates, and downloads
+only selected policy-eligible material into `work/library-staging/`. Copies
+with unclear rights may remain in the report but are not downloaded
+automatically. Promotion to the main corpus and `promote --index` require new,
+separate approval.
 
-If the required tools are unavailable, Codex says that it cannot search or
-download in the current session and asks the user to return with a folder or a
-ready index. It never simulates an external result or presents a local fixture
-as proof that a real site works.
+If web discovery or download is unavailable, the agent does not simulate
+results; it offers a document folder or ready index.
 
-## Optional library acquisition
+### 5. Independent library acquisition
 
-As soon as a folder, ready index, or initial source set is connected, Codex
-separately offers recurring library acquisition. Consent is independent from a
-research-card schedule. If the user opts in, Codex asks for cadence, time, time
-zone, file-count and byte limits, and whether qualifying files may be downloaded
-automatically to staging. A refusal leaves manual runs available. Codex checks
-existing tasks first and does not duplicate an acquisition task for the same
-project. Promotion and indexing still require separate approval.
+After materials are connected, the agent separately offers a second
+automation for finding and downloading new sources. If accepted, it asks for
+schedule, time zone, file-count and size limits, and whether automatic download
+only into staging is allowed. It checks existing tasks and creates no
+duplicate. This task never promotes files or updates the index without a new
+user decision.
 
-## Preview selection
+### 6. Preview and activation
 
-A representative command is:
+With a ready index, the agent runs `research-findings --preview`, reviews the
+candidates using
+[`research-workflow.md`](../examples/codex/research-workflow.md), and shows a
+small edition with `relative_path` and `chunk_id`. Preview does not change
+`used_finds.csv` or register cards as published.
 
-```powershell
-.venv\Scripts\python taira_search.py research-findings --db work/research/index.sqlite3 --profile research_profile.json --used-finds used_finds.csv --output work/research/candidates.json --preview
-```
+If the first batch fails review, the agent continues with a disjoint batch via
+`--continue-from`. It does not present an empty result as an error or mask a
+read failure as no findings. User feedback changes the profile and a repeated
+preview, not the search engine.
 
-`--preview` never appends to the publication journal. In fact,
-`research-findings` only reads `used_finds.csv`; publication remains a separate
-explicit operation. Its JSON includes neighbouring context and a coverage
-report for preferences that produced no indexed hit. Its `final` field is a
-Python shortlist, not a final editorial verdict; Codex also inspects
-`alternates` and `semantic_review` evidence.
+After the user accepts the edition, the agent repeats the previously selected
+personal-news schedule and asks for final confirmation. Only then is the task
+created using `research-workflow.md`. If programmatic creation is unavailable,
+the agent provides one short ready-to-paste task and offers
+`codex://automations`. Personal editions and library acquisition always remain
+independent automations.
 
-Codex applies feedback by updating the profile and rerunning the preview. A
-request such as “less military material” changes interests and weights, not
-Python code or only the explanatory `notes` field.
+## Consent boundaries
 
-## Continue after editorial rejection
+- the profile is written after the user confirms the interpreted interests;
+- no schedule is created without separate consent;
+- discovering a source is not permission to download it;
+- eligible downloads go only to staging;
+- corpus promotion and indexing require new approval;
+- installation must preserve any existing corpus, SQLite, journal, and tasks.
 
-If Codex rejects the first batch after checking the sources or semantic
-novelty, it requests a disjoint next batch instead of stopping:
-
-```powershell
-.venv\Scripts\python taira_search.py research-findings --db work/research/index.sqlite3 --profile research_profile.json --used-finds used_finds.csv --output work/research/candidates-2.json --preview --continue-from work/research/candidates.json
-```
-
-The previous JSON records exposed `chunk_id` values and only confirmed exact
-technical collapses. `--continue-from` excludes those while leaving
-pre-editorial rejects and context-only chunks available: they may become useful
-at another retrieval depth. It can be repeated for further batches. If the
-current retrieval depth is exhausted, Codex may make one bounded run with a
-larger `--top-per-interest` or `--pool-size`, without changing the profile. An
-empty batch is not an index error, and an index or data-reading error must not
-be presented as an empty result.
-
-## Later manual runs
-
-The saved profile can be reused with the same `research-findings` command.
-Omit `--preview` only when the selection is intended for the normal editorial
-workflow. Candidate retrieval still only reads `used_finds.csv`; it does not
-publish or append to the journal. Codex follows the ready-made
-[`examples/codex/research-workflow.md`](../examples/codex/research-workflow.md):
-it controls successive `research-findings` calls, checks source support and
-the 0.3 semantic classes, and makes the final selection. Only an explicit
-publication request leads to a recovery manifest under `work/` and the
-existing `record-publication` command described in
-[ai-workflow.md](ai-workflow.md). One to the configured maximum number of
-strong results is valid; an empty selection is also valid.
-
-## Optional recurring research cards
-
-After the user explicitly confirms the profile and approves the preview, Codex
-offers a choice between manual runs and a recurring schedule. No automation is
-created without separate consent. If the user opts in, Codex asks for cadence,
-local time, and time zone, repeats them for confirmation, and creates a task
-that uses the saved `research_profile.json` and
-[`examples/codex/research-workflow.md`](../examples/codex/research-workflow.md).
-It does not alter unrelated schedules. This is independent from library
-acquisition: one writes reviewed cards, while the other only discovers and
-stages new source material.
-
-If the current session cannot create the task automatically, open
-`codex://automations` (Scheduled) and create it with the same workflow and
-profile path. Codex should provide a short ready-to-paste task so the user does
-not need to rewrite the research prompt. Declining a schedule is a complete and
-supported outcome; the saved profile remains available for manual runs.
-
-## Two reproducible scenarios
-
-```powershell
-.venv\Scripts\python run_research_demo.py
-```
-
-The `japan` scenario uses the existing synthetic corpus and names Taira,
-Yoshitsune, and Zeami as interests without excluding other people. Its coverage
-report honestly identifies names that were not found. The `rome` scenario uses
-a separate synthetic Roman corpus and no predefined person at all. Generated
-files stay under `work/research-demo/`.
+The exact executable guidance is in
+[`examples/codex/research-onboarding.md`](../examples/codex/research-onboarding.md).
+Technical architecture and manual commands are in
+[development.md](development.md).
