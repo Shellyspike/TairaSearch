@@ -57,7 +57,9 @@ must not pretend that installation or source discovery succeeded.
 
 1. **Safe installation.** The agent downloads the project into a separate
    folder, checks Python, creates `.venv`, installs dependencies only inside
-   it, and verifies the pipeline against the synthetic demo.
+   it, verifies `pip`, and checks the pipeline against the synthetic demo. On
+   Windows it automatically retries once in a shorter separate path if a deeply
+   nested path leaves the environment incomplete.
 2. **A short interview.** You describe the subjects and stories you enjoy,
    result language, level of detail, and writing style. The agent summarizes
    its understanding and creates a local `research_profile.json` only after

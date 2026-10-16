@@ -11,8 +11,11 @@ If the project has not been downloaded, obtain it only from
 `https://github.com/Shellyspike/TairaSearch` in a new separate folder. Never
 overwrite an existing installation or library. Check for Python 3.11, create
 `.venv`, verify inside it that `sys.prefix != sys.base_prefix`, and install
-`requirements.txt` only with that environment's Python. If verification fails,
-do not install anything into the system Python.
+`requirements.txt` only with that environment's Python. Also verify
+`python -m pip --version`. If either check fails, do not install anything into
+the system Python. On Windows, retry once in a new shorter writable path,
+without overwriting or deleting the failed copy; report the limitation if that
+also fails.
 
 Run `run_demo.py` as a synthetic smoke test. Do not present it as proof of
 access to a real library or website. If network, filesystem, Python, web-search,

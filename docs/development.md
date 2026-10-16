@@ -17,6 +17,7 @@ Windows PowerShell:
 ```powershell
 py -3.11 -m venv .venv
 .venv\Scripts\python -c "import sys; assert sys.prefix != sys.base_prefix"
+.venv\Scripts\python -m pip --version
 .venv\Scripts\python -m pip install --upgrade pip
 .venv\Scripts\python -m pip install -r requirements.txt
 .venv\Scripts\python run_demo.py
@@ -27,15 +28,18 @@ Linux and macOS:
 ```bash
 python3.11 -m venv .venv
 .venv/bin/python -c 'import sys; assert sys.prefix != sys.base_prefix'
+.venv/bin/python -m pip --version
 .venv/bin/python -m pip install --upgrade pip
 .venv/bin/python -m pip install -r requirements.txt
 .venv/bin/python run_demo.py
 ```
 
 Do not fall back to installing packages into the system Python when the
-`sys.prefix` check fails. The standard `.venv` has been incomplete in some
-Windows Codex sandboxes; the safe fallback is to create it in ordinary
-PowerShell and reopen the folder in Codex.
+`sys.prefix` or `pip --version` check fails. The standard `.venv` has been
+incomplete in some deeply nested Windows Codex paths. The agent should retry
+once in a new, shorter writable path without deleting the failed copy. If that
+still fails, create the environment in ordinary PowerShell and reopen the
+folder in Codex.
 
 ## Main commands
 

@@ -18,6 +18,7 @@ Windows PowerShell:
 ```powershell
 py -3.11 -m venv .venv
 .venv\Scripts\python -c "import sys; assert sys.prefix != sys.base_prefix"
+.venv\Scripts\python -m pip --version
 .venv\Scripts\python -m pip install --upgrade pip
 .venv\Scripts\python -m pip install -r requirements.txt
 .venv\Scripts\python run_demo.py
@@ -28,15 +29,18 @@ Linux и macOS:
 ```bash
 python3.11 -m venv .venv
 .venv/bin/python -c 'import sys; assert sys.prefix != sys.base_prefix'
+.venv/bin/python -m pip --version
 .venv/bin/python -m pip install --upgrade pip
 .venv/bin/python -m pip install -r requirements.txt
 .venv/bin/python run_demo.py
 ```
 
-Не продолжайте установку в системный Python, если проверка `sys.prefix`
-завершилась ошибкой. В некоторых Windows-песочницах Codex стандартный `.venv`
-создавался неполно; безопасный запасной вариант — создать окружение в обычном
-PowerShell, а затем снова открыть папку в Codex.
+Не продолжайте установку в системный Python, если проверка `sys.prefix` или
+`pip --version` завершилась ошибкой. В глубоко вложенных Windows-путях Codex
+стандартный `.venv` иногда создаётся неполно. Агент должен один раз повторить
+установку в новой отдельной папке с более коротким путём, не удаляя неудачную
+копию. Если это не помогло, создайте окружение в обычном PowerShell и снова
+откройте папку в Codex.
 
 ## Основные команды
 

@@ -42,6 +42,8 @@ class ProductPositioningTests(unittest.TestCase):
         guide = read("AGENTS.md")
         for required in (
             "sys.prefix != sys.base_prefix",
+            "python -m pip --version",
+            "shorter writable path",
             "run_demo.py",
             "research_profile.json",
             "research-workflow.md",
@@ -86,6 +88,13 @@ class ProductPositioningTests(unittest.TestCase):
                 self.assertIn("--preview", text)
                 self.assertIn("--continue-from", text)
                 self.assertIn("promote --index", text)
+                self.assertIn("pip --version", text)
+
+    def test_windows_incomplete_venv_has_non_system_recovery(self) -> None:
+        guide = " ".join(read("AGENTS.md").split())
+        self.assertIn("new copy in a shorter writable path", guide)
+        self.assertIn("do not overwrite or delete the failed copy", guide)
+        self.assertIn("do not install packages into the system Python", guide)
 
     def test_automation_stays_pending_until_preview_is_accepted(self) -> None:
         russian = read("examples/codex/research-onboarding.ru.md")
@@ -94,6 +103,23 @@ class ProductPositioningTests(unittest.TestCase):
         self.assertIn("Только после принятия пробной подборки", russian)
         self.assertIn("do not create or run the task yet", english)
         self.assertIn("Only after I accept the preview", english)
+
+    def test_first_response_needs_no_technical_work_from_user(self) -> None:
+        russian = read("examples/codex/research-onboarding.ru.md")
+        english = read("examples/codex/research-onboarding.md")
+        self.assertIn("Сам выполняй доступные технические действия", russian)
+        self.assertIn("Не проси меня редактировать", russian)
+        self.assertIn("Сначала проведи короткое интервью", russian)
+        self.assertIn("Perform available technical actions yourself", english)
+        self.assertIn("Do not ask me to", english)
+        self.assertIn("First ask about the research area", english)
+
+    def test_two_automations_are_separate_opt_in_decisions(self) -> None:
+        guide = " ".join(read("AGENTS.md").split())
+        self.assertIn("Offer a recurring personal-news edition", guide)
+        self.assertIn("separately offer recurring source acquisition", guide)
+        self.assertIn("independent from personal editions", guide)
+        self.assertIn("No automation is created without explicit consent", guide)
 
     def test_public_allowlist_contains_first_run_material(self) -> None:
         manifest = tomllib.loads(read("release_manifest.toml"))

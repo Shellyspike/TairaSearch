@@ -16,13 +16,18 @@ If the project has not been downloaded yet:
 1. Obtain the canonical repository from
    `https://github.com/Shellyspike/TairaSearch` in a new, clearly named folder.
    Never overwrite an existing checkout or user library. Use Git when it is
-   available; otherwise use GitHub's source archive.
+   available; otherwise use GitHub's source archive. On Windows, prefer a short
+   writable project path near the top of a user-approved drive; deeply nested
+   paths can leave `venv` without a working `pip`.
 2. Inspect the operating system and available tools. TairaSearch supports
    Python 3.11.
 3. Create `.venv`. Before installing anything, verify with the environment's
-   Python that `sys.prefix != sys.base_prefix`. If this check fails, do not
-   install packages into the system Python; explain the problem and offer the
-   manual recovery steps from `docs/development.md`.
+   Python that `sys.prefix != sys.base_prefix`, then run
+   `python -m pip --version` with that same interpreter. If either check fails,
+   do not install packages into the system Python. On Windows, retry once by
+   preparing a new copy in a shorter writable path; do not overwrite or delete
+   the failed copy. If the short-path retry also fails, explain the problem and
+   offer the manual recovery steps from `docs/development.md`.
 4. Install `requirements.txt` using that verified environment's Python.
 5. Run `run_demo.py` as a synthetic smoke test. Clearly label it as a demo; it
    does not prove access to a user's files or to real websites.

@@ -20,6 +20,8 @@ The agent downloads the canonical repository into a separate folder, checks
 Python 3.11, creates `.venv`, installs dependencies only into the verified
 environment, and runs the synthetic `run_demo.py`. It does not overwrite an
 existing checkout or fall back to system Python after an environment failure.
+It verifies both the environment prefix and `pip`; on Windows it retries once
+in a new shorter path if a deeply nested path creates an incomplete venv.
 The demo verifies the distributed project, not access to real books, websites,
 or scheduling.
 
