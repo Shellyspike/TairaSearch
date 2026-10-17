@@ -435,6 +435,12 @@ def validate_research_output_path(args: argparse.Namespace) -> None:
         raise ValueError("--output и --editorial-output должны быть разными файлами")
 
 
+def _open_existing_lock_read_write(lock_path: Path) -> None:
+    """Open an existing journal lock for writing without changing its bytes."""
+    descriptor = os.open(lock_path, os.O_RDWR)
+    os.close(descriptor)
+
+
 def check_publication_access(db_path: Path, used_path: Path) -> dict[str, Any]:
     """Prove read and atomic-write access without touching the journal or lock."""
     db_path = db_path.expanduser().resolve()
@@ -463,6 +469,18 @@ def check_publication_access(db_path: Path, used_path: Path) -> dict[str, Any]:
             raise RuntimeError(
                 f"Нет доступа на чтение журнала {used_path}: {exc}"
             ) from exc
+    lock_path = used_path.with_name(f".{used_path.name}.lock")
+    lock_write_check = "absent; directory write check used"
+    if lock_path.exists():
+        try:
+            _open_existing_lock_read_write(lock_path)
+        except OSError as exc:
+            raise RuntimeError(
+                "Существующий lock-файл нельзя открыть для записи без изменения "
+                f"содержимого: {lock_path}. Проверьте эффективные writable roots "
+                f"текущего окружения Codex. Исходная ошибка: {exc}"
+            ) from exc
+        lock_write_check = "existing file opened read-write without modification"
     parent = used_path.parent
     source_path: Path | None = None
     target_path: Path | None = None
@@ -504,6 +522,7 @@ def check_publication_access(db_path: Path, used_path: Path) -> dict[str, Any]:
         "sqlite_read": str(db_path),
         "journal_read": str(used_path),
         "journal_directory_atomic_write": str(parent),
+        "lock_write_check": lock_write_check,
         "journal_and_lock_unchanged": True,
         "environment_note": (
             "This result applies only to the process environment that ran the check."

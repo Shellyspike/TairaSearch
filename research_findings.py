@@ -79,6 +79,34 @@ def _compact_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _collect_comparison_contexts(
+    verified: list[dict[str, Any]], emitted: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Keep one full canonical row for every off-batch semantic comparison."""
+    emitted_ids = {
+        str(item.get("chunk_id")) for item in emitted if item.get("chunk_id")
+    }
+    referenced_ids = {
+        str(match.get("matched_chunk_id"))
+        for item in emitted
+        for match in item.get("semantic_review", {}).get("candidate_matches", [])
+        if match.get("matched_chunk_id")
+    }
+    missing_context_ids = referenced_ids - emitted_ids
+    contexts: list[dict[str, Any]] = []
+    for item in verified:
+        chunk_id = str(item.get("chunk_id") or "")
+        if chunk_id not in missing_context_ids:
+            continue
+        # The hidden row is stored once as evidence for links from the emitted
+        # batch. Its own pair-review graph is intentionally omitted: retaining
+        # it would create new links outside this evidence closure.
+        canonical = dict(item)
+        canonical.pop("semantic_review", None)
+        contexts.append(canonical)
+    return contexts
+
+
 def build_editorial_packet(result: dict[str, Any]) -> dict[str, Any]:
     """Build a compact first-pass handoff while retaining the lossless result."""
     packet: dict[str, Any] = {
@@ -97,6 +125,7 @@ def build_editorial_packet(result: dict[str, Any]) -> dict[str, Any]:
         "alternates": [
             _compact_candidate(item) for item in result.get("alternates", [])
         ],
+        "comparison_context_count": len(result.get("comparison_contexts", [])),
         "continuation": result.get("continuation", {}),
         "workflow": {
             "first_pass": "Review this packet once; do not print the full result.",
@@ -132,17 +161,25 @@ def build_research_context_packet(
     include_required_review: bool = False,
 ) -> dict[str, Any]:
     """Select full canonical candidate rows in one consolidated packet."""
-    candidates = {
+    visible_candidates = {
         str(item.get("chunk_id")): item
         for section in ("final", "alternates")
         for item in result.get(section, [])
         if isinstance(item, dict) and item.get("chunk_id")
     }
+    candidates = dict(visible_candidates)
+    candidates.update(
+        {
+            str(item.get("chunk_id")): item
+            for item in result.get("comparison_contexts", [])
+            if isinstance(item, dict) and item.get("chunk_id")
+        }
+    )
     requested = {str(chunk_id) for chunk_id in selected_chunk_ids if chunk_id}
     if include_required_review:
         requested.update(
             chunk_id
-            for chunk_id, item in candidates.items()
+            for chunk_id, item in visible_candidates.items()
             if bool(item.get("semantic_review", {}).get("required"))
         )
     missing = sorted(requested - candidates.keys())
@@ -151,8 +188,8 @@ def build_research_context_packet(
             "В полном research-findings JSON нет chunk_id: " + ", ".join(missing)
         )
 
-    # Include linked in-batch comparisons so the editor sees both full claims in
-    # the same read without another command or a repeated search.
+    # Include linked comparisons, including canonical rows outside the emitted
+    # batch, so the editor sees both full claims without a repeated search.
     linked: set[str] = set()
     for chunk_id in requested:
         review = candidates[chunk_id].get("semantic_review", {})
@@ -164,7 +201,7 @@ def build_research_context_packet(
     included = requested | linked
     ordered = [
         item
-        for section in ("final", "alternates")
+        for section in ("final", "alternates", "comparison_contexts")
         for item in result.get(section, [])
         if str(item.get("chunk_id")) in included
     ]
@@ -536,6 +573,9 @@ def build_research_findings(
     alternates = [item for item in verified if item["chunk_id"] not in final_ids][
         : max(0, batch_size - len(final))
     ]
+    comparison_contexts = _collect_comparison_contexts(
+        verified, [*final, *alternates]
+    )
     batch_chunk_ids = [str(item["chunk_id"]) for item in [*final, *alternates]]
     # Only candidates actually exposed to Codex and exact technical collapses are
     # consumed. A row rejected before editorial review may be a context neighbour
@@ -602,6 +642,7 @@ def build_research_findings(
         },
         "final": final,
         "alternates": alternates,
+        "comparison_contexts": comparison_contexts,
         "continuation": {
             "seen_before_count": len(excluded_before),
             "candidate_chunk_ids": batch_chunk_ids,

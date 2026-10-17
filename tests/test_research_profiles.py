@@ -761,6 +761,81 @@ class ResearchProfileTests(unittest.TestCase):
             for relation in candidate["semantic_review"]["candidate_matches"]:
                 self.assertNotIn("verified_context", relation["candidate"])
                 self.assertIn("context_ref", relation["candidate"])
+                available = {
+                    item["chunk_id"]
+                    for item in [
+                        *full["final"],
+                        *full["alternates"],
+                        *full["comparison_contexts"],
+                    ]
+                }
+                self.assertIn(relation["matched_chunk_id"], available)
+
+    def test_off_batch_semantic_match_has_one_reusable_full_context(self) -> None:
+        real_attach = research_findings.attach_semantic_reviews
+
+        def force_off_batch_link(candidates):
+            real_attach(candidates)
+            self.assertGreater(len(candidates), 1)
+            for index, candidate in enumerate(candidates):
+                other = candidates[(index + 1) % len(candidates)]
+                candidate["semantic_review"]["required"] = True
+                candidate["semantic_review"]["candidate_matches"] = [
+                    {
+                        "matched_chunk_id": other["chunk_id"],
+                        "confidence": 0.75,
+                        "reason": "forced off-batch regression relation",
+                        "candidate": {
+                            "chunk_id": other["chunk_id"],
+                            "context_ref": {
+                                "chunk_id": other["chunk_id"],
+                                "field": "verified_context",
+                            },
+                        },
+                    }
+                ]
+            return candidates
+
+        with mock.patch.object(
+            research_findings,
+            "attach_semantic_reviews",
+            side_effect=force_off_batch_link,
+        ):
+            result = self.run_profile(
+                "rome",
+                PROJECT / "examples" / "profiles" / "ancient-rome.json",
+                output_name="off-batch-comparison-context",
+                count=1,
+                extra_arguments=("--pool-size", "10", "--batch-size", "1"),
+            )
+
+        visible = result["final"][0]
+        hidden_id = visible["semantic_review"]["candidate_matches"][0][
+            "matched_chunk_id"
+        ]
+        self.assertEqual(
+            [item["chunk_id"] for item in result["comparison_contexts"]],
+            [hidden_id],
+        )
+        self.assertNotIn("semantic_review", result["comparison_contexts"][0])
+
+        packet = research_findings.build_research_context_packet(
+            result, [visible["chunk_id"]]
+        )
+
+        self.assertEqual(
+            [item["chunk_id"] for item in packet["candidates"]],
+            [visible["chunk_id"], hidden_id],
+        )
+        hidden_evidence = packet["candidates"][1]["verified_context"]
+        self.assertTrue(hidden_evidence["chunks"])
+        canonical_rows = [
+            item
+            for section in ("final", "alternates", "comparison_contexts")
+            for item in result.get(section, [])
+            if item.get("chunk_id") == hidden_id and "verified_context" in item
+        ]
+        self.assertEqual(len(canonical_rows), 1)
 
     def test_consolidated_context_packet_reuses_saved_full_result(self) -> None:
         full = self.run_profile(

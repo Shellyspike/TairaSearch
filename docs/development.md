@@ -65,7 +65,8 @@ Profile-driven research for Codex:
 The command keeps the lossless `candidates.json` and also writes
 `candidates.editorial.json`, a compact first-pass packet. After selecting IDs,
 collect all full contexts in one operation instead of printing or repeatedly
-reading the large result:
+reading the large result. Linked candidates outside the visible batch are kept
+once in the full JSON and are included automatically:
 
 ```powershell
 .venv\Scripts\python taira_search.py research-context work/research/candidates.json --chunk-id ID1 --chunk-id ID2 --include-required-review --output work/research/review.json
@@ -90,8 +91,10 @@ environment, not only from an interactive shell:
 
 It opens SQLite read-only, reads the journal when present, and proves that two
 disposable files can be created and atomically renamed in the journal folder.
-It never opens or creates `.used_finds.csv.lock` and does not modify the real
-journal. Success proves the effective process permissions; a path merely
+If `.used_finds.csv.lock` exists, the check opens it read-write without writing,
+truncating, or deleting it; if it is absent, the check does not create it. The
+real journal and lock contents remain unchanged. Success proves the effective
+process permissions; a path merely
 listed in `config.toml` does not. If the scheduler cannot run the check yet,
 record the check as pending and do not activate publication.
 

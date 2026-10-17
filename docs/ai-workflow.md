@@ -39,7 +39,10 @@ context. Codex reads one compact overview per batch, then calls
 `research-context` once with provisional finalist IDs and
 `--include-required-review`. That consolidated packet restores the canonical
 full context for finalists, doubtful candidates, and linked comparisons without
-rerunning retrieval. The reference workflow therefore needs three file/tool
+rerunning retrieval. If a linked comparison falls outside `final` and
+`alternates`, the lossless result stores its evidence once under
+`comparison_contexts`; the compact packet still carries only the reference.
+The reference workflow therefore needs three file/tool
 interactions per accepted batch (retrieval, one compact read, one consolidated
 full-context request/read boundary) instead of printing the full payload and
 performing repeated candidate-by-candidate reads. It does not cap the number of
