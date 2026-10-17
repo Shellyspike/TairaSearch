@@ -65,7 +65,26 @@ Follow this order:
 5. Run a preview through `examples/codex/research-workflow.md`, ask for
    feedback, and update the profile only with the user's confirmation.
 6. Only after the preview is accepted may you create the previously approved
-   personal-edition task. Repeat its schedule before creation.
+   personal-edition task. Before activation, run
+   `python taira_search.py check-publication-access` in the exact scheduled-task
+   environment. This must prove Python execution, read-only SQLite access, and
+   creation plus atomic rename of disposable files beside `used_finds.csv`;
+   the real journal and `.used_finds.csv.lock` must remain unchanged. Treat the
+   effective writable roots reported/enforced by that environment as
+   authoritative: a path merely listed in `config.toml` is not sufficient.
+   Repeat the schedule before creation.
+
+If the scheduled environment cannot pass the check, do not claim setup is
+complete and do not activate the task. Explain how to grant the project folder
+as an effective writable root and retest after restarting Codex if needed. A
+safe alternative is a separate writable Codex project followed by rebinding
+the existing automation; inspect existing tasks first and never create a
+duplicate. If Windows reports `windows unelevated restricted-token sandbox
+cannot enforce split writable root sets directly`, report that environment
+error and use the restart/separate-project path. Never recommend disabling the
+sandbox, deleting the lock file, or bypassing publication synchronization. If
+the scheduled environment is not yet available, mark this check as pending and
+require it before activation rather than substituting an interactive-chat test.
 
 No automation is created without explicit consent. Source acquisition may
 download only under an agreed policy and only into `work/library-staging/`.

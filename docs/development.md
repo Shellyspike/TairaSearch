@@ -62,6 +62,16 @@ Profile-driven research for Codex:
 .venv\Scripts\python taira_search.py research-findings --db work/index.sqlite3 --profile research_profile.json --used-finds used_finds.csv --output work/research/candidates.json --preview
 ```
 
+The command keeps the lossless `candidates.json` and also writes
+`candidates.editorial.json`, a compact first-pass packet. After selecting IDs,
+collect all full contexts in one operation instead of printing or repeatedly
+reading the large result. Linked candidates outside the visible batch are kept
+once in the full JSON and are included automatically:
+
+```powershell
+.venv\Scripts\python taira_search.py research-context work/research/candidates.json --chunk-id ID1 --chunk-id ID2 --include-required-review --output work/research/review.json
+```
+
 `daily-five` remains for compatibility. The current workflow uses
 `research-findings` and, when needed, `--continue-from`.
 
@@ -69,6 +79,32 @@ Python indexes, ranks, retrieves context, and performs reproducible checks.
 Codex investigates sources, reviews semantic novelty, and writes cards.
 Publication and the `used_finds.csv` update are separate operations through a
 JSON manifest and `record-publication`; preview does not change the journal.
+
+## Scheduled-publication access check
+
+Before enabling an edition automation, run this from the automation's actual
+environment, not only from an interactive shell:
+
+```powershell
+.venv\Scripts\python taira_search.py check-publication-access --db work/index.sqlite3 --used-finds used_finds.csv
+```
+
+It opens SQLite read-only, reads the journal when present, and proves that two
+disposable files can be created and atomically renamed in the journal folder.
+If `.used_finds.csv.lock` exists, the check opens it read-write without writing,
+truncating, or deleting it; if it is absent, the check does not create it. The
+real journal and lock contents remain unchanged. Success proves the effective
+process permissions; a path merely
+listed in `config.toml` does not. If the scheduler cannot run the check yet,
+record the check as pending and do not activate publication.
+
+On failure, add the project directory to the scheduled environment's effective
+writable roots and retest after restarting Codex. A separate writable project
+plus safe rebinding of the existing automation is another option; inspect
+tasks first so no duplicate is created. The Windows error `windows unelevated
+restricted-token sandbox cannot enforce split writable root sets directly` is
+an environment error. Do not disable the sandbox, delete the lock file, or
+bypass synchronization.
 
 ## Verification
 

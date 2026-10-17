@@ -93,11 +93,25 @@ effective terms, weights, and filters, and style feedback to
 disjoint next batch with `--continue-from`; do not distort the profile.
 
 Only after I accept the preview, repeat the pending personal-edition settings
-and ask for final confirmation. Then create an automation that follows
+and ask for final confirmation. Before activation, run `python taira_search.py
+check-publication-access` in the actual scheduled-task environment. Require
+read-only SQLite access and disposable create-plus-atomic-rename access beside
+`used_finds.csv`, without changing the journal or lock. Confirm the path is in
+that environment's effective writable roots; `config.toml` alone and an
+interactive-chat check are not sufficient. Then create an automation that follows
 `examples/codex/research-workflow.md`. Keep it separate from library
 acquisition and do not alter other tasks. If automatic creation is unavailable,
 offer `codex://automations` and provide one short ready-to-paste task. If I
 decline, leave manual use available and do not keep prompting.
+
+If the check fails, do not claim success or activate the task. Explain how to
+fix effective writable roots and retest after a Codex restart, or offer a
+separate writable project and rebind the existing automation after checking
+that no duplicate exists. Treat `windows unelevated restricted-token sandbox
+cannot enforce split writable root sets directly` as an environment failure.
+Never disable the sandbox, remove the lock file, or bypass synchronization. If
+the scheduled environment cannot yet be tested, say that this check remains
+required before activation.
 
 If a profile topic has no match, say only that the checked index did not
 support it. Do not claim that the entire corpus is exhausted.

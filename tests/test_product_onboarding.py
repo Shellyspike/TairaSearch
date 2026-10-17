@@ -121,6 +121,25 @@ class ProductPositioningTests(unittest.TestCase):
         self.assertIn("independent from personal editions", guide)
         self.assertIn("No automation is created without explicit consent", guide)
 
+    def test_scheduled_publication_requires_effective_write_access(self) -> None:
+        paths = (
+            "AGENTS.md",
+            "docs/development.md",
+            "docs/development.ru.md",
+            "docs/research-onboarding.md",
+            "docs/research-onboarding.ru.md",
+            "examples/codex/research-onboarding.md",
+            "examples/codex/research-onboarding.ru.md",
+        )
+        for path in paths:
+            with self.subTest(path=path):
+                text = " ".join(read(path).split())
+                self.assertIn("check-publication-access", text)
+                self.assertIn("writable root", text.casefold())
+                self.assertIn("config.toml", text)
+                self.assertIn("windows unelevated restricted-token sandbox", text)
+                self.assertIn("lock", text.casefold())
+
     def test_public_allowlist_contains_first_run_material(self) -> None:
         manifest = tomllib.loads(read("release_manifest.toml"))
         files = set(manifest["release"]["files"])

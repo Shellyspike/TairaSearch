@@ -234,7 +234,14 @@ def candidate_pair_check(
 def attach_semantic_reviews(
     candidates: list[dict[str, Any]], *, limit: int = 3
 ) -> list[dict[str, Any]]:
-    """Attach bounded evidence packets for Codex without removing candidates."""
+    """Attach bounded comparison links without duplicating full source context.
+
+    Every compared candidate already exists as a top-level row in the full
+    result.  Keeping another copy of ``verified_context`` under every pair made
+    large batches quadratic in size and encouraged agents to reread identical
+    passages.  The link below carries the supported thesis and enough metadata
+    to find the canonical top-level row instead.
+    """
     for candidate in candidates:
         candidate_matches: list[dict[str, Any]] = []
         for other in candidates:
@@ -259,7 +266,10 @@ def attach_semantic_reviews(
                         "relative_path": other.get("relative_path"),
                         "chunk_id": other.get("chunk_id"),
                         "what_happened": other.get("what_happened"),
-                        "verified_context": other.get("verified_context", {}),
+                        "context_ref": {
+                            "chunk_id": other.get("chunk_id"),
+                            "field": "verified_context",
+                        },
                     },
                 }
             )

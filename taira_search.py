@@ -9,6 +9,7 @@ import os
 import re
 import sqlite3
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -402,6 +403,11 @@ def _paths_refer_to_same_file(left: Path, right: Path) -> bool:
 def validate_research_output_path(args: argparse.Namespace) -> None:
     """Prevent candidate JSON from replacing any input needed by the command."""
     output = Path(args.output)
+    editorial_output = (
+        Path(args.editorial_output)
+        if args.editorial_output
+        else output.with_name(f"{output.stem}.editorial.json")
+    )
     protected_inputs = [
         ("--db", Path(args.db)),
         ("--profile", Path(args.profile)),
@@ -414,13 +420,114 @@ def validate_research_output_path(args: argparse.Namespace) -> None:
     protected_inputs.extend(
         ("--continue-from", Path(path)) for path in args.continue_from
     )
-    for option, input_path in protected_inputs:
-        if _paths_refer_to_same_file(output, input_path):
-            raise ValueError(
-                "Небезопасный --output: путь совпадает с критичным входным "
-                f"файлом {option} после нормализации: "
-                f"{input_path.expanduser().resolve(strict=False)}"
+    for label, candidate_output in (
+        ("--output", output),
+        ("--editorial-output", editorial_output),
+    ):
+        for option, input_path in protected_inputs:
+            if _paths_refer_to_same_file(candidate_output, input_path):
+                raise ValueError(
+                    f"Небезопасный {label}: путь совпадает с критичным входным "
+                    f"файлом {option} после нормализации: "
+                    f"{input_path.expanduser().resolve(strict=False)}"
+                )
+    if _paths_refer_to_same_file(output, editorial_output):
+        raise ValueError("--output и --editorial-output должны быть разными файлами")
+
+
+def _open_existing_lock_read_write(lock_path: Path) -> None:
+    """Open an existing journal lock for writing without changing its bytes."""
+    descriptor = os.open(lock_path, os.O_RDWR)
+    os.close(descriptor)
+
+
+def check_publication_access(db_path: Path, used_path: Path) -> dict[str, Any]:
+    """Prove read and atomic-write access without touching the journal or lock."""
+    db_path = db_path.expanduser().resolve()
+    used_path = used_path.expanduser().resolve()
+    if not db_path.is_file():
+        raise RuntimeError(f"Индекс не найден: {db_path}")
+    try:
+        connection = sqlite3.connect(f"{db_path.as_uri()}?mode=ro", uri=True)
+        try:
+            connection.execute("PRAGMA query_only=ON")
+            cursor = connection.execute("SELECT 1")
+            try:
+                cursor.fetchone()
+            finally:
+                cursor.close()
+        finally:
+            connection.close()
+    except sqlite3.Error as exc:
+        raise RuntimeError(f"Нет доступа на чтение SQLite {db_path}: {exc}") from exc
+
+    if used_path.exists():
+        try:
+            with used_path.open("rb") as stream:
+                stream.read(1)
+        except OSError as exc:
+            raise RuntimeError(
+                f"Нет доступа на чтение журнала {used_path}: {exc}"
+            ) from exc
+    lock_path = used_path.with_name(f".{used_path.name}.lock")
+    lock_write_check = "absent; directory write check used"
+    if lock_path.exists():
+        try:
+            _open_existing_lock_read_write(lock_path)
+        except OSError as exc:
+            raise RuntimeError(
+                "Существующий lock-файл нельзя открыть для записи без изменения "
+                f"содержимого: {lock_path}. Проверьте эффективные writable roots "
+                f"текущего окружения Codex. Исходная ошибка: {exc}"
+            ) from exc
+        lock_write_check = "existing file opened read-write without modification"
+    parent = used_path.parent
+    source_path: Path | None = None
+    target_path: Path | None = None
+    try:
+        descriptor, source_name = tempfile.mkstemp(
+            prefix=".taira-write-check.", suffix=".tmp", dir=parent
+        )
+        source_path = Path(source_name)
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(b"tairasearch-write-check\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        descriptor, target_name = tempfile.mkstemp(
+            prefix=".taira-rename-check.", suffix=".tmp", dir=parent
+        )
+        os.close(descriptor)
+        target_path = Path(target_name)
+        os.replace(source_path, target_path)
+        source_path = None
+        if target_path.read_bytes() != b"tairasearch-write-check\n":
+            raise RuntimeError(
+                "Проверка атомарного переименования вернула неверные данные"
             )
+    except OSError as exc:
+        raise RuntimeError(
+            "Каталог журнала недоступен для безопасной записи и атомарного "
+            f"переименования: {parent}. Проверьте, что этот путь присутствует в "
+            "эффективных writable roots именно текущего окружения Codex, а не "
+            f"только в config.toml. Исходная ошибка: {exc}"
+        ) from exc
+    finally:
+        if source_path is not None:
+            source_path.unlink(missing_ok=True)
+        if target_path is not None:
+            target_path.unlink(missing_ok=True)
+    return {
+        "status": "ok",
+        "python": sys.executable,
+        "sqlite_read": str(db_path),
+        "journal_read": str(used_path),
+        "journal_directory_atomic_write": str(parent),
+        "lock_write_check": lock_write_check,
+        "journal_and_lock_unchanged": True,
+        "environment_note": (
+            "This result applies only to the process environment that ran the check."
+        ),
+    }
 
 
 def make_parser() -> argparse.ArgumentParser:
@@ -484,11 +591,44 @@ def make_parser() -> argparse.ArgumentParser:
     )
     research_parser.add_argument("--output", default=str(DEFAULT_RESEARCH_OUTPUT))
     research_parser.add_argument(
+        "--editorial-output",
+        help=(
+            "Компактный редакционный JSON; по умолчанию рядом с --output "
+            "с суффиксом .editorial.json"
+        ),
+    )
+    research_parser.add_argument(
         "--preview",
         action="store_true",
         help="Пробная подборка; журнал только читается и никогда не изменяется",
     )
     research_parser.add_argument("--json", action="store_true")
+    research_context_parser = subparsers.add_parser(
+        "research-context",
+        help="Собрать полный контекст выбранных кандидатов одним пакетом",
+    )
+    research_context_parser.add_argument(
+        "result", help="Полный research-findings JSON"
+    )
+    research_context_parser.add_argument(
+        "--chunk-id",
+        action="append",
+        default=[],
+        help="Выбранный chunk_id; можно повторять",
+    )
+    research_context_parser.add_argument(
+        "--include-required-review",
+        action="store_true",
+        help="Добавить всех кандидатов, требующих semantic_review",
+    )
+    research_context_parser.add_argument("--output", required=True)
+    access_parser = subparsers.add_parser(
+        "check-publication-access",
+        help="Проверить чтение SQLite и безопасную запись рядом с used_finds.csv",
+    )
+    access_parser.add_argument("--db", default=str(DEFAULT_DB))
+    access_parser.add_argument("--used-finds", default=str(DEFAULT_USED_FINDS))
+    access_parser.add_argument("--json", action="store_true")
     mark_parser = subparsers.add_parser(
         "mark-used", help="Явно добавить daily-five JSON или chunk_id в used_finds.csv"
     )
@@ -586,6 +726,13 @@ def main(argv: list[str] | None = None) -> int:
             parser.error("--batch-size должен быть от 1 до 100")
         if args.count is not None and args.batch_size < args.count:
             parser.error("--batch-size не может быть меньше --count")
+    if args.command == "research-context":
+        if not args.chunk_id and not args.include_required_review:
+            parser.error(
+                "research-context требует --chunk-id или --include-required-review"
+            )
+        if _paths_refer_to_same_file(Path(args.result), Path(args.output)):
+            parser.error("--output не должен перезаписывать исходный полный JSON")
     connection: sqlite3.Connection | None = None
     try:
         if args.command == "research-findings":
@@ -605,6 +752,46 @@ def main(argv: list[str] | None = None) -> int:
             print(
                 f"Добавлено в {used_path}: {added}; уже было/пропущено: {skipped}"
             )
+            print(
+                "Журнал зарегистрирован; доставка карточек в чат этой командой "
+                "не выполняется и не подтверждается."
+            )
+            return 0
+
+        if args.command == "check-publication-access":
+            result = check_publication_access(Path(args.db), Path(args.used_finds))
+            if args.json:
+                print(json.dumps(result, ensure_ascii=False, indent=2))
+            else:
+                print("Проверка прав публикации: OK")
+                print(f"SQLite доступна только для чтения: {result['sqlite_read']}")
+                print(
+                    "Безопасная запись и атомарное переименование доступны: "
+                    f"{result['journal_directory_atomic_write']}"
+                )
+                print("used_finds.csv и lock-файл не изменялись.")
+            return 0
+
+        if args.command == "research-context":
+            from daily_five import save_result
+            from research_findings import build_research_context_packet
+
+            result_path = Path(args.result).expanduser().resolve()
+            payload = json.loads(result_path.read_text(encoding="utf-8-sig"))
+            if (
+                not isinstance(payload, dict)
+                or payload.get("mode") != "research-findings"
+            ):
+                raise ValueError(f"{result_path}: ожидается полный research-findings JSON")
+            packet = build_research_context_packet(
+                payload,
+                args.chunk_id,
+                include_required_review=args.include_required_review,
+            )
+            output = Path(args.output).expanduser().resolve()
+            save_result(packet, output)
+            print(f"Сохранено: {output}")
+            print(f"Кандидатов с полным контекстом: {len(packet['candidates'])}")
             return 0
 
         connection, topics, people = load_runtime(args)
@@ -677,6 +864,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "research-findings":
             from daily_five import save_result
             from research_findings import (
+                build_editorial_packet,
                 build_research_findings,
                 load_continuation_chunk_ids,
                 print_research_result,
@@ -705,8 +893,23 @@ def main(argv: list[str] | None = None) -> int:
                 excluded_chunk_ids=excluded_chunk_ids,
             )
             output = Path(args.output).expanduser().resolve()
+            editorial_output = (
+                Path(args.editorial_output).expanduser().resolve()
+                if args.editorial_output
+                else output.with_name(f"{output.stem}.editorial.json")
+            )
+            result["artifacts"] = {
+                "full_result": str(output),
+                "editorial_packet": str(editorial_output),
+            }
+            editorial_packet = build_editorial_packet(result)
             save_result(result, output)
+            save_result(editorial_packet, editorial_output)
             print(f"Сохранено: {output}", file=sys.stderr if args.json else sys.stdout)
+            print(
+                f"Компактный пакет: {editorial_output}",
+                file=sys.stderr if args.json else sys.stdout,
+            )
             print_research_result(result, json_output=args.json)
         else:
             from daily_five import mark_used_chunk, mark_used_from_json
