@@ -72,10 +72,15 @@ Before returning the cards in chat:
 2. Run `python taira_search.py record-publication
    work/publications/<publication-id>.json`.
 3. Return the saved card text only if that command exits with code 0. If it
-   fails, do not publish the cards; report the error and keep the JSON for a
-   retry.
+   fails, do not publish the cards; report one clear cause and recovery action,
+   keep the JSON, and do not spend the daily run on repeated retries or lengthy
+   permission diagnostics.
 
 Do not edit `used_finds.csv` directly. Rerunning the command with the same JSON
 is safe. The JSON is also the recovery copy if the journal update succeeds but
-the chat response is not delivered.
+the chat response is not delivered. `record-publication` confirms only journal
+registration. If delivery is unconfirmed, inspect chat/run history, reuse the
+same manifest and exact `card_markdown`, and do not register the same findings
+under a new publication. Never report successful delivery until the chat
+response itself is confirmed.
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import sqlite3
 from argparse import Namespace
@@ -27,6 +28,155 @@ GENERIC_DATE_RE = re.compile(
     r"\b(?:\d{1,4}\s*(?:BCE|BC|CE|AD)|(?:BCE|BC|CE|AD)\s*\d{1,4})\b",
     re.IGNORECASE,
 )
+
+
+def _json_size(payload: dict[str, Any]) -> int:
+    serialized = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+    if os.linesep != "\n":
+        serialized = serialized.replace("\n", os.linesep)
+    return len(serialized.encode("utf-8"))
+
+
+def _compact_duplicate_check(candidate: dict[str, Any]) -> dict[str, Any]:
+    duplicate = candidate.get("duplicate_check", {})
+    return {
+        "status": duplicate.get("status"),
+        "confidence": duplicate.get("confidence"),
+        "reason": duplicate.get("reason"),
+        "matched_id": duplicate.get("matched_id"),
+        "python_disposition": duplicate.get("python_disposition"),
+        "auto_exclude": bool(duplicate.get("auto_exclude")),
+        "requires_editorial_review": bool(
+            duplicate.get("requires_editorial_review")
+        ),
+        "review_matches": list(duplicate.get("review_matches", [])),
+    }
+
+
+def _compact_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
+    """Return the one-pass editorial view; full evidence stays in the full JSON."""
+    return {
+        "chunk_id": candidate.get("chunk_id"),
+        "title": candidate.get("title"),
+        "thesis": candidate.get("what_happened"),
+        "person": list(candidate.get("person", [])),
+        "topics": list(candidate.get("topics", [])),
+        "date": candidate.get("date"),
+        "source": candidate.get("source"),
+        "source_type": candidate.get("index_source_type")
+        or candidate.get("source_type"),
+        "relative_path": candidate.get("relative_path"),
+        "page_start": candidate.get("page_start"),
+        "page_end": candidate.get("page_end"),
+        "chunk_no": candidate.get("chunk_no"),
+        "retrieval_score": candidate.get("retrieval_score"),
+        "full_context_ref": {
+            "chunk_id": candidate.get("chunk_id"),
+            "field": "verified_context",
+        },
+        "duplicate_check": _compact_duplicate_check(candidate),
+        "semantic_review": candidate.get("semantic_review", {}),
+    }
+
+
+def build_editorial_packet(result: dict[str, Any]) -> dict[str, Any]:
+    """Build a compact first-pass handoff while retaining the lossless result."""
+    packet: dict[str, Any] = {
+        "mode": "research-findings-editorial",
+        "generated_at_utc": result.get("generated_at_utc"),
+        "full_result_ref": result.get("artifacts", {}).get("full_result"),
+        "profile": {
+            "name": result.get("profile", {}).get("name"),
+            "research_area": result.get("profile", {}).get("research_area"),
+            "result_language": result.get("profile", {}).get("result_language"),
+            "max_results": result.get("profile", {}).get("max_results"),
+        },
+        "coverage": result.get("coverage", {}),
+        "stats": result.get("stats", {}),
+        "final": [_compact_candidate(item) for item in result.get("final", [])],
+        "alternates": [
+            _compact_candidate(item) for item in result.get("alternates", [])
+        ],
+        "continuation": result.get("continuation", {}),
+        "workflow": {
+            "first_pass": "Review this packet once; do not print the full result.",
+            "full_context": (
+                "Request one consolidated research-context packet for finalists "
+                "and candidates requiring semantic review."
+            ),
+        },
+    }
+    full_bytes = _json_size(result)
+    packet["size"] = {
+        "full_result_bytes": full_bytes,
+        "editorial_packet_bytes": 0,
+        "reduction_percent": 0.0,
+    }
+    # The size block contributes to the file it measures. A few fixed-point
+    # passes make the reported byte count match the serialized packet.
+    for _ in range(3):
+        compact_bytes = _json_size(packet)
+        packet["size"]["editorial_packet_bytes"] = compact_bytes
+        packet["size"]["reduction_percent"] = (
+            round((1 - compact_bytes / full_bytes) * 100, 1)
+            if full_bytes
+            else 0.0
+        )
+    return packet
+
+
+def build_research_context_packet(
+    result: dict[str, Any],
+    selected_chunk_ids: list[str],
+    *,
+    include_required_review: bool = False,
+) -> dict[str, Any]:
+    """Select full canonical candidate rows in one consolidated packet."""
+    candidates = {
+        str(item.get("chunk_id")): item
+        for section in ("final", "alternates")
+        for item in result.get(section, [])
+        if isinstance(item, dict) and item.get("chunk_id")
+    }
+    requested = {str(chunk_id) for chunk_id in selected_chunk_ids if chunk_id}
+    if include_required_review:
+        requested.update(
+            chunk_id
+            for chunk_id, item in candidates.items()
+            if bool(item.get("semantic_review", {}).get("required"))
+        )
+    missing = sorted(requested - candidates.keys())
+    if missing:
+        raise ValueError(
+            "В полном research-findings JSON нет chunk_id: " + ", ".join(missing)
+        )
+
+    # Include linked in-batch comparisons so the editor sees both full claims in
+    # the same read without another command or a repeated search.
+    linked: set[str] = set()
+    for chunk_id in requested:
+        review = candidates[chunk_id].get("semantic_review", {})
+        linked.update(
+            str(match.get("matched_chunk_id"))
+            for match in review.get("candidate_matches", [])
+            if match.get("matched_chunk_id") in candidates
+        )
+    included = requested | linked
+    ordered = [
+        item
+        for section in ("final", "alternates")
+        for item in result.get(section, [])
+        if str(item.get("chunk_id")) in included
+    ]
+    return {
+        "mode": "research-findings-context",
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "source_generated_at_utc": result.get("generated_at_utc"),
+        "selected_chunk_ids": sorted(set(selected_chunk_ids)),
+        "required_review_included": include_required_review,
+        "linked_comparison_chunk_ids": sorted(linked - requested),
+        "candidates": ordered,
+    }
 
 
 def load_continuation_chunk_ids(

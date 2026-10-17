@@ -32,6 +32,41 @@ bounded increase to retrieval depth, then stops when it has enough strong
 findings or a pass yields no new IDs. The copy-ready instructions are in
 `examples/codex/research-workflow.md`.
 
+Each run now writes two artifacts: a lossless full JSON and a compact
+`*.editorial.json`. `semantic_review` links compared candidates by ID and
+supported thesis rather than embedding another copy of their full neighbouring
+context. Codex reads one compact overview per batch, then calls
+`research-context` once with provisional finalist IDs and
+`--include-required-review`. That consolidated packet restores the canonical
+full context for finalists, doubtful candidates, and linked comparisons without
+rerunning retrieval. The reference workflow therefore needs three file/tool
+interactions per accepted batch (retrieval, one compact read, one consolidated
+full-context request/read boundary) instead of printing the full payload and
+performing repeated candidate-by-candidate reads. It does not cap the number of
+reviewed candidates or weaken source and semantic checks.
+
+Measure Python time and the byte sizes of both artifacts separately. A smaller
+packet and fewer prescribed calls do not by themselves prove lower end-to-end
+Codex time; only an isolated agent run can establish that claim.
+
+The regression fixture (`sample_corpus`, 20-candidate batch, 20 Windows runs)
+measured the following on the implementation branch versus its `main` base:
+
+| Measure | `main` | optimized |
+| --- | ---: | ---: |
+| median Python process time | 235.3 ms | 237.4 ms |
+| lossless full JSON | 47,813 bytes | 48,117 bytes |
+| first-pass editorial packet | not available | 27,866 bytes |
+
+The first-pass payload is 41.7% smaller than the baseline full JSON. The full
+artifact remains lossless and gains artifact references, so this small fixture
+does not promise that it will shrink; repeated full comparison contexts are no
+longer embedded. Python time is effectively unchanged at this scale. In the
+50-candidate reference interaction budget, first-pass inspection plus full
+context is bounded to one compact read and one consolidated context packet,
+rather than as many as 50 candidate-level full-context reads (up to 48 fewer
+reads). This is a workflow bound, not a measured Codex latency result.
+
 Preview and retrieval are read-only for `used_finds.csv`. Only an explicit
 publication request crosses the existing manifest and `record-publication`
 boundary. Building a new index remains a separate, explicit step: onboarding
@@ -85,10 +120,24 @@ interprocess lock around the full read, duplicate-check, and write cycle. It
 atomically replaces `used_finds.csv` only after the new CSV has been written
 successfully. Existing rows and the CSV schema are retained, and rerunning the
 same manifest does not create duplicates. Publish the cards only after exit
-code 0. If journal writing fails, or if chat delivery fails after the journal
-update, the unchanged local JSON contains the exact cards needed for a retry.
+code 0. That exit confirms journal registration, not delivery to chat. If
+journal writing fails, keep the unchanged manifest, report the actionable
+error once, do not publish, and avoid repeated diagnostics inside the daily
+run. If chat delivery fails after the journal update, check run/chat history
+and reuse the same manifest and exact `card_markdown`; do not create a new
+registration or claim delivery without confirmation. Idempotent retry of the
+same manifest skips already registered IDs. The unchanged local JSON contains
+the exact cards needed for recovery.
 Publication manifests and lock files are runtime data and must never be added
 to the public release allowlist.
+
+Before activating a scheduled publisher, run `check-publication-access` in the
+scheduled task's effective environment. It verifies read-only SQLite access and
+disposable create-plus-atomic-rename access beside the journal without touching
+the journal or lock. An interactive test or `config.toml` entry is not a
+substitute for effective writable roots in the scheduled process. Recovery and
+the Windows split-writable-root error are documented in `development.md` and
+the onboarding guide.
 
 ## Discovery of new materials
 

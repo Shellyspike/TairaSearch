@@ -719,10 +719,71 @@ class ResearchProfileTests(unittest.TestCase):
                 self.assertIn("daily-five", prompt)
                 self.assertIn("used_finds.csv", prompt)
                 self.assertIn("finding_preferences.notes", prompt)
+                self.assertIn("*.editorial.json", prompt)
+                self.assertIn("research-context", prompt)
+                self.assertIn("--include-required-review", prompt)
+                self.assertIn(
+                    "Не вызывай `--help`"
+                    if path.name.endswith("ru.md")
+                    else "Do not call `--help`",
+                    prompt,
+                )
                 if path.name.endswith("ru.md"):
                     self.assertIn("живой развёрнутой подачи", prompt)
                 else:
                     self.assertIn("vivid, expanded cards", prompt)
+
+    def test_editorial_packet_is_compact_and_full_result_keeps_context(self) -> None:
+        full = self.run_profile(
+            "japan",
+            PROJECT / "examples" / "profiles" / "medieval-japan.json",
+            output_name="compact-editorial-packet",
+            count=3,
+            extra_arguments=("--batch-size", "12"),
+        )
+        editorial_path = self.root / "compact-editorial-packet.editorial.json"
+        editorial = json.loads(editorial_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(editorial["mode"], "research-findings-editorial")
+        self.assertEqual(
+            editorial["size"]["editorial_packet_bytes"],
+            len(editorial_path.read_bytes()),
+        )
+        self.assertLess(
+            len(editorial_path.read_bytes()),
+            len((self.root / "compact-editorial-packet.json").read_bytes()),
+        )
+        self.assertGreater(editorial["size"]["reduction_percent"], 25)
+        self.assertTrue(full["final"])
+        self.assertIn("chunks", full["final"][0]["verified_context"])
+        self.assertNotIn("verified_context", editorial["final"][0])
+        for candidate in [*full["final"], *full["alternates"]]:
+            for relation in candidate["semantic_review"]["candidate_matches"]:
+                self.assertNotIn("verified_context", relation["candidate"])
+                self.assertIn("context_ref", relation["candidate"])
+
+    def test_consolidated_context_packet_reuses_saved_full_result(self) -> None:
+        full = self.run_profile(
+            "japan",
+            PROJECT / "examples" / "profiles" / "medieval-japan.json",
+            output_name="consolidated-context-source",
+            count=2,
+            extra_arguments=("--batch-size", "10"),
+        )
+        selected = full["final"][0]["chunk_id"]
+        packet = research_findings.build_research_context_packet(
+            full, [selected], include_required_review=True
+        )
+        included = {item["chunk_id"] for item in packet["candidates"]}
+        self.assertIn(selected, included)
+        for item in packet["candidates"]:
+            self.assertIn("chunks", item["verified_context"])
+        required = {
+            item["chunk_id"]
+            for item in [*full["final"], *full["alternates"]]
+            if item["semantic_review"]["required"]
+        }
+        self.assertTrue(required.issubset(included))
 
 
 if __name__ == "__main__":

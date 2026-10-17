@@ -15,6 +15,7 @@ PROJECT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT))
 
 import daily_five  # noqa: E402
+import taira_search  # noqa: E402
 
 
 class PublicationJournalTests(unittest.TestCase):
@@ -269,7 +270,52 @@ daily_five.record_publication_from_json(manifest, used)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(str(payload["publication_id"]), result.stdout)
         self.assertIn(str(self.manifest_path), result.stdout)
+        self.assertIn("доставка карточек в чат", result.stdout)
         self.assertEqual(len(self.read_history()), 4)
+
+    def test_publication_access_check_does_not_touch_journal_or_lock(self) -> None:
+        self.write_existing_history(2)
+        database = self.root / "index.sqlite3"
+        import sqlite3
+
+        connection = sqlite3.connect(database)
+        try:
+            connection.execute("CREATE TABLE probe(value INTEGER)")
+            connection.commit()
+        finally:
+            connection.close()
+        journal_before = self.used_path.read_bytes()
+        lock_path = self.root / ".used_finds.csv.lock"
+        lock_path.write_bytes(b"existing-lock-sentinel")
+        lock_before = lock_path.read_bytes()
+
+        report = taira_search.check_publication_access(database, self.used_path)
+
+        self.assertEqual(report["status"], "ok")
+        self.assertTrue(report["journal_and_lock_unchanged"])
+        self.assertEqual(self.used_path.read_bytes(), journal_before)
+        self.assertEqual(lock_path.read_bytes(), lock_before)
+        self.assertEqual(list(self.root.glob(".taira-*-check.*.tmp")), [])
+
+    def test_publication_access_check_reports_effective_writable_roots(self) -> None:
+        database = self.root / "index.sqlite3"
+        import sqlite3
+
+        connection = sqlite3.connect(database)
+        try:
+            connection.execute("CREATE TABLE probe(value INTEGER)")
+            connection.commit()
+        finally:
+            connection.close()
+        with mock.patch.object(
+            taira_search.tempfile,
+            "mkstemp",
+            side_effect=PermissionError("simulated sandbox denial"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "writable roots"):
+                taira_search.check_publication_access(database, self.used_path)
+        self.assertFalse(self.used_path.exists())
+        self.assertFalse((self.root / ".used_finds.csv.lock").exists())
 
 
 if __name__ == "__main__":

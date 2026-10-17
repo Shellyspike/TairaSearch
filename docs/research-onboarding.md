@@ -104,8 +104,23 @@ read failure as no findings. User feedback changes the profile and a repeated
 preview, not the search engine.
 
 After the user accepts the edition, the agent repeats the previously selected
-personal-news schedule and asks for final confirmation. Only then is the task
-created using `research-workflow.md`. If programmatic creation is unavailable,
+personal-news schedule and asks for final confirmation. Before activation it
+runs `python taira_search.py check-publication-access` in the scheduled task's
+actual environment. The check must read SQLite and prove create-plus-atomic-
+rename access beside `used_finds.csv` without changing the journal or its lock.
+An entry in `config.toml` is not proof: the project directory must be present in
+the effective writable roots of that run. An interactive check does not replace
+the scheduled-environment check.
+
+Only after that check passes is the task created using `research-workflow.md`.
+If it fails, setup remains incomplete: explain the effective-writable-root
+problem, retest after restarting Codex, or offer a separate writable project
+and safely rebind the existing task after checking for duplicates. For
+`windows unelevated restricted-token sandbox cannot enforce split writable
+root sets directly`, use that recovery path; never advise disabling the
+sandbox, deleting the lock, or bypassing synchronization. If the scheduled
+environment cannot yet be tested, mark the check as pending and require it
+before activation. If programmatic creation is unavailable,
 the agent provides one short ready-to-paste task and offers
 `codex://automations`. Personal editions and library acquisition always remain
 independent automations.
