@@ -339,6 +339,30 @@ class SourceAcquisitionTests(unittest.TestCase):
         with self.assertRaisesRegex(TextDecodingError, "Укажите encoding явно"):
             decode_text_bytes(b"\x80")
 
+    def test_bomless_utf16_is_detected_before_utf8(self) -> None:
+        samples = (
+            "ASCII historical source 12345",
+            "Русский исторический источник",
+        )
+        for text in samples:
+            for encoding in ("utf-16-le", "utf-16-be"):
+                with self.subTest(text=text, encoding=encoding):
+                    self.assertEqual(decode_text_bytes(text.encode(encoding)), text)
+
+    def test_utf8_and_cp1251_are_not_misclassified_as_utf16(self) -> None:
+        samples = (
+            ("Ordinary UTF-8 source text", "utf-8"),
+            ("Обычный русский текст UTF-8", "utf-8"),
+            ("Обычный русский текст CP1251", "cp1251"),
+        )
+        for text, encoding in samples:
+            with self.subTest(encoding=encoding, text=text):
+                self.assertEqual(decode_text_bytes(text.encode(encoding)), text)
+
+    def test_utf8_with_embedded_nul_is_rejected(self) -> None:
+        with self.assertRaisesRegex(TextDecodingError, r"U\+0000"):
+            decode_text_bytes(b"valid\x00text")
+
     def test_html_uses_declared_windows_1251_encoding(self) -> None:
         html = (
             '<html><head><meta charset="windows-1251"></head>'

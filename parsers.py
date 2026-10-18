@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import codecs
 import re
+import unicodedata
 from dataclasses import dataclass
 from importlib import import_module
 from pathlib import Path
@@ -165,7 +166,44 @@ def _probable_utf16_without_bom(data: bytes) -> str | None:
         return "utf-16-le"
     if even_nuls >= 0.30 and odd_nuls <= 0.05:
         return "utf-16-be"
+
+    # BOM-less UTF-16 Cyrillic/Greek/Hebrew/Arabic commonly has no NULs:
+    # instead, the high-byte lane stays almost entirely in the first few
+    # Unicode planes while the low-byte lane carries the varying characters.
+    # UTF-8 and single-byte legacy encodings do not have that lane pattern.
+    def low_plane_ratio(values: bytes) -> float:
+        return sum(value <= 0x08 for value in values) / len(values)
+
+    if len(even) >= 4:
+        odd_low_plane = low_plane_ratio(odd)
+        even_low_plane = low_plane_ratio(even)
+        if odd_low_plane >= 0.80 and even_low_plane <= 0.20:
+            return "utf-16-le"
+        if even_low_plane >= 0.80 and odd_low_plane <= 0.20:
+            return "utf-16-be"
     return None
+
+
+def _validate_decoded_text(text: str, encoding: str) -> str:
+    forbidden = [
+        char
+        for char in text
+        if char == "\x00"
+        or (
+            unicodedata.category(char) == "Cc"
+            and char not in {"\t", "\n", "\r", "\f"}
+        )
+    ]
+    if forbidden:
+        codepoints = ", ".join(
+            f"U+{ord(char):04X}" for char in dict.fromkeys(forbidden[:4])
+        )
+        raise TextDecodingError(
+            f"Текст после декодирования как {encoding} содержит недопустимые "
+            f"управляющие символы ({codepoints}); укажите encoding явно или "
+            "исправьте повреждённый файл."
+        )
+    return text
 
 
 def decode_text_bytes(data: bytes, *, encoding: str | None = None) -> str:
@@ -174,7 +212,9 @@ def decode_text_bytes(data: bytes, *, encoding: str | None = None) -> str:
     if encoding:
         try:
             codecs.lookup(encoding)
-            return data.decode(encoding, errors="strict")
+            return _validate_decoded_text(
+                data.decode(encoding, errors="strict"), encoding
+            )
         except (UnicodeDecodeError, LookupError) as exc:
             raise TextDecodingError(
                 f"Не удалось декодировать текст как {encoding}: {exc}"
@@ -182,24 +222,31 @@ def decode_text_bytes(data: bytes, *, encoding: str | None = None) -> str:
 
     bom = _bom_encoding(data)
     if bom:
-        return data.decode(bom, errors="strict")
-    try:
-        return data.decode("utf-8", errors="strict")
-    except UnicodeDecodeError:
-        pass
+        return _validate_decoded_text(data.decode(bom, errors="strict"), bom)
 
     utf16 = _probable_utf16_without_bom(data)
     if utf16:
         try:
-            return data.decode(utf16, errors="strict")
+            return _validate_decoded_text(
+                data.decode(utf16, errors="strict"), utf16
+            )
         except UnicodeDecodeError:
             pass
+
+    try:
+        return _validate_decoded_text(
+            data.decode("utf-8", errors="strict"), "utf-8"
+        )
+    except UnicodeDecodeError:
+        pass
 
     candidates_by_text: dict[str, tuple[float, str, str]] = {}
     for legacy_encoding in ("cp932", "shift_jis", "cp1251"):
         try:
-            decoded = data.decode(legacy_encoding, errors="strict")
-        except UnicodeDecodeError:
+            decoded = _validate_decoded_text(
+                data.decode(legacy_encoding, errors="strict"), legacy_encoding
+            )
+        except (UnicodeDecodeError, TextDecodingError):
             continue
         confidence = _script_confidence(decoded, legacy_encoding)
         if confidence:

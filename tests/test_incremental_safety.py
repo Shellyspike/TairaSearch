@@ -156,6 +156,20 @@ class IncrementalSafetyTests(unittest.TestCase):
             self.document_snapshot("explicit.txt")[1][0][7],
         )
 
+    def test_corrupt_control_characters_do_not_enter_index(self) -> None:
+        document = self.corpus / "corrupt.txt"
+        document.write_bytes(b"valid\x00text")
+
+        stats, _ = self.build()
+
+        self.assertEqual(stats["errors"], 1)
+        file_row, chunks, fts_rows = self.document_snapshot("corrupt.txt")
+        self.assertEqual(file_row[5], "error")
+        self.assertIn("U+0000", file_row[6])
+        self.assertEqual(chunks, [])
+        self.assertEqual(fts_rows, [])
+        self.assertIn("U+0000", self.log.read_text(encoding="utf-8"))
+
     def test_database_write_error_rolls_back_chunks_and_fts(self) -> None:
         document = self.corpus / "document.txt"
         document.write_text("Старая корректная версия 平維盛", encoding="utf-8")
