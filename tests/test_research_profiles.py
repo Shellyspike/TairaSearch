@@ -716,6 +716,13 @@ class ResearchProfileTests(unittest.TestCase):
                 self.assertIn("new_finding", prompt)
                 self.assertIn("research-onboarding", prompt)
                 self.assertIn("record-publication", prompt)
+                self.assertIn("render-publication", prompt)
+                self.assertIn(
+                    "полный stdout"
+                    if path.name.endswith("ru.md")
+                    else "complete stdout",
+                    prompt,
+                )
                 self.assertIn("daily-five", prompt)
                 self.assertIn("used_finds.csv", prompt)
                 self.assertIn("finding_preferences.notes", prompt)
@@ -863,3 +870,4 @@ class ResearchProfileTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

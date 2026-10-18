@@ -641,6 +641,19 @@ def make_parser() -> argparse.ArgumentParser:
     )
     publication_parser.add_argument("manifest", help="JSON с готовыми карточками")
     publication_parser.add_argument("--used-finds", default=str(DEFAULT_USED_FINDS))
+    render_parser = subparsers.add_parser(
+        "render-publication",
+        help="Вывести полный зарегистрированный выпуск из манифеста",
+    )
+    render_parser.add_argument("manifest", help="JSON с готовыми карточками")
+    render_parser.add_argument("--used-finds", default=str(DEFAULT_USED_FINDS))
+    status_parser = subparsers.add_parser(
+        "publication-status",
+        help="Проверить подготовку и регистрацию без утверждения о доставке",
+    )
+    status_parser.add_argument("manifest", help="JSON с готовыми карточками")
+    status_parser.add_argument("--used-finds", default=str(DEFAULT_USED_FINDS))
+    status_parser.add_argument("--json", action="store_true")
     return parser
 
 
@@ -756,6 +769,40 @@ def main(argv: list[str] | None = None) -> int:
                 "Журнал зарегистрирован; доставка карточек в чат этой командой "
                 "не выполняется и не подтверждается."
             )
+            return 0
+
+        if args.command == "render-publication":
+            from daily_five import render_registered_publication_from_json
+
+            manifest_path = Path(args.manifest).expanduser().resolve()
+            if not manifest_path.is_file():
+                raise ValueError(f"Манифест публикации не найден: {manifest_path}")
+            used_path = Path(args.used_finds).expanduser().resolve()
+            _publication_id, markdown = render_registered_publication_from_json(
+                manifest_path, used_path
+            )
+            print(markdown)
+            return 0
+
+        if args.command == "publication-status":
+            from daily_five import publication_status_from_json
+
+            manifest_path = Path(args.manifest).expanduser().resolve()
+            if not manifest_path.is_file():
+                raise ValueError(f"Манифест публикации не найден: {manifest_path}")
+            result = publication_status_from_json(
+                manifest_path, Path(args.used_finds).expanduser().resolve()
+            )
+            if args.json:
+                print(json.dumps(result, ensure_ascii=False, indent=2))
+            else:
+                print(f"Выпуск: {result['publication_id']}")
+                print(f"Подготовлен: {'да' if result['prepared'] else 'нет'}")
+                print(f"Зарегистрирован: {'да' if result['registered'] else 'нет'}")
+                print(
+                    "Доставка в чат: не подтверждена; CLI не получает "
+                    "подтверждение отображения ответа пользователю."
+                )
             return 0
 
         if args.command == "check-publication-access":
@@ -937,3 +984,4 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

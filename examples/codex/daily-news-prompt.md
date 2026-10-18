@@ -61,6 +61,11 @@ the current filters. Do not claim that the corpus is exhausted, create cards or
 a publication manifest, or update the publication journal. A non-zero command
 exit is an error to report, not an empty news batch.
 
+This workflow requires a scheduled-task result that can contain the complete
+edition. A status-only heartbeat or notification envelope is not a compatible
+delivery surface. Detect that limitation before journal registration; do not
+register a new edition when the current run cannot return its full text.
+
 Before returning the cards in chat:
 
 1. Save exactly the selected cards to
@@ -71,16 +76,34 @@ Before returning the cards in chat:
    `card_markdown`.
 2. Run `python taira_search.py record-publication
    work/publications/<publication-id>.json`.
-3. Return the saved card text only if that command exits with code 0. If it
-   fails, do not publish the cards; report one clear cause and recovery action,
-   keep the JSON, and do not spend the daily run on repeated retries or lengthy
-   permission diagnostics.
+3. Only if that command exits with code 0, run `python taira_search.py
+   render-publication work/publications/<publication-id>.json`. Return the
+   complete stdout of `render-publication` as the primary chat response. Do not
+   summarize it, substitute titles or annotations, or return only a technical
+   report. A short technical note may appear only after all card Markdown.
+4. If registration fails, do not run `render-publication` and do not publish
+   the cards. Report one clear cause and recovery action, keep the JSON, and do
+   not spend the daily run on repeated retries or lengthy permission
+   diagnostics.
 
-Do not edit `used_finds.csv` directly. Rerunning the command with the same JSON
-is safe. The JSON is also the recovery copy if the journal update succeeds but
-the chat response is not delivered. `record-publication` confirms only journal
-registration. If delivery is unconfirmed, inspect chat/run history, reuse the
-same manifest and exact `card_markdown`, and do not register the same findings
-under a new publication. Never report successful delivery until the chat
-response itself is confirmed.
+Do not edit `used_finds.csv` directly. Rerunning the registration command with
+the same JSON is safe, but recovery does not need to rerun it. The JSON is the
+recovery copy if the journal update succeeds but the chat response is not
+delivered: inspect chat/run history, then run `render-publication` against the
+same manifest and return its exact output without a new search, rewrite, or
+registration. `publication-status` distinguishes a prepared manifest from a
+fully registered one and always reports chat delivery as unconfirmed because
+the local CLI receives no display acknowledgement from Codex.
+
+The three states are intentionally separate:
+
+- `prepared`: the validated manifest contains every complete `card_markdown`;
+- `registered`: every card ID from that manifest is present in the journal;
+- `delivered`: the complete edition is visibly present in the task/chat result.
+
+TairaSearch persists the first two states. It cannot persistently prove the
+third from the local CLI. When run history is ambiguous, ask before replaying
+the edition because recovery may show the same cards twice. Do not promise
+exactly-once chat delivery.
+
 

@@ -67,13 +67,18 @@ needed, and choose the final findings.
 10. Retrieval and preview must not change the journal. Only if my request
     explicitly includes publication, save the exact finalized cards to a local
     manifest under `work/` and use the existing `record-publication` command.
-    Publish only after exit code 0. If registration fails, keep the manifest,
-    report the single actionable error, and do not publish or run repeated
-    diagnostics. The command confirms journal registration, not chat delivery.
-    If registration succeeded but delivery is unconfirmed, reuse the same
-    manifest, check the chat/run history, and never create a new registration
-    for the same IDs. Never edit the CSV directly.
+    After exit code 0, run `render-publication` with that same manifest and
+    return its complete stdout as the primary chat response. Do not replace it
+    with titles, annotations, counts, or a technical status; a short status may
+    follow the complete edition. If registration fails, keep the manifest,
+    report the single actionable error, and do not render or publish the cards.
+    The commands prove preparation and journal registration, not display to the
+    user. If registration succeeded but delivery is unconfirmed, check the
+    chat/run history and recover by running `render-publication` on the same
+    manifest without another search, rewrite, or registration. Never edit the
+    CSV directly.
 
 Errors reading the index, profile, source context, or journal are failures to
 report. Do not turn them into an empty result. Do not claim the corpus is
 exhausted merely because current profile terms or limits produced no finding.
+

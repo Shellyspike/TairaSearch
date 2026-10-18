@@ -337,6 +337,11 @@ class DemoWorkflowTests(unittest.TestCase):
         self.assertIn("codex-request-existing-input.ru.md", documentation_ru)
         self.assertIn("литературная сцена", request_ru.casefold())
         self.assertIn("search-system developer", daily_prompt)
+        self.assertIn("render-publication", daily_prompt)
+        self.assertIn("status-only heartbeat", daily_prompt)
+        self.assertIn("exactly-once", daily_prompt)
+        self.assertIn("Publication state is deliberately split", workflow)
+        self.assertIn("delivery receipt", workflow)
 
         normalized_fallback = " ".join(existing_input_request.split())
         normalized_fallback_ru = " ".join(existing_input_request_ru.split())
@@ -362,3 +367,4 @@ class DemoWorkflowTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
