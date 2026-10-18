@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import codecs
 import re
+import unicodedata
 from dataclasses import dataclass
 from importlib import import_module
 from pathlib import Path
@@ -81,6 +83,10 @@ class PdfPartialReadError(PdfProcessingError):
     error_code = "PDF_PARTIAL_READ"
 
 
+class TextDecodingError(UnicodeError):
+    """Text bytes could not be decoded without an unsafe guess."""
+
+
 def _load_pypdf() -> tuple[ModuleType, str]:
     try:
         module = import_module("pypdf")
@@ -121,16 +127,144 @@ def _pdf_error_detail(exc: Exception) -> str:
     return f"{type(exc).__name__}: {detail}" if detail else type(exc).__name__
 
 
-def decode_text_bytes(data: bytes) -> str:
+def _script_confidence(text: str, encoding: str) -> float:
+    if not text or any(ord(char) < 32 and char not in "\t\r\n" for char in text):
+        return 0.0
+    letters = [char for char in text if char.isalpha()]
+    if not letters:
+        return 0.0
+    if encoding == "cp1251":
+        matching = sum("\u0400" <= char <= "\u052f" for char in letters)
+    else:
+        matching = sum(
+            "\u3040" <= char <= "\u30ff"
+            or "\u3400" <= char <= "\u9fff"
+            or "\uff61" <= char <= "\uff9f"
+            for char in letters
+        )
+    return matching / len(letters) if matching >= 2 else 0.0
+
+
+def _bom_encoding(data: bytes) -> str | None:
+    if data.startswith(codecs.BOM_UTF8):
+        return "utf-8-sig"
+    if data.startswith(codecs.BOM_UTF32_LE) or data.startswith(codecs.BOM_UTF32_BE):
+        raise TextDecodingError("UTF-32 не поддерживается; укажите поддерживаемую кодировку")
+    if data.startswith(codecs.BOM_UTF16_LE) or data.startswith(codecs.BOM_UTF16_BE):
+        return "utf-16"
+    return None
+
+
+def _probable_utf16_without_bom(data: bytes) -> str | None:
+    if len(data) < 4 or len(data) % 2:
+        return None
+    even = data[0::2]
+    odd = data[1::2]
+    even_nuls = even.count(0) / len(even)
+    odd_nuls = odd.count(0) / len(odd)
+    if odd_nuls >= 0.30 and even_nuls <= 0.05:
+        return "utf-16-le"
+    if even_nuls >= 0.30 and odd_nuls <= 0.05:
+        return "utf-16-be"
+
+    # BOM-less UTF-16 Cyrillic/Greek/Hebrew/Arabic commonly has no NULs:
+    # instead, the high-byte lane stays almost entirely in the first few
+    # Unicode planes while the low-byte lane carries the varying characters.
+    # UTF-8 and single-byte legacy encodings do not have that lane pattern.
+    def low_plane_ratio(values: bytes) -> float:
+        return sum(value <= 0x08 for value in values) / len(values)
+
+    if len(even) >= 4:
+        odd_low_plane = low_plane_ratio(odd)
+        even_low_plane = low_plane_ratio(even)
+        if odd_low_plane >= 0.80 and even_low_plane <= 0.20:
+            return "utf-16-le"
+        if even_low_plane >= 0.80 and odd_low_plane <= 0.20:
+            return "utf-16-be"
+    return None
+
+
+def _validate_decoded_text(text: str, encoding: str) -> str:
+    forbidden = [
+        char
+        for char in text
+        if char == "\x00"
+        or (
+            unicodedata.category(char) == "Cc"
+            and char not in {"\t", "\n", "\r", "\f"}
+        )
+    ]
+    if forbidden:
+        codepoints = ", ".join(
+            f"U+{ord(char):04X}" for char in dict.fromkeys(forbidden[:4])
+        )
+        raise TextDecodingError(
+            f"Текст после декодирования как {encoding} содержит недопустимые "
+            f"управляющие символы ({codepoints}); укажите encoding явно или "
+            "исправьте повреждённый файл."
+        )
+    return text
+
+
+def decode_text_bytes(data: bytes, *, encoding: str | None = None) -> str:
     if not data:
         return ""
-    encodings = ["utf-8-sig", "utf-16", "cp932", "shift_jis", "cp1251"]
-    for encoding in encodings:
+    if encoding:
         try:
-            return data.decode(encoding)
-        except (UnicodeDecodeError, LookupError):
+            codecs.lookup(encoding)
+            return _validate_decoded_text(
+                data.decode(encoding, errors="strict"), encoding
+            )
+        except (UnicodeDecodeError, LookupError) as exc:
+            raise TextDecodingError(
+                f"Не удалось декодировать текст как {encoding}: {exc}"
+            ) from exc
+
+    bom = _bom_encoding(data)
+    if bom:
+        return _validate_decoded_text(data.decode(bom, errors="strict"), bom)
+
+    utf16 = _probable_utf16_without_bom(data)
+    if utf16:
+        try:
+            return _validate_decoded_text(
+                data.decode(utf16, errors="strict"), utf16
+            )
+        except UnicodeDecodeError:
+            pass
+
+    try:
+        return _validate_decoded_text(
+            data.decode("utf-8", errors="strict"), "utf-8"
+        )
+    except UnicodeDecodeError:
+        pass
+
+    candidates_by_text: dict[str, tuple[float, str, str]] = {}
+    for legacy_encoding in ("cp932", "shift_jis", "cp1251"):
+        try:
+            decoded = _validate_decoded_text(
+                data.decode(legacy_encoding, errors="strict"), legacy_encoding
+            )
+        except (UnicodeDecodeError, TextDecodingError):
             continue
-    return data.decode("utf-8", errors="replace")
+        confidence = _script_confidence(decoded, legacy_encoding)
+        if confidence:
+            previous = candidates_by_text.get(decoded)
+            candidate = (confidence, legacy_encoding, decoded)
+            if previous is None or candidate[0] > previous[0]:
+                candidates_by_text[decoded] = candidate
+    candidates = list(candidates_by_text.values())
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    if candidates and (
+        len(candidates) == 1 or candidates[0][0] - candidates[1][0] >= 0.10
+    ):
+        return candidates[0][2]
+    choices = ", ".join(item[1] for item in candidates) or "нет надёжных кандидатов"
+    raise TextDecodingError(
+        "Кодировка текста неоднозначна или не поддерживается "
+        f"({choices}). Укажите encoding явно."
+    )
 
 
 def infer_page_number(path: Path) -> int | None:
@@ -165,8 +299,8 @@ def _collect_json_strings(value: object, key: str | None = None) -> list[str]:
     return []
 
 
-def parse_json(path: Path) -> ParsedDocument:
-    raw = decode_text_bytes(path.read_bytes())
+def parse_json(path: Path, *, encoding: str | None = None) -> ParsedDocument:
+    raw = decode_text_bytes(path.read_bytes(), encoding=encoding)
     value = json.loads(raw)
     text = "\n".join(_collect_json_strings(value))
     page = infer_page_number(path)
@@ -174,8 +308,8 @@ def parse_json(path: Path) -> ParsedDocument:
     return ParsedDocument([TextUnit(cleaned, page, page)] if cleaned else [])
 
 
-def parse_plain_text(path: Path) -> ParsedDocument:
-    text = clean_original_text(decode_text_bytes(path.read_bytes()))
+def parse_plain_text(path: Path, *, encoding: str | None = None) -> ParsedDocument:
+    text = clean_original_text(decode_text_bytes(path.read_bytes(), encoding=encoding))
     page = infer_page_number(path)
     return ParsedDocument([TextUnit(text, page, page)] if text else [])
 
@@ -243,12 +377,14 @@ def parse_pdf(
 def parse_file(
     path: Path,
     progress_callback: Callable[[int, int], None] | None = None,
+    *,
+    encoding: str | None = None,
 ) -> ParsedDocument:
     extension = path.suffix.casefold()
     if extension in {".txt", ".md"}:
-        return parse_plain_text(path)
+        return parse_plain_text(path, encoding=encoding)
     if extension == ".json":
-        return parse_json(path)
+        return parse_json(path, encoding=encoding)
     if extension == ".pdf":
         return parse_pdf(path, progress_callback=progress_callback)
     raise ValueError(f"Неподдерживаемое расширение: {extension or '[без расширения]'}")

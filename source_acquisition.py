@@ -10,6 +10,7 @@ promotion, and optional invocation of the existing incremental indexer.
 from __future__ import annotations
 
 import argparse
+import codecs
 import contextlib
 import hashlib
 import html
@@ -99,6 +100,29 @@ class Limits:
     max_file_bytes: int = DEFAULT_MAX_FILE_BYTES
     max_total_bytes: int = DEFAULT_MAX_TOTAL_BYTES
     min_text_chars: int = DEFAULT_MIN_TEXT_CHARS
+
+
+@dataclass(frozen=True)
+class DuplicateAssessment:
+    confirmed_reason: str | None = None
+    potential_reason: str | None = None
+
+
+@dataclass
+class DownloadBudget:
+    limit: int
+    consumed: int = 0
+
+    @property
+    def remaining(self) -> int:
+        return max(self.limit - self.consumed, 0)
+
+    def account(self, amount: int) -> None:
+        if amount < 0 or amount > self.remaining:
+            raise AcquisitionError(
+                f"суммарный сетевой лимит {self.limit} байт исчерпан"
+            )
+        self.consumed += amount
 
 
 class VisibleTextParser(HTMLParser):
@@ -436,6 +460,15 @@ def load_manifest(path: Path) -> list[dict[str, Any]]:
             f"source-{number}",
         )
         doi = normalize_doi(str(raw.get("doi", "")))
+        declared_encoding = normalize_text(str(raw.get("encoding", "")))
+        if declared_encoding:
+            try:
+                declared_encoding = codecs.lookup(declared_encoding).name
+            except LookupError as exc:
+                raise AcquisitionError(
+                    f"sources[{number}].encoding: неизвестная кодировка "
+                    f"{declared_encoding!r}"
+                ) from exc
         identity = doi or url or f"{title}\x1f{author}"
         source_id = safe_slug(
             str(raw.get("id", "")),
@@ -456,6 +489,7 @@ def load_manifest(path: Path) -> list[dict[str, Any]]:
                 "filename": filename,
                 "title_variants": [normalize_text(item) for item in aliases if item.strip()],
                 "language": normalize_text(str(raw.get("language", ""))),
+                "encoding": declared_encoding,
                 "repository": normalize_text(str(raw.get("repository", ""))),
                 "access": access,
                 "reuse_terms": normalize_text(str(raw.get("reuse_terms", ""))),
@@ -523,32 +557,52 @@ def candidate_keys(candidate: dict[str, Any]) -> dict[str, set[str]]:
     }
 
 
-def journal_duplicate(candidate: dict[str, Any], journal: dict[str, Any]) -> str | None:
+def _entry_url(value: object) -> str:
+    try:
+        return canonical_url(str(value)) if value else ""
+    except AcquisitionError:
+        return ""
+
+
+def journal_duplicate(
+    candidate: dict[str, Any], journal: dict[str, Any]
+) -> DuplicateAssessment:
     keys = candidate_keys(candidate)
+    potential: str | None = None
     for entry in journal["entries"]:
         if entry.get("status") not in {"staged", "promoted", "already_staged"}:
             continue
-        if entry.get("url") in keys["urls"]:
-            return f"тот же URL уже записан ({entry.get('source_id', '?')})"
-        if entry.get("doi") and entry.get("doi") in keys["dois"]:
-            return f"тот же DOI уже записан ({entry.get('source_id', '?')})"
+        entry_id = entry.get("source_id", "?")
+        if _entry_url(entry.get("url")) in keys["urls"]:
+            return DuplicateAssessment(
+                confirmed_reason=f"тот же URL уже записан ({entry_id})"
+            )
+        entry_doi = normalize_doi(str(entry.get("doi", "")))
+        if entry_doi and entry_doi in keys["dois"]:
+            return DuplicateAssessment(
+                confirmed_reason=f"тот же DOI уже записан ({entry_id})"
+            )
         if (
             normalized_title(str(entry.get("title", ""))) in keys["titles"]
             and normalized_title(str(entry.get("author", ""))) in keys["authors"]
         ):
-            return (
-                "то же название и автор уже записаны "
-                f"({entry.get('source_id', '?')})"
+            return DuplicateAssessment(
+                confirmed_reason=(
+                    "то же название и автор уже записаны " f"({entry_id})"
+                )
             )
         if str(entry.get("filename", "")).casefold() in keys["filenames"]:
-            return f"то же имя файла уже записано ({entry.get('source_id', '?')})"
-    return None
+            potential = f"совпадает только имя файла ({entry_id})"
+    return DuplicateAssessment(potential_reason=potential)
 
 
-def sqlite_duplicate(candidate: dict[str, Any], db_path: Path | None) -> str | None:
+def sqlite_duplicate(
+    candidate: dict[str, Any], db_path: Path | None
+) -> DuplicateAssessment:
     if db_path is None or not db_path.exists():
-        return None
+        return DuplicateAssessment()
     keys = candidate_keys(candidate)
+    potential: str | None = None
     uri = db_path.resolve().as_uri() + "?mode=ro"
     try:
         connection = sqlite3.connect(uri, uri=True)
@@ -566,7 +620,7 @@ def sqlite_duplicate(candidate: dict[str, Any], db_path: Path | None) -> str | N
         for row in connection.execute("SELECT relative_path, filename FROM files"):
             indexed_name = str(row[1]).casefold()
             if indexed_name in keys["filenames"]:
-                return f"имя файла уже есть в индексе: {row[0]}"
+                potential = f"совпадает только имя файла в индексе: {row[0]}"
         if "chunks" in tables:
             exact_tokens = [candidate["doi"], candidate["url"]]
             for token in exact_tokens:
@@ -577,7 +631,9 @@ def sqlite_duplicate(candidate: dict[str, Any], db_path: Path | None) -> str | N
                     (f"%{token.casefold()}%",),
                 ).fetchone()
                 if row:
-                    return f"метаданные найдены в тексте индекса: {row[0]}"
+                    return DuplicateAssessment(
+                        confirmed_reason=f"метаданные найдены в тексте индекса: {row[0]}"
+                    )
             author = normalized_title(candidate["author"])
             if len(author) >= 3:
                 for title in [title for title in keys["titles"] if len(title) >= 16]:
@@ -591,21 +647,51 @@ def sqlite_duplicate(candidate: dict[str, Any], db_path: Path | None) -> str | N
                         (f"%{title}%", f"%{author}%"),
                     ).fetchone()
                     if row:
-                        return (
-                            "название и автор найдены в тексте индекса: "
-                            f"{row[0]}"
+                        return DuplicateAssessment(
+                            confirmed_reason=(
+                                "название и автор найдены в тексте индекса: "
+                                f"{row[0]}"
+                            )
                         )
     except sqlite3.Error as exc:
         raise AcquisitionError(f"Ошибка чтения индекса {db_path}: {exc}") from exc
     finally:
         connection.close()
-    return None
+    return DuplicateAssessment(potential_reason=potential)
 
 
 def duplicate_reason(
     candidate: dict[str, Any], journal: dict[str, Any], db_path: Path | None
 ) -> str | None:
-    return journal_duplicate(candidate, journal) or sqlite_duplicate(candidate, db_path)
+    return duplicate_assessment(candidate, journal, db_path).confirmed_reason
+
+
+def duplicate_assessment(
+    candidate: dict[str, Any], journal: dict[str, Any], db_path: Path | None
+) -> DuplicateAssessment:
+    journal_result = journal_duplicate(candidate, journal)
+    if journal_result.confirmed_reason:
+        return journal_result
+    sqlite_result = sqlite_duplicate(candidate, db_path)
+    if sqlite_result.confirmed_reason:
+        return sqlite_result
+    return DuplicateAssessment(
+        potential_reason=journal_result.potential_reason
+        or sqlite_result.potential_reason
+    )
+
+
+def journal_content_duplicate(data: bytes, journal: dict[str, Any]) -> str | None:
+    digest = sha256_bytes(data)
+    for entry in journal["entries"]:
+        if entry.get("status") not in {"staged", "promoted", "already_staged"}:
+            continue
+        if str(entry.get("content_sha256", "")).casefold() == digest:
+            return (
+                "та же контрольная сумма уже записана "
+                f"({entry.get('source_id', '?')})"
+            )
+    return None
 
 
 def check_candidates(
@@ -614,7 +700,8 @@ def check_candidates(
     journal = load_journal(journal_path)
     items: list[dict[str, Any]] = []
     for candidate in candidates:
-        reason = duplicate_reason(candidate, journal, db_path)
+        assessment = duplicate_assessment(candidate, journal, db_path)
+        reason = assessment.confirmed_reason
         items.append(
             {
                 "source_id": candidate["id"],
@@ -623,6 +710,10 @@ def check_candidates(
                 "url": candidate["url"],
                 "status": "duplicate" if reason else "eligible",
                 "reason": reason,
+                "duplicate_confidence": "confirmed" if reason else (
+                    "potential" if assessment.potential_reason else "none"
+                ),
+                "review_reason": assessment.potential_reason,
             }
         )
     return {
@@ -641,8 +732,16 @@ def download_bytes(
     url: str,
     maximum: int,
     *,
+    budget: DownloadBudget | None = None,
     allow_private_network_for_tests: bool = False,
 ) -> tuple[bytes, str, str]:
+    if maximum <= 0:
+        raise AcquisitionError("лимит файла исчерпан до начала загрузки")
+    if budget is not None and budget.remaining <= 0:
+        raise AcquisitionError(
+            f"суммарный сетевой лимит {budget.limit} байт уже исчерпан"
+        )
+    allowed = min(maximum, budget.remaining) if budget is not None else maximum
     safe_url = validate_public_download_target(
         url, allow_private_network_for_tests=allow_private_network_for_tests
     )
@@ -662,23 +761,43 @@ def download_bytes(
                 allow_private_network_for_tests=allow_private_network_for_tests,
             )
             declared = response.headers.get("Content-Length")
+            declared_size: int | None = None
             if declared:
                 try:
-                    if int(declared) > maximum:
+                    declared_size = int(declared)
+                    if declared_size > maximum:
                         raise AcquisitionError(
                             f"файл больше лимита {maximum} байт (Content-Length={declared})"
                         )
+                    if budget is not None and declared_size > budget.remaining:
+                        raise AcquisitionError(
+                            "файл больше оставшегося суммарного бюджета "
+                            f"{budget.remaining} байт (Content-Length={declared})"
+                        )
                 except ValueError:
                     pass
-            content_type = response.headers.get_content_type().casefold()
+            content_type = str(response.headers.get("Content-Type", "")).casefold()
             output = bytearray()
             while True:
-                piece = response.read(min(64 * 1024, maximum + 1 - len(output)))
+                available = allowed - len(output)
+                if available <= 0:
+                    if declared_size == len(output):
+                        break
+                    limit_name = (
+                        "суммарный сетевой лимит"
+                        if budget is not None and allowed == budget.remaining + len(output)
+                        else "лимит файла"
+                    )
+                    raise AcquisitionError(
+                        f"{limit_name} достигнут; конец потока не подтверждён"
+                    )
+                request_size = min(64 * 1024, available)
+                piece = response.read(request_size)
                 if not piece:
                     break
                 output.extend(piece)
-                if len(output) > maximum:
-                    raise AcquisitionError(f"файл больше лимита {maximum} байт")
+                if budget is not None:
+                    budget.account(len(piece))
             return bytes(output), final_url, content_type
     except AcquisitionError:
         raise
@@ -686,9 +805,26 @@ def download_bytes(
         raise AcquisitionError(f"ошибка загрузки: {exc}") from exc
 
 
-def extract_html(data: bytes) -> str:
+def declared_markup_encoding(data: bytes) -> str | None:
+    head = data[:4096]
+    match = re.search(
+        rb"(?:charset\s*=\s*|encoding\s*=\s*)['\"]?\s*([A-Za-z0-9._-]+)",
+        head,
+        flags=re.IGNORECASE,
+    )
+    return match.group(1).decode("ascii") if match else None
+
+
+def content_type_encoding(content_type: str) -> str | None:
+    match = re.search(r"(?:^|;)\s*charset\s*=\s*['\"]?([^;'\"\s]+)", content_type)
+    return match.group(1) if match else None
+
+
+def extract_html(data: bytes, *, encoding: str | None = None) -> str:
     parser = VisibleTextParser()
-    parser.feed(decode_text_bytes(data))
+    parser.feed(
+        decode_text_bytes(data, encoding=encoding or declared_markup_encoding(data))
+    )
     parser.close()
     return parser.text()
 
@@ -796,17 +932,25 @@ def detect_format(
 
 
 def extract_source(
-    data: bytes, source_format: str, original_path: Path
+    data: bytes,
+    source_format: str,
+    original_path: Path,
+    *,
+    encoding: str | None = None,
+    content_type: str = "",
 ) -> tuple[str, dict[str, Any]]:
     if source_format == "pdf":
         return pdf_quality(original_path)
     if source_format == "html":
-        return extract_html(data), {}
+        return extract_html(
+            data,
+            encoding=encoding or content_type_encoding(content_type),
+        ), {}
     if source_format in {"xml", "tei"}:
         return extract_xml(data), {}
     if source_format == "epub":
         return extract_epub(data), {}
-    return clean_extracted_text(decode_text_bytes(data)), {}
+    return clean_extracted_text(decode_text_bytes(data, encoding=encoding)), {}
 
 
 def stage_candidates(
@@ -824,7 +968,7 @@ def stage_candidates(
         )
     staging_root.mkdir(parents=True, exist_ok=True)
     journal = load_journal(journal_path)
-    total_bytes = 0
+    budget = DownloadBudget(limits.max_total_bytes)
     items: list[dict[str, Any]] = []
     for candidate in candidates:
         base = {
@@ -833,10 +977,21 @@ def stage_candidates(
             "author": candidate["author"],
             "url": candidate["url"],
         }
-        reason = duplicate_reason(candidate, journal, db_path)
+        assessment = duplicate_assessment(candidate, journal, db_path)
+        reason = assessment.confirmed_reason
         if reason:
-            items.append({**base, "status": "duplicate", "reason": reason})
+            items.append(
+                {
+                    **base,
+                    "status": "duplicate",
+                    "reason": reason,
+                    "duplicate_confidence": "confirmed",
+                }
+            )
             continue
+        if assessment.potential_reason:
+            base["duplicate_confidence"] = "potential"
+            base["review_reason"] = assessment.potential_reason
         source_dir = staging_root / candidate["id"]
         metadata_path = source_dir / "metadata.json"
         if metadata_path.exists():
@@ -881,18 +1036,39 @@ def stage_candidates(
                 }
             )
             continue
+        if budget.remaining <= 0:
+            items.append(
+                {
+                    **base,
+                    "status": "error",
+                    "reason": (
+                        f"суммарный сетевой лимит {budget.limit} байт исчерпан; "
+                        "загрузка не выполнялась"
+                    ),
+                }
+            )
+            continue
         temporary = Path(tempfile.mkdtemp(prefix=f".{candidate['id']}.", dir=staging_root))
         try:
             data, final_url, content_type = download_bytes(
                 candidate["url"],
                 limits.max_file_bytes,
+                budget=budget,
                 allow_private_network_for_tests=allow_private_network_for_tests,
             )
-            total_bytes += len(data)
-            if total_bytes > limits.max_total_bytes:
-                raise AcquisitionError(
-                    f"суммарный размер превысил лимит {limits.max_total_bytes} байт"
+            content_duplicate = journal_content_duplicate(data, journal)
+            if content_duplicate:
+                items.append(
+                    {
+                        **base,
+                        "status": "duplicate",
+                        "reason": content_duplicate,
+                        "duplicate_confidence": "confirmed",
+                        "content_sha256": sha256_bytes(data),
+                        "size_bytes": len(data),
+                    }
                 )
+                continue
             source_format = detect_format(
                 candidate["format"], content_type, final_url, data
             )
@@ -900,7 +1076,13 @@ def stage_candidates(
             original_name = safe_slug(Path(candidate["filename"]).stem, candidate["id"])
             original_path = temporary / f"original-{original_name}{extension}"
             original_path.write_bytes(data)
-            extracted, details = extract_source(data, source_format, original_path)
+            extracted, details = extract_source(
+                data,
+                source_format,
+                original_path,
+                encoding=candidate.get("encoding") or None,
+                content_type=content_type,
+            )
             useful_chars = len(re.sub(r"\s+", "", extracted))
             if useful_chars < limits.min_text_chars:
                 raise AcquisitionError(
@@ -968,6 +1150,8 @@ def stage_candidates(
         status: sum(item["status"] == status for item in items)
         for status in ("staged", "already_staged", "duplicate", "error")
     }
+    summary["network_bytes_received"] = budget.consumed
+    summary["network_bytes_limit"] = budget.limit
     return {
         "version": 1,
         "created_at": utc_now(),
@@ -1000,6 +1184,15 @@ def promote_sources(
 ) -> dict[str, Any]:
     if not corpus.is_dir():
         raise AcquisitionError(f"Папка корпуса недоступна: {corpus}")
+    if run_index:
+        if db_path is None:
+            raise AcquisitionError("Для --index нужен --db")
+        from build_index import validate_index_corpus_root
+
+        try:
+            validate_index_corpus_root(db_path, corpus)
+        except RuntimeError as exc:
+            raise AcquisitionError(str(exc)) from exc
     items: list[dict[str, Any]] = []
     for source_id in source_ids:
         source_id = safe_slug(source_id)
@@ -1066,8 +1259,6 @@ def promote_sources(
 
     index_result: dict[str, Any] | None = None
     if run_index and items:
-        if db_path is None:
-            raise AcquisitionError("Для --index нужен --db")
         command = [
             sys.executable,
             str(PROJECT_DIR / "build_index.py"),
