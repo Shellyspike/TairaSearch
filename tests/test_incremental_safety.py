@@ -126,6 +126,36 @@ class IncrementalSafetyTests(unittest.TestCase):
         self.assertNotIn("OLD-MARKER", after[1][0][7])
         self.assertNotEqual(after[2], before[2])
 
+    def test_indexer_reads_russian_japanese_and_unicode_encodings(self) -> None:
+        fixtures = {
+            "russian.txt": ("Привет мир из Windows", "cp1251"),
+            "japanese.txt": ("こんにちは世界の史料", "cp932"),
+            "unicode.txt": ("Unicode source 清盛", "utf-8-sig"),
+            "utf16.txt": ("UTF-16 source Привет", "utf-16"),
+        }
+        for filename, (text, encoding) in fixtures.items():
+            (self.corpus / filename).write_bytes(text.encode(encoding))
+
+        stats, _ = self.build()
+
+        self.assertEqual(stats["errors"], 0)
+        for filename, (expected, _encoding) in fixtures.items():
+            chunks = self.document_snapshot(filename)[1]
+            self.assertTrue(chunks, filename)
+            self.assertIn(expected, chunks[0][7])
+
+    def test_explicit_text_encoding_handles_bomless_utf16(self) -> None:
+        document = self.corpus / "explicit.txt"
+        document.write_bytes("Явная кодировка UTF-16".encode("utf-16-le"))
+
+        stats, _ = self.build("--text-encoding", "utf-16-le")
+
+        self.assertEqual(stats["errors"], 0)
+        self.assertIn(
+            "Явная кодировка UTF-16",
+            self.document_snapshot("explicit.txt")[1][0][7],
+        )
+
     def test_database_write_error_rolls_back_chunks_and_fts(self) -> None:
         document = self.corpus / "document.txt"
         document.write_text("Старая корректная версия 平維盛", encoding="utf-8")
@@ -234,6 +264,77 @@ class IncrementalSafetyTests(unittest.TestCase):
         self.assertIn("папка корпуса недоступна", stderr.getvalue())
         self.assertEqual(self.db.read_bytes(), database_before)
         self.assertEqual(self.document_snapshot("document.txt"), snapshot_before)
+
+    def test_existing_index_rejects_different_corpus_before_database_change(self) -> None:
+        (self.corpus / "document.txt").write_text(
+            "Library A marker 清盛", encoding="utf-8"
+        )
+        self.build()
+        database_before = self.db.read_bytes()
+        metadata_before = None
+        with contextlib.closing(sqlite3.connect(self.db)) as connection:
+            metadata_before = connection.execute(
+                "SELECT key, value FROM meta ORDER BY key"
+            ).fetchall()
+
+        other = self.root / "corpus-b"
+        other.mkdir()
+        (other / "document.txt").write_text("Library B marker", encoding="utf-8")
+        arguments = self.arguments()
+        arguments[0] = str(other)
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            code = build_index.main(arguments)
+
+        self.assertEqual(code, 1)
+        self.assertIn("Индекс уже привязан к другой библиотеке", stderr.getvalue())
+        self.assertEqual(self.db.read_bytes(), database_before)
+        with contextlib.closing(sqlite3.connect(self.db)) as connection:
+            self.assertEqual(
+                connection.execute("SELECT key, value FROM meta ORDER BY key").fetchall(),
+                metadata_before,
+            )
+            text = connection.execute(
+                "SELECT original_text FROM chunks WHERE relative_path='document.txt'"
+            ).fetchone()[0]
+        self.assertIn("Library A marker", text)
+        self.assertNotIn("Library B marker", text)
+
+    def test_legacy_index_without_corpus_root_is_rejected_when_nonempty(self) -> None:
+        (self.corpus / "document.txt").write_text("Legacy index", encoding="utf-8")
+        self.build()
+        with contextlib.closing(sqlite3.connect(self.db)) as connection:
+            connection.execute("DELETE FROM meta WHERE key='corpus_root'")
+            connection.commit()
+        database_before = self.db.read_bytes()
+
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            code = build_index.main(self.arguments())
+
+        self.assertEqual(code, 1)
+        self.assertIn("не содержит metadata corpus_root", stderr.getvalue())
+        self.assertEqual(self.db.read_bytes(), database_before)
+
+    def test_empty_legacy_database_can_be_bound_to_first_corpus(self) -> None:
+        connection = sqlite3.connect(self.db)
+        build_index.create_schema(connection)
+        connection.execute("DELETE FROM meta WHERE key='corpus_root'")
+        connection.commit()
+        connection.close()
+        (self.corpus / "document.txt").write_text("First safe binding", encoding="utf-8")
+
+        stats, _ = self.build()
+
+        self.assertEqual(stats["build_status"], "succeeded")
+        with contextlib.closing(sqlite3.connect(self.db)) as connection:
+            root = connection.execute(
+                "SELECT value FROM meta WHERE key='corpus_root'"
+            ).fetchone()[0]
+        self.assertEqual(
+            build_index.normalized_corpus_root(root),
+            build_index.normalized_corpus_root(self.corpus),
+        )
 
 
 if __name__ == "__main__":

@@ -83,8 +83,17 @@ and consent rules.
 
 ## Duplicates and safety boundaries
 
-Exact URL, DOI, title and title variants, and filenames are checked against the
-local journal and SQLite. This does not scan Google Drive and cannot decide
+DOI, canonical URL, matching title plus author, and a downloaded content hash
+can confirm a duplicate. A basename such as `download.pdf` is only a potential
+match reported for review and never blocks an otherwise distinct source.
+Different sources with the same basename remain isolated by source ID in
+staging. The total byte budget counts bytes received by successful, rejected,
+and failed transfers; no later download starts after that budget is exhausted.
+An optional manifest `encoding` field can resolve ambiguous plain text; HTML
+and XML declarations are honoured automatically.
+
+These identifiers are checked against the local journal and SQLite. This does
+not scan Google Drive and cannot decide
 whether two genuinely different editions are semantically identical; Codex or
 the user reviews ambiguity. The downloader still does not bypass
 authentication, paywalls, robots controls, rate limits, regional blocks, or

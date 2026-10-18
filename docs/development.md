@@ -56,6 +56,13 @@ Build a new index and search it:
 .venv\Scripts\python taira_search.py search "search terms" --db work/index.sqlite3
 ```
 
+An existing SQLite is bound to its recorded `corpus_root`. Reusing it with a
+different folder is rejected before the database is changed; use a separate
+SQLite instead. Text decoding uses BOMs, UTF-8, and conservative legacy-script
+checks. For an ambiguous TXT, Markdown, or JSON corpus, pass an explicit
+encoding such as `--text-encoding cp1251`; this reparses all supported text
+files.
+
 Profile-driven research for Codex:
 
 ```powershell

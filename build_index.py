@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import codecs
 import csv
 import json
 import os
@@ -56,6 +57,88 @@ BUILD_SUCCEEDED = "succeeded"
 BUILD_COMPLETED_WITH_ERRORS = "completed_with_errors"
 BUILD_FAILED = "failed"
 BUILD_INTERRUPTED = "interrupted"
+
+
+def normalized_corpus_root(path: Path | str) -> str:
+    """Return a stable comparison key without requiring the path to exist."""
+
+    resolved = Path(path).expanduser().resolve(strict=False)
+    normalized = os.path.normcase(os.path.normpath(str(resolved)))
+    if os.name == "nt" and normalized.startswith("\\\\?\\"):
+        normalized = normalized[4:]
+    return normalized.rstrip("\\/")
+
+
+def corpus_roots_match(stored: Path | str, requested: Path | str) -> bool:
+    """Compare case aliases, symlinks, junctions, and Windows short paths."""
+
+    try:
+        if Path(stored).exists() and Path(requested).exists():
+            return os.path.samefile(stored, requested)
+    except OSError:
+        pass
+    return normalized_corpus_root(stored) == normalized_corpus_root(requested)
+
+
+def validate_index_corpus_root(db_path: Path, corpus: Path) -> None:
+    """Reject an existing index that cannot be safely bound to ``corpus``.
+
+    The probe is read-only and intentionally runs before schema creation,
+    migration, WAL pragmas, or metadata updates.
+    """
+
+    db_path = Path(db_path).expanduser().resolve(strict=False)
+    if not db_path.exists() or db_path.stat().st_size == 0:
+        return
+    uri = db_path.as_uri() + "?mode=ro"
+    try:
+        connection = sqlite3.connect(uri, uri=True)
+        connection.execute("PRAGMA query_only=ON")
+        tables = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        stored_root: str | None = None
+        if "meta" in tables:
+            row = connection.execute(
+                "SELECT value FROM meta WHERE key='corpus_root'"
+            ).fetchone()
+            if row and str(row[0]).strip():
+                stored_root = str(row[0]).strip()
+        indexed_files = 0
+        if "files" in tables:
+            indexed_files = int(
+                connection.execute("SELECT COUNT(*) FROM files").fetchone()[0]
+            )
+    except (OSError, sqlite3.Error) as exc:
+        raise RuntimeError(
+            f"Не удалось безопасно проверить corpus_root существующего индекса "
+            f"{db_path}: {exc}"
+        ) from exc
+    finally:
+        if "connection" in locals():
+            connection.close()
+
+    if stored_root is not None:
+        if not corpus_roots_match(stored_root, corpus):
+            raise RuntimeError(
+                "Индекс уже привязан к другой библиотеке. Операция отклонена "
+                "до изменения базы данных.\n"
+                f"Сохранённый corpus_root: {stored_root}\n"
+                f"Запрошенный corpus_root: {Path(corpus).resolve(strict=False)}\n"
+                "Используйте отдельную SQLite для другой библиотеки; "
+                "автоматическое объединение и перенос путей не выполняются."
+            )
+        return
+    if indexed_files:
+        raise RuntimeError(
+            "Существующий индекс содержит документы, но не содержит metadata "
+            "corpus_root. Безопасно определить исходную библиотеку невозможно; "
+            "операция отклонена до изменения базы данных. Создайте отдельную "
+            "SQLite или выполните отдельно согласованную миграцию."
+        )
 
 
 def configure_console() -> None:
@@ -427,6 +510,14 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
     log_path = Path(args.log).expanduser().resolve()
     drive_csv = Path(args.drive_csv).expanduser().resolve()
     drive_jsonl = Path(args.drive_jsonl).expanduser().resolve()
+    text_encoding = None
+    if args.text_encoding:
+        try:
+            text_encoding = codecs.lookup(args.text_encoding).name
+        except LookupError as exc:
+            raise RuntimeError(
+                f"Неизвестная кодировка --text-encoding: {args.text_encoding}"
+            ) from exc
 
     discovery_errors: list[tuple[str, Path, str]] = []
 
@@ -449,6 +540,8 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
             "extensions": dict(sorted(extensions.items())),
             "total_size": sum(stat.st_size for stat in file_stats.values()),
         }
+
+    validate_index_corpus_root(db_path, corpus)
 
     pdf_count = sum(path.suffix.casefold() == ".pdf" for path in supported)
     if pdf_count:
@@ -493,7 +586,7 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
     prior_config = connection.execute(
         "SELECT value FROM meta WHERE key='config_hash'"
     ).fetchone()
-    full_rebuild = bool(args.rebuild)
+    full_rebuild = bool(args.rebuild or text_encoding)
     if prior_schema and prior_schema[0] != SCHEMA_VERSION:
         full_rebuild = True
     migration = ensure_search_schema(
@@ -688,14 +781,19 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
                     reporter.summary(completed, relative_path, progress_counts())
                 continue
 
-            parsed = parse_file(
-                path,
-                progress_callback=(
-                    lambda page, total, name=path.name: reporter.pdf_progress(
-                        name, page, total
-                    )
-                ),
+            progress_callback = (
+                lambda page, total, name=path.name: reporter.pdf_progress(
+                    name, page, total
+                )
             )
+            if text_encoding:
+                parsed = parse_file(
+                    path,
+                    progress_callback=progress_callback,
+                    encoding=text_encoding,
+                )
+            else:
+                parsed = parse_file(path, progress_callback=progress_callback)
             for warning in parsed.warnings:
                 log_error("PDF_PAGE_ERROR", path, warning)
             if path.suffix.casefold() == ".pdf" and parsed.warnings:
@@ -1041,6 +1139,13 @@ def make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--drive-jsonl", default=str(DEFAULT_DRIVE_JSONL))
     parser.add_argument(
         "--rebuild", action="store_true", help="Принудительно перестроить все файлы"
+    )
+    parser.add_argument(
+        "--text-encoding",
+        help=(
+            "Явная кодировка для TXT/Markdown/JSON, если автоопределение "
+            "неоднозначно; включает полную повторную обработку файлов"
+        ),
     )
     parser.add_argument(
         "--scan-only",

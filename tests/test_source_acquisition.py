@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import functools
 import http.server
+import io
 import json
 import shutil
 import sqlite3
@@ -21,6 +22,8 @@ import sys
 sys.path.insert(0, str(PROJECT))
 
 import source_acquisition  # noqa: E402
+import build_index  # noqa: E402
+from parsers import TextDecodingError, decode_text_bytes  # noqa: E402
 
 
 class QuietHandler(http.server.SimpleHTTPRequestHandler):
@@ -282,7 +285,7 @@ class SourceAcquisitionTests(unittest.TestCase):
         journal = json.loads(self.journal.read_text(encoding="utf-8"))
         self.assertEqual(len(journal["entries"]), 1)
 
-    def test_check_detects_existing_index_filename_read_only(self) -> None:
+    def test_check_treats_existing_index_filename_as_potential_only(self) -> None:
         db = self.root / "existing.sqlite3"
         connection = sqlite3.connect(db)
         connection.execute(
@@ -312,8 +315,399 @@ class SourceAcquisitionTests(unittest.TestCase):
         )
         self.assertEqual(code, 0)
         payload = json.loads(report.read_text(encoding="utf-8"))
-        self.assertEqual(payload["summary"]["duplicates"], 1)
-        self.assertIn("имя файла", payload["items"][0]["reason"])
+        self.assertEqual(payload["summary"]["duplicates"], 0)
+        self.assertEqual(payload["items"][0]["status"], "eligible")
+        self.assertEqual(payload["items"][0]["duplicate_confidence"], "potential")
+        self.assertIn("имя файла", payload["items"][0]["review_reason"])
+        self.assertEqual(db.read_bytes(), before)
+
+    def test_decoding_uses_bom_signatures_and_legacy_script_evidence(self) -> None:
+        russian = "Привет мир"
+        japanese = "こんにちは世界"
+        self.assertEqual(decode_text_bytes(russian.encode("cp1251")), russian)
+        self.assertEqual(decode_text_bytes(japanese.encode("cp932")), japanese)
+        self.assertEqual(decode_text_bytes(japanese.encode("shift_jis")), japanese)
+        self.assertEqual(decode_text_bytes(russian.encode("utf-8-sig")), russian)
+        self.assertEqual(decode_text_bytes(russian.encode("utf-16")), russian)
+        self.assertEqual(
+            decode_text_bytes(b"\xfe\xff" + russian.encode("utf-16-be")), russian
+        )
+        self.assertEqual(
+            decode_text_bytes(russian.encode("utf-16-le"), encoding="utf-16-le"),
+            russian,
+        )
+        with self.assertRaisesRegex(TextDecodingError, "Укажите encoding явно"):
+            decode_text_bytes(b"\x80")
+
+    def test_html_uses_declared_windows_1251_encoding(self) -> None:
+        html = (
+            '<html><head><meta charset="windows-1251"></head>'
+            "<body><p>Привет мир</p></body></html>"
+        ).encode("cp1251")
+        self.assertIn("Привет мир", source_acquisition.extract_html(html))
+
+    def test_download_budget_counts_failed_streams_and_stops_at_limit(self) -> None:
+        class Response:
+            def __init__(self, data: bytes, *, fail_after_first: bool = False) -> None:
+                self.stream = io.BytesIO(data)
+                self.headers = {"Content-Type": "text/plain"}
+                self.fail_after_first = fail_after_first
+                self.reads = 0
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def geturl(self) -> str:
+                return "https://example.test/source.txt"
+
+            def read(self, size: int) -> bytes:
+                self.reads += 1
+                if self.fail_after_first and self.reads > 1:
+                    raise OSError("injected stream failure")
+                return self.stream.read(min(size, 3))
+
+        class Opener:
+            def __init__(self, response: Response) -> None:
+                self.response = response
+
+            def open(self, *_args, **_kwargs):
+                return self.response
+
+        budget = source_acquisition.DownloadBudget(5)
+        failed = Response(b"abcdef", fail_after_first=True)
+        with mock.patch.object(
+            source_acquisition, "validate_public_download_target", side_effect=lambda value, **_: value
+        ), mock.patch.object(
+            source_acquisition.urllib.request, "build_opener", return_value=Opener(failed)
+        ):
+            with self.assertRaisesRegex(source_acquisition.AcquisitionError, "ошибка загрузки"):
+                source_acquisition.download_bytes(
+                    "https://example.test/source.txt", 10, budget=budget
+                )
+        self.assertEqual(budget.consumed, 3)
+
+        final = Response(b"xy")
+        final.headers["Content-Length"] = "2"
+        with mock.patch.object(
+            source_acquisition, "validate_public_download_target", side_effect=lambda value, **_: value
+        ), mock.patch.object(
+            source_acquisition.urllib.request, "build_opener", return_value=Opener(final)
+        ):
+            data, _, _ = source_acquisition.download_bytes(
+                "https://example.test/final.txt", 10, budget=budget
+            )
+        self.assertEqual(data, b"xy")
+        self.assertEqual(budget.consumed, 5)
+
+        with mock.patch.object(
+            source_acquisition.urllib.request, "build_opener"
+        ) as unopened:
+            with self.assertRaisesRegex(source_acquisition.AcquisitionError, "уже исчерпан"):
+                source_acquisition.download_bytes(
+                    "https://example.test/not-requested.txt", 10, budget=budget
+                )
+            unopened.assert_not_called()
+
+    def test_download_larger_than_remaining_budget_is_rejected_before_read(self) -> None:
+        class Response:
+            headers = {"Content-Type": "text/plain", "Content-Length": "4"}
+            reads = 0
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def geturl(self) -> str:
+                return "https://example.test/large.txt"
+
+            def read(self, _size: int) -> bytes:
+                self.reads += 1
+                return b"data"
+
+        response = Response()
+        opener = mock.Mock()
+        opener.open.return_value = response
+        budget = source_acquisition.DownloadBudget(3)
+        with mock.patch.object(
+            source_acquisition, "validate_public_download_target", side_effect=lambda value, **_: value
+        ), mock.patch.object(
+            source_acquisition.urllib.request, "build_opener", return_value=opener
+        ):
+            with self.assertRaisesRegex(
+                source_acquisition.AcquisitionError, "оставшегося суммарного бюджета"
+            ):
+                source_acquisition.download_bytes(
+                    "https://example.test/large.txt", 10, budget=budget
+                )
+        self.assertEqual(response.reads, 0)
+        self.assertEqual(budget.consumed, 0)
+
+    def test_unknown_length_stream_cannot_read_past_total_budget(self) -> None:
+        class Response:
+            headers = {"Content-Type": "text/plain"}
+
+            def __init__(self) -> None:
+                self.stream = io.BytesIO(b"abcdef")
+                self.requested: list[int] = []
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def geturl(self) -> str:
+                return "https://example.test/chunked.txt"
+
+            def read(self, size: int) -> bytes:
+                self.requested.append(size)
+                return self.stream.read(size)
+
+        response = Response()
+        opener = mock.Mock()
+        opener.open.return_value = response
+        budget = source_acquisition.DownloadBudget(5)
+        with mock.patch.object(
+            source_acquisition, "validate_public_download_target", side_effect=lambda value, **_: value
+        ), mock.patch.object(
+            source_acquisition.urllib.request, "build_opener", return_value=opener
+        ):
+            with self.assertRaisesRegex(
+                source_acquisition.AcquisitionError, "конец потока не подтверждён"
+            ):
+                source_acquisition.download_bytes(
+                    "https://example.test/chunked.txt", 10, budget=budget
+                )
+        self.assertEqual(budget.consumed, 5)
+        self.assertEqual(response.requested, [5])
+
+    def test_stage_stops_after_failed_download_consumes_total_budget(self) -> None:
+        candidates = []
+        for number in (1, 2):
+            candidates.append(
+                {
+                    "id": f"budget-{number}",
+                    "title": f"Budget source {number}",
+                    "author": "Budget Author",
+                    "year": "",
+                    "url": f"https://example.test/{number}.txt",
+                    "doi": "",
+                    "format": "txt",
+                    "filename": f"{number}.txt",
+                    "title_variants": [],
+                    "language": "en",
+                    "encoding": "",
+                    "repository": "Test",
+                    "access": "open",
+                    "reuse_terms": "Test",
+                    "interest_id": "daily-life",
+                    "why_useful": "Budget regression",
+                }
+            )
+        calls: list[str] = []
+
+        def fail_after_receiving(url, _maximum, *, budget, **_kwargs):
+            calls.append(url)
+            budget.account(budget.remaining)
+            raise source_acquisition.AcquisitionError("injected failed transfer")
+
+        with mock.patch.object(
+            source_acquisition, "download_bytes", side_effect=fail_after_receiving
+        ):
+            report = source_acquisition.stage_candidates(
+                candidates,
+                staging_root=self.staging,
+                journal_path=self.journal,
+                db_path=None,
+                limits=source_acquisition.Limits(
+                    max_files=2,
+                    max_file_bytes=10,
+                    max_total_bytes=5,
+                    min_text_chars=1,
+                ),
+            )
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(report["summary"]["network_bytes_received"], 5)
+        self.assertEqual(report["summary"]["error"], 2)
+        self.assertIn("загрузка не выполнялась", report["items"][1]["reason"])
+
+    def test_distinct_sources_with_same_basename_are_both_staged(self) -> None:
+        for folder, marker in (("a", "ALPHA"), ("b", "BETA")):
+            directory = self.web / folder
+            directory.mkdir()
+            (directory / "download.txt").write_text(
+                (f"{marker} independent scholarship. " * 30), encoding="utf-8"
+            )
+        sources = [
+            {
+                "id": f"same-name-{folder}",
+                "title": f"Independent work {marker}",
+                "author": f"Author {marker}",
+                "url": f"{self.base_url}/{folder}/download.txt",
+                "format": "txt",
+                "filename": "download.txt",
+                "access": "open",
+                "interest_id": "daily-life",
+            }
+            for folder, marker in (("a", "ALPHA"), ("b", "BETA"))
+        ]
+        manifest = self.root / "same-basename.json"
+        manifest.write_text(
+            json.dumps({"version": 1, "sources": sources}), encoding="utf-8"
+        )
+        report = self.root / "same-basename-report.json"
+
+        self.assertEqual(
+            self.run_cli(
+                "stage",
+                "--manifest",
+                str(manifest),
+                "--profile",
+                str(self.profile),
+                "--journal",
+                str(self.journal),
+                "--staging",
+                str(self.staging),
+                "--report",
+                str(report),
+                "--approve-downloads",
+            ),
+            0,
+        )
+        payload = json.loads(report.read_text(encoding="utf-8"))
+        self.assertEqual(payload["summary"]["staged"], 2)
+        originals = sorted(self.staging.glob("same-name-*/original-download.txt"))
+        self.assertEqual(len(originals), 2)
+        self.assertNotEqual(originals[0].read_bytes(), originals[1].read_bytes())
+
+    def test_identical_content_from_different_urls_is_confirmed_by_checksum(self) -> None:
+        shared = "Identical source bytes with enough text. " * 30
+        for folder, filename in (("a", "download.txt"), ("b", "article.txt")):
+            directory = self.web / folder
+            directory.mkdir()
+            (directory / filename).write_text(shared, encoding="utf-8")
+        sources = [
+            {
+                "id": "checksum-first",
+                "title": "First catalogue record",
+                "author": "Author One",
+                "url": f"{self.base_url}/a/download.txt",
+                "format": "txt",
+                "filename": "download.txt",
+                "access": "open",
+                "interest_id": "daily-life",
+            },
+            {
+                "id": "checksum-second",
+                "title": "Unrelated catalogue wording",
+                "author": "Author Two",
+                "url": f"{self.base_url}/b/article.txt",
+                "format": "txt",
+                "filename": "article.txt",
+                "access": "open",
+                "interest_id": "daily-life",
+            },
+        ]
+        manifest = self.root / "checksum-duplicate.json"
+        manifest.write_text(
+            json.dumps({"version": 1, "sources": sources}), encoding="utf-8"
+        )
+        report = self.root / "checksum-duplicate-report.json"
+
+        self.assertEqual(
+            self.run_cli(
+                "stage",
+                "--manifest",
+                str(manifest),
+                "--profile",
+                str(self.profile),
+                "--journal",
+                str(self.journal),
+                "--staging",
+                str(self.staging),
+                "--report",
+                str(report),
+                "--approve-downloads",
+            ),
+            0,
+        )
+        payload = json.loads(report.read_text(encoding="utf-8"))
+        self.assertEqual(payload["summary"]["staged"], 1)
+        self.assertEqual(payload["summary"]["duplicate"], 1)
+        duplicate = next(item for item in payload["items"] if item["status"] == "duplicate")
+        self.assertEqual(duplicate["duplicate_confidence"], "confirmed")
+        self.assertIn("контрольная сумма", duplicate["reason"])
+        journal = json.loads(self.journal.read_text(encoding="utf-8"))
+        self.assertEqual(len(journal["entries"]), 1)
+
+    def test_promote_index_rejects_database_bound_to_other_corpus_first(self) -> None:
+        manifest = self.manifest("txt", title_prefix="Corpus guard")
+        stage_report = self.root / "guard-stage.json"
+        self.assertEqual(
+            self.run_cli(
+                "stage",
+                "--manifest",
+                str(manifest),
+                "--profile",
+                str(self.profile),
+                "--journal",
+                str(self.journal),
+                "--staging",
+                str(self.staging),
+                "--report",
+                str(stage_report),
+                "--approve-downloads",
+            ),
+            0,
+        )
+        source_id = json.loads(stage_report.read_text(encoding="utf-8"))["items"][0][
+            "source_id"
+        ]
+        corpus_a = self.root / "corpus-a"
+        corpus_b = self.root / "corpus-b"
+        corpus_a.mkdir()
+        corpus_b.mkdir()
+        db = self.root / "bound.sqlite3"
+        arguments = build_index.make_parser().parse_args(
+            [
+                str(corpus_a),
+                "--db",
+                str(db),
+                "--log",
+                str(self.root / "guard-index.log"),
+                "--drive-csv",
+                str(self.root / "guard.csv"),
+                "--drive-jsonl",
+                str(self.root / "guard.jsonl"),
+            ]
+        )
+        build_index.build_index(arguments)
+        before = db.read_bytes()
+
+        code = self.run_cli(
+            "promote",
+            "--source-id",
+            source_id,
+            "--staging",
+            str(self.staging),
+            "--corpus",
+            str(corpus_b),
+            "--journal",
+            str(self.journal),
+            "--db",
+            str(db),
+            "--report",
+            str(self.root / "guard-promote.json"),
+            "--approve",
+            "--index",
+        )
+        self.assertEqual(code, 1)
+        self.assertFalse((corpus_b / "acquired" / source_id).exists())
         self.assertEqual(db.read_bytes(), before)
 
     def test_report_cannot_overwrite_critical_input_after_normalization(self) -> None:
