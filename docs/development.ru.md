@@ -81,6 +81,22 @@ Python индексирует, ранжирует, собирает контек
 карточки. Публикация и запись в `used_finds.csv` — отдельная операция через
 JSON-манифест и `record-publication`; preview журнал не меняет.
 
+Для проверки пользовательской выдачи зарегистрируйте манифест в изолированном
+тестовом журнале, а затем отрисуйте его:
+
+```powershell
+.venv\Scripts\python taira_search.py record-publication work/publications/test.json --used-finds work/test-used.csv
+.venv\Scripts\python taira_search.py render-publication work/publications/test.json --used-finds work/test-used.csv
+.venv\Scripts\python taira_search.py publication-status work/publications/test.json --used-finds work/test-used.csv --json
+```
+
+Команда отрисовки работает только на чтение и выводит все полные
+`card_markdown`, лишь когда зарегистрированы ID всех карточек. Статус намеренно
+оставляет доставку неподтверждённой: показать ответ может только поверхность
+задачи/чата Codex, а CLI не получает подтверждение отображения. Поэтому
+восстановление повторно использует и выводит тот же манифест без новой
+регистрации.
+
 ## Проверка прав запланированной публикации
 
 До включения автоматизации выпуска выполните команду именно из окружения
@@ -125,3 +141,4 @@ GitHub Actions выполняет поддерживаемый набор на P
 Подробнее: [AI-демо](ai-demo.ru.md),
 [onboarding](research-onboarding.ru.md),
 [пополнение библиотеки](source-acquisition.ru.md).
+

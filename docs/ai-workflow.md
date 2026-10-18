@@ -118,6 +118,19 @@ Then run:
 python taira_search.py record-publication work/publications/2026-10-12.json
 ```
 
+After exit code 0, render the user-facing edition from that same immutable
+manifest:
+
+```powershell
+python taira_search.py render-publication work/publications/2026-10-12.json
+```
+
+`render-publication` refuses to emit cards unless all manifest IDs are already
+present in `used_finds.csv`. Its stdout contains the complete saved
+`card_markdown` values and no registration summary. The agent must return that
+output as the primary chat result; titles, short descriptions, counts, and
+technical status are not substitutes for the edition.
+
 The command validates the complete manifest and takes a Windows/Linux
 interprocess lock around the full read, duplicate-check, and write cycle. It
 atomically replaces `used_finds.csv` only after the new CSV has been written
@@ -125,12 +138,34 @@ successfully. Existing rows and the CSV schema are retained, and rerunning the
 same manifest does not create duplicates. Publish the cards only after exit
 code 0. That exit confirms journal registration, not delivery to chat. If
 journal writing fails, keep the unchanged manifest, report the actionable
-error once, do not publish, and avoid repeated diagnostics inside the daily
-run. If chat delivery fails after the journal update, check run/chat history
-and reuse the same manifest and exact `card_markdown`; do not create a new
-registration or claim delivery without confirmation. Idempotent retry of the
-same manifest skips already registered IDs. The unchanged local JSON contains
-the exact cards needed for recovery.
+error once, do not render the cards, and avoid repeated diagnostics inside the
+daily run. If chat delivery fails after the journal update, check run/chat
+history and run `render-publication` against the same manifest; do not search
+again, rewrite the cards, or create a new registration. Idempotent retry of the
+same manifest still skips already registered IDs, but it is unnecessary for
+recovery. The unchanged local JSON contains the exact cards needed for
+recovery.
+
+Publication state is deliberately split into three parts:
+
+1. **Prepared** — a valid manifest durably stores every complete card.
+2. **Registered** — every manifest card ID is present in the journal.
+3. **Delivered** — the complete rendered edition is visible in the user-facing
+   task or chat result.
+
+`publication-status` can verify the first two states and reports delivery as
+`unconfirmed`. The local process receives no acknowledgement that Codex
+displayed a response, so it must not write a synthetic delivered flag or
+promise exactly-once delivery. When history is ambiguous, recovery requires a
+human decision because replaying the manifest can display the edition twice.
+
+A scheduled personal edition must use a result surface capable of returning
+the full Markdown. A status-only heartbeat or notification envelope is not
+compatible: detect that before registration and move the workflow to a normal
+standalone scheduled-task result. The OpenAI documentation describes the
+[Scheduled view](https://developers.openai.com/training/walkthroughs/scheduled-tasks)
+as the place to review completed run history, but it does not expose a
+delivery receipt that the local TairaSearch CLI can record.
 Publication manifests and lock files are runtime data and must never be added
 to the public release allowlist.
 
@@ -188,4 +223,5 @@ that runs Python, reads the generated handoff, and writes the demonstration
 cards. A separate `codex exec` process is documented only as an optional
 alternative. Both routes use committed inputs and example outputs and do not
 depend on an active automation or previous conversation.
+
 

@@ -1146,10 +1146,10 @@ def mark_used_from_json(json_path: Path, used_path: Path) -> tuple[int, int]:
     return append_used(events, used_path)
 
 
-def record_publication_from_json(
-    manifest_path: Path, used_path: Path
-) -> tuple[str, int, int]:
-    """Record the exact finalized cards stored in a durable local manifest."""
+def _load_publication_manifest(
+    manifest_path: Path,
+) -> tuple[str, list[dict[str, Any]], list[dict[str, Any]]]:
+    """Validate a publication manifest and return its cards and journal rows."""
     payload = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
     if not isinstance(payload, dict):
         raise ValueError(f"{manifest_path}: ожидается JSON-объект")
@@ -1160,6 +1160,7 @@ def record_publication_from_json(
     if not isinstance(cards, list) or not cards:
         raise ValueError(f"{manifest_path}: ожидается непустой массив cards")
 
+    validated_cards: list[dict[str, Any]] = []
     events: list[dict[str, Any]] = []
     for index, card in enumerate(cards, start=1):
         if not isinstance(card, dict):
@@ -1203,6 +1204,55 @@ def record_publication_from_json(
                 "source": source,
             }
         )
+        validated_cards.append(card)
+
+    return publication_id, validated_cards, events
+
+
+def publication_status_from_json(
+    manifest_path: Path, used_path: Path
+) -> dict[str, Any]:
+    """Report durable preparation/registration state without claiming delivery."""
+    publication_id, cards, events = _load_publication_manifest(manifest_path)
+    registered_ids = {row["id"] for row in _read_used_rows(used_path)}
+    card_ids = [event["chunk_id"] for event in events]
+    missing_ids = [
+        finding_id for finding_id in card_ids if finding_id not in registered_ids
+    ]
+    return {
+        "publication_id": publication_id,
+        "card_count": len(cards),
+        "prepared": True,
+        "registered": not missing_ids,
+        "missing_registration_ids": missing_ids,
+        "delivery": "unconfirmed",
+    }
+
+
+def render_registered_publication_from_json(
+    manifest_path: Path, used_path: Path
+) -> tuple[str, str]:
+    """Return the exact saved card Markdown only after journal registration."""
+    publication_id, cards, events = _load_publication_manifest(manifest_path)
+    registered_ids = {row["id"] for row in _read_used_rows(used_path)}
+    missing_ids = [
+        event["chunk_id"]
+        for event in events
+        if event["chunk_id"] not in registered_ids
+    ]
+    if missing_ids:
+        raise ValueError(
+            f"{manifest_path}: выпуск не полностью зарегистрирован; "
+            f"отсутствуют ID: {', '.join(missing_ids)}"
+        )
+    return publication_id, "\n\n".join(str(card["card_markdown"]) for card in cards)
+
+
+def record_publication_from_json(
+    manifest_path: Path, used_path: Path
+) -> tuple[str, int, int]:
+    """Record the exact finalized cards stored in a durable local manifest."""
+    publication_id, _cards, events = _load_publication_manifest(manifest_path)
 
     added, skipped = append_used(events, used_path)
     return publication_id, added, skipped
@@ -1366,3 +1416,4 @@ def append_used(events: list[dict[str, Any]], used_path: Path) -> tuple[int, int
         if rows:
             _atomic_write_used_rows([*existing, *rows], used_path)
         return len(rows), skipped
+

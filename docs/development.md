@@ -80,6 +80,21 @@ Codex investigates sources, reviews semantic novelty, and writes cards.
 Publication and the `used_finds.csv` update are separate operations through a
 JSON manifest and `record-publication`; preview does not change the journal.
 
+To test the user-visible handoff, register a manifest against an isolated
+journal and then render it:
+
+```powershell
+.venv\Scripts\python taira_search.py record-publication work/publications/test.json --used-finds work/test-used.csv
+.venv\Scripts\python taira_search.py render-publication work/publications/test.json --used-finds work/test-used.csv
+.venv\Scripts\python taira_search.py publication-status work/publications/test.json --used-finds work/test-used.csv --json
+```
+
+The render command is read-only and emits every complete `card_markdown` only
+when all card IDs are registered. Status deliberately leaves delivery
+unconfirmed: only the Codex task/chat surface can show the response, and the
+CLI has no display acknowledgement. Recovery therefore reuses and renders the
+same manifest without registering it again.
+
 ## Scheduled-publication access check
 
 Before enabling an edition automation, run this from the automation's actual
@@ -122,3 +137,4 @@ production SQLite, `used_finds.csv`, local profiles, and secrets are excluded.
 
 See also the [AI demo](ai-demo.md), [onboarding](research-onboarding.md), and
 [library acquisition](source-acquisition.md).
+

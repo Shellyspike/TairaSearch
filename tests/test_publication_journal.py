@@ -102,6 +102,32 @@ class PublicationJournalTests(unittest.TestCase):
             encoding="utf-8",
         )
 
+    def write_five_card_manifest(self) -> dict[str, object]:
+        cards = [
+            {
+                "id": f"ch_delivery_{index}",
+                "type": "event" if index % 2 else "interpretation",
+                "persons": [f"Персонаж {index}"],
+                "topics": ["история"],
+                "short_description": f"Служебная аннотация {index}",
+                "source": f"Источник {index}",
+                "card_markdown": (
+                    f"### {index}. Полная карточка {index}\n\n"
+                    f"Исторические подробности карточки {index}.\n\n"
+                    f"Источник: полный источник {index}."
+                ),
+            }
+            for index in range(1, 6)
+        ]
+        payload: dict[str, object] = {
+            "publication_id": "2026-10-18-delivery-regression",
+            "cards": cards,
+        }
+        self.manifest_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        return payload
+
     def read_history(self) -> list[dict[str, str]]:
         with self.used_path.open(encoding="utf-8-sig", newline="") as stream:
             return list(csv.DictReader(stream))
@@ -273,6 +299,111 @@ daily_five.record_publication_from_json(manifest, used)
         self.assertIn("доставка карточек в чат", result.stdout)
         self.assertEqual(len(self.read_history()), 4)
 
+    def test_five_registered_cards_render_in_full(self) -> None:
+        payload = self.write_five_card_manifest()
+        daily_five.record_publication_from_json(self.manifest_path, self.used_path)
+
+        publication_id, markdown = (
+            daily_five.render_registered_publication_from_json(
+                self.manifest_path, self.used_path
+            )
+        )
+
+        self.assertEqual(publication_id, payload["publication_id"])
+        cards = payload["cards"]
+        assert isinstance(cards, list)
+        self.assertEqual(
+            markdown,
+            "\n\n".join(str(card["card_markdown"]) for card in cards),
+        )
+        for card in cards:
+            self.assertIn(str(card["card_markdown"]), markdown)
+            self.assertNotIn(str(card["short_description"]), markdown)
+        self.assertNotIn("Журнал зарегистрирован", markdown)
+
+    def test_registration_failure_prevents_publication_render(self) -> None:
+        self.write_five_card_manifest()
+        with mock.patch.object(
+            daily_five.os, "replace", side_effect=OSError("simulated write failure")
+        ):
+            with self.assertRaisesRegex(OSError, "simulated write failure"):
+                daily_five.record_publication_from_json(
+                    self.manifest_path, self.used_path
+                )
+
+        with self.assertRaisesRegex(ValueError, "не полностью зарегистрирован"):
+            daily_five.render_registered_publication_from_json(
+                self.manifest_path, self.used_path
+            )
+
+    def test_registered_but_undelivered_state_keeps_recovery_output(self) -> None:
+        payload = self.write_five_card_manifest()
+        daily_five.record_publication_from_json(self.manifest_path, self.used_path)
+        journal_before = self.used_path.read_bytes()
+
+        status = daily_five.publication_status_from_json(
+            self.manifest_path, self.used_path
+        )
+        first = daily_five.render_registered_publication_from_json(
+            self.manifest_path, self.used_path
+        )
+        second = daily_five.render_registered_publication_from_json(
+            self.manifest_path, self.used_path
+        )
+
+        self.assertTrue(status["prepared"])
+        self.assertTrue(status["registered"])
+        self.assertEqual(status["delivery"], "unconfirmed")
+        self.assertEqual(first, second)
+        cards = payload["cards"]
+        assert isinstance(cards, list)
+        self.assertEqual(first[1].count("### "), 5)
+        self.assertEqual(self.used_path.read_bytes(), journal_before)
+
+    def test_cli_recovers_exact_markdown_without_reregistering(self) -> None:
+        payload = self.write_five_card_manifest()
+        daily_five.record_publication_from_json(self.manifest_path, self.used_path)
+        journal_before = self.used_path.read_bytes()
+        cards = payload["cards"]
+        assert isinstance(cards, list)
+        expected = "\n\n".join(str(card["card_markdown"]) for card in cards)
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(PROJECT / "taira_search.py"),
+                "render-publication",
+                str(self.manifest_path),
+                "--used-finds",
+                str(self.used_path),
+            ],
+            cwd=PROJECT,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.rstrip("\n"), expected)
+        self.assertEqual(self.used_path.read_bytes(), journal_before)
+
+    def test_same_manifest_registration_remains_idempotent_after_recovery(self) -> None:
+        self.write_five_card_manifest()
+        first = daily_five.record_publication_from_json(
+            self.manifest_path, self.used_path
+        )
+        daily_five.render_registered_publication_from_json(
+            self.manifest_path, self.used_path
+        )
+        second = daily_five.record_publication_from_json(
+            self.manifest_path, self.used_path
+        )
+
+        self.assertEqual(first[1:], (5, 0))
+        self.assertEqual(second[1:], (0, 5))
+        self.assertEqual(len(self.read_history()), 5)
+
     def test_publication_access_check_does_not_touch_journal_or_lock(self) -> None:
         self.write_existing_history(2)
         database = self.root / "index.sqlite3"
@@ -369,3 +500,4 @@ daily_five.record_publication_from_json(manifest, used)
 
 if __name__ == "__main__":
     unittest.main()
+
