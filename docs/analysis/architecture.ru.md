@@ -3,75 +3,71 @@
 ## 1. Назначение и правила чтения
 
 Документ фиксирует архитектуру ветки `main` на коммите `5a8378a`. Диаграммы
-используют обычный Mermaid `flowchart`, совместимый с GitHub. Термин «контейнер»
-ниже используется в смысле C4 (исполняемая или хранилищная часть), а не Docker.
-TairaSearch — модульный локальный Python-проект, не распределённая система и не
-набор микросервисов.
+используют GitHub-compatible Mermaid `flowchart`. Термин «контейнер» применяется
+в смысле C4: исполняемая или хранилищная часть системы, а не Docker-контейнер.
+TairaSearch развёртывается как локальный модульный Python-проект.
 
-Системные требования и границы описаны в
-[«Системном описании TairaSearch»](system-overview.ru.md).
+Требования и пользовательские сценарии описаны в
+[системном описании](system-overview.ru.md).
 
-## 2. Архитектурные принципы AS IS
+## 2. Архитектурные принципы
 
-1. **Локальное детерминированное ядро.** Python разбирает документы,
-   индексирует, ищет, формирует структурированные свидетельства и безопасно
-   ведёт журналы.
-2. **Явная граница AI.** AI-агент интерпретирует смысл, проверяет нарратив и
-   научную атрибуцию, принимает редакционное решение и пишет карточки. Python
-   редакционный текст самостоятельно не генерирует.
-3. **Файловая интеграция.** Компоненты обмениваются SQLite, JSON, CSV и stdout;
-   собственного HTTP API, брокера сообщений или серверного процесса нет.
-4. **Раздельные согласия.** Поиск, публикация, загрузка, продвижение в корпус и
-   индексация имеют разные границы разрешения.
-5. **Восстановимая публикация.** Точный текст сохраняется в манифесте до записи
-   в журнал, а затем может быть повторно выведен без нового исследования.
-6. **Планировщик внешний.** Репозиторий предоставляет workflow и проверки, но
-   создание agent turn, sandbox и доставка в чат принадлежат платформе
-   автоматизаций.
+1. **Локальное Python-ядро.** Оно разбирает документы, индексирует, ищет,
+   формирует структурированные свидетельства и безопасно ведёт журналы.
+2. **Редакционная ответственность агента.** AI-агент интерпретирует смысл,
+   проверяет атрибуцию и новизну, выбирает материалы и пишет карточки.
+3. **Файловые контракты.** Основные способы взаимодействия — CLI, SQLite, JSON,
+   CSV, каталоги и stdout.
+4. **Раздельные разрешения.** Scan, индексация, download, promotion, публикация
+   и расписание согласуются отдельно.
+5. **Восстановимая публикация.** Точный текст сохраняется в манифесте до
+   регистрации и может быть повторно выведен без нового исследования.
+6. **Внешнее выполнение расписания.** Codex Desktop или другая платформа создаёт
+   agent turn, предоставляет runtime и доставляет ответ; Python этого не делает.
 
-Основание: [README](../../README.ru.md),
-[AI workflow](../../docs/ai-workflow.md),
-[publication API](../../daily_five.py#L1149),
-[onboarding contract](../../AGENTS.md).
+Основание: [README](../../README.ru.md), [AGENTS.md](../../AGENTS.md),
+[publication API](../../daily_five.py#L1149).
 
 ## 3. C4 Level 1 — System Context
 
 ```mermaid
 flowchart LR
-    user["Пользователь<br/>владелец библиотеки и редакционных решений"]
-    agent["Внешний AI-агент<br/>оркестрация, смысловая проверка,<br/>текст карточек"]
-    scheduler["Платформа автоматизаций<br/>расписание, runtime, sandbox,<br/>agent turn и доставка в чат"]
-    sources["Внешние сайты и репозитории<br/>метаданные и разрешённые материалы"]
-
-    subgraph boundary["Система TairaSearch"]
-        ts["Локальный Python CLI и данные<br/>индексирование, поиск, evidence,<br/>dedup, staging, регистрация"]
-    end
-
-    library[("Локальная исследовательская библиотека")]
+    user["Пользователь<br/>интересы, библиотека, согласия,<br/>получение выпуска"]
+    agent["AI-агент<br/>диалог, discovery, смысловая проверка,<br/>редактура и оркестрация"]
+    platform["Codex Desktop / платформа автоматизаций<br/>runtime, sandbox, расписание,<br/>agent turn и доставка"]
+    sources["Внешние сайты и репозитории<br/>метаданные и материалы"]
+    corpus[("Пользовательская библиотека<br/>может находиться вне папки проекта")]
     chat["Пользовательский чат"]
 
-    user -->|"интересы, подтверждения,<br/>запрос выпуска"| agent
-    agent -->|"CLI-команды и структурированные входы"| ts
-    ts -->|"кандидаты, контекст,<br/>статусы и ошибки"| agent
-    ts <-->|"чтение корпуса;<br/>подтверждённое пополнение"| library
-    agent <-->|"обнаружение и проверка provenance"| sources
-    ts -->|"только разрешённые HTTP(S)-загрузки"| sources
-    user -->|"явное согласие на расписание"| scheduler
-    scheduler -->|"запускает AI-агента<br/>в локальном проекте"| agent
-    agent -->|"полный выпуск"| scheduler
-    scheduler -->|"доставляет результат"| chat
+    subgraph tairasearch["TairaSearch"]
+        core["Python CLI и локальные данные<br/>индекс, поиск, evidence,<br/>staging и журналы"]
+        workflows["Workflow-инструкции<br/>контракт действий агента"]
+    end
+
+    user <-->|"настройка и подтверждения"| agent
+    platform -->|"запускает или возобновляет"| agent
+    workflows -->|"задают ожидаемый процесс"| agent
+    agent -->|"CLI-команды и файлы"| core
+    core -->|"результаты, evidence и ошибки"| agent
+    core <-->|"чтение; promotion после согласия"| corpus
+    agent <-->|"поиск и оценка источников"| sources
+    core -->|"разрешённые bounded downloads"| sources
+    agent -->|"полный результат"| platform
+    platform -->|"отображение"| chat
     chat --> user
 ```
 
-### 3.1. Пояснения к границе
+### 3.1. Граница ответственности
 
-- Веб-обнаружение кандидатов выполняет агент. Встроенный downloader получает
-  только уже описанные в манифесте прямые URL и проверяет их безопасность
+- Discovery внешних источников выполняет агент. Python получает уже
+  подготовленный манифест и проверяет URL, лимиты и дубли
   ([`validate_public_download_target`](../../source_acquisition.py#L194)).
-- Планировщик не является Python-модулем TairaSearch. Workflow-промпты задают
-  правила вызова, но их исполнение зависит от внешней платформы.
-- Python подтверждает подготовку и регистрацию выпуска, но возвращает
-  `delivery: unconfirmed`; чат находится за системной границей
+- Workflow-инструкции входят в поставку TairaSearch как контракт процесса, но
+  выполняются внешним агентом.
+- Пользовательская библиотека не обязана лежать внутри проекта. Индекс хранит её
+  `corpus_root` и отклоняет незаметное переподключение к другой папке
+  ([`validate_index_corpus_root`](../../build_index.py#L83)).
+- Python подтверждает подготовку и регистрацию, но не доставку в чат
   ([`publication_status_from_json`](../../daily_five.py#L1212)).
 
 ## 4. C4 Level 2 — Container
@@ -79,240 +75,226 @@ flowchart LR
 ```mermaid
 flowchart TB
     user["Пользователь"]
-    agent["AI-агент<br/>внешний процесс"]
-    scheduler["Платформа автоматизаций<br/>внешняя система"]
+    agent["AI-агент<br/>внешний исполнитель"]
+    platform["Codex Desktop / scheduler<br/>внешняя платформа"]
     web["Внешние HTTP(S)-источники"]
+    corpus[("Корпус документов<br/>пользовательское хранилище")]
 
-    subgraph ts["TairaSearch — локальная рабочая папка"]
-        cli["Основной CLI<br/>taira_search.py"]
+    subgraph ts["TairaSearch"]
+        maincli["Основной CLI<br/>taira_search.py"]
+        legacycli["Сохранённый поисковый CLI<br/>search_index.py"]
         indexer["Индексатор<br/>build_index.py"]
-        acquisition["CLI пополнения<br/>source_acquisition.py"]
-        demos["Демо и release utilities<br/>run_*.py, make_release.py"]
+        acquisition["Acquisition CLI<br/>source_acquisition.py"]
+        workflow["Workflow Markdown<br/>инструкции AI-агенту"]
 
-        configs["Конфигурации и профиль<br/>JSON"]
-        work["Рабочие артефакты<br/>research/editorial/publication JSON"]
-        journal["Журнал публикаций<br/>used_finds.csv + lock"]
-        acqjournal["Acquisition journal и staging<br/>JSON + original + extracted text"]
+        config["Профиль и конфигурации<br/>JSON"]
+        work["Research и publication artifacts<br/>JSON"]
+        journal["Publication journal<br/>used_finds.csv + lock"]
+        staging["Acquisition staging и journal<br/>original + extracted + metadata"]
         db[("SQLite + FTS5<br/>meta, files, chunks, chunks_fts")]
-        corpus[("Исследовательский корпус<br/>TXT/MD/JSON/PDF")]
     end
 
-    scheduler -->|"создаёт agent turn"| agent
-    user <-->|"диалог, согласия,<br/>получение выпуска"| agent
+    platform -->|"создаёт agent turn"| agent
+    workflow -->|"описывает порядок действий"| agent
+    user <-->|"диалог и согласия"| agent
 
-    agent -->|"search, context,<br/>research-findings/context"| cli
-    cli -->|"структурированные evidence-пакеты"| agent
-    cli --> configs
-    cli -->|"read-only"| db
-    cli -->|"read; atomic append"| journal
-    cli --> work
-
-    agent -->|"индексация после согласия"| indexer
-    indexer --> corpus
-    indexer -->|"transactional update"| db
-    indexer --> configs
-
+    agent -->|"основные команды"| maincli
+    agent -->|"совместимый старый поиск"| legacycli
+    agent -->|"scan/build"| indexer
     agent -->|"check/stage/promote"| acquisition
-    acquisition -->|"bounded downloads"| web
-    acquisition --> configs
-    acquisition --> acqjournal
-    acquisition -->|"promote after approval"| corpus
-    acquisition -.->|"optional subprocess"| indexer
 
-    agent -->|"final card manifest"| work
-    cli -->|"validate + register"| journal
-    cli -->|"render exact Markdown"| agent
+    maincli -->|"читает профиль"| config
+    maincli -->|"current schema: read-only<br/>legacy migration: write + backup"| db
+    maincli -->|"research outputs"| work
+    maincli -->|"lock + read + atomic full-file replace"| journal
+    legacycli -->|"поиск и export"| db
 
-    demos --> configs
-    demos -->|"synthetic isolated data"| db
+    indexer -->|"читает документы"| corpus
+    indexer -->|"transactional update"| db
+    indexer -->|"читает mappings"| config
+
+    acquisition -->|"bounded download"| web
+    acquisition -->|"read/write"| staging
+    acquisition -->|"читает профиль"| config
+    acquisition -->|"duplicate checks"| db
+    acquisition -->|"promotion after approval"| corpus
+    acquisition -.->|"optional subprocess after promotion"| indexer
+
+    agent -->|"готовый card manifest"| work
+    maincli -->|"exact registered Markdown"| agent
+    agent -->|"полный выпуск"| platform
+    platform -->|"доставка пользователю"| user
 ```
 
-### 4.1. Контейнеры и технологии
+### 4.1. Контейнеры
 
-| Контейнер | Технология | Ответственность | Не выполняет |
-| --- | --- | --- | --- |
-| Основной CLI | Python 3.11, `argparse`, `sqlite3` | Search/context, research-пакеты, проверка publication access, регистрация и rendering | Не пишет редакционный текст, не создаёт расписание |
-| Индексатор | Python, SQLite WAL/FTS5, `pypdf` | Сканирование и транзакционное построение индекса | Не выполняет смысловую экспертизу, не удаляет пропавшие документы |
-| Acquisition CLI | Python, `urllib`, локальная ФС | Валидация, bounded download, extraction, staging, promotion | Не ищет сайты сам, не определяет юридический статус, не продвигает без согласия |
-| AI-агент | Внешний runtime | Интервью, веб-обнаружение, смысловая проверка, редактура, оркестрация CLI | Не заменяет детерминированные журнальные операции |
-| Платформа автоматизаций | Внешняя desktop/cloud-система | Расписание, окружение, sandbox, создание хода и доставка | Не входит в кодовую базу; её успех не следует из статуса Python |
-| SQLite/FTS5 | Локальный файл | Производный индекс и полнотекстовый поиск | Не хранит тексты готовых карточек и расписания |
-| JSON/CSV/каталоги | Локальные файлы | Профиль, конфигурация, evidence, publication recovery, журналы и staging | Не являются централизованной БД или API |
+| Контейнер | Технология | Ответственность |
+| --- | --- | --- |
+| Основной CLI | Python 3.11, `argparse`, `sqlite3` | Search/context, research-пакеты, проверка publication access, регистрация и rendering. |
+| Сохранённый поисковый CLI | Python, `sqlite3` | Ранее реализованный поиск, ranking, diversification и export; поддерживается параллельно с основным CLI. |
+| Индексатор | Python, SQLite WAL/FTS5, `pypdf` | Scan и транзакционное построение индекса. |
+| Acquisition CLI | Python, `urllib`, файловая система | Валидация, bounded download, extraction, staging и promotion. |
+| AI-агент | Внешний runtime | Интервью, discovery, смысловая проверка, редактура и вызовы CLI. |
+| Платформа автоматизаций | Внешняя система | Среда выполнения, расписание, agent turn и доставка. |
+| SQLite/FTS5 | Локальный файл | Производный поисковый индекс; актуальная схема читается CLI read-only, legacy-схема может мигрироваться отдельным записывающим путём. |
+| JSON/CSV/каталоги | Локальные файлы | Профиль, настройки, evidence, recovery manifest, staging и журналы. |
+| Корпус | Пользовательский каталог | Первичные документы; физически может находиться вне проекта. |
 
 ## 5. Внутренняя модульная схема Python
 
+Легенда: сплошная стрелка — прямой import/call; пунктир — runtime-связь без
+прямого импорта. Подпись пунктирной стрелки различает callback и subprocess.
+
 ```mermaid
 flowchart LR
-    subgraph entry["CLI и сценарии"]
-        ts["taira_search.py"]
-        bi["build_index.py"]
-        sa["source_acquisition.py"]
-        demo["run_demo.py / run_research_demo.py"]
-    end
+    ts["taira_search.py"]
+    rf["research_findings.py"]
+    df["daily_five.py"]
+    rp["research_profile.py"]
+    si["search_index.py"]
+    bi["build_index.py"]
+    sa["source_acquisition.py"]
+    parsers["parsers.py"]
+    schema["search_schema.py"]
+    meta["metadata_utils.py"]
+    text["text_utils.py"]
 
-    subgraph domain["Прикладная логика"]
-        rf["research_findings.py<br/>retrieval и evidence packets"]
-        df["daily_five.py<br/>dedup и publication journal"]
-        rp["research_profile.py<br/>валидация профиля"]
-        si["search_index.py<br/>ranking и export"]
-    end
+    ts -->|"import/call"| schema
+    ts -->|"import/call"| meta
+    ts -->|"import/call"| text
+    ts -->|"runtime import/call"| rf
+    ts -->|"runtime import/call"| rp
+    ts -->|"runtime import/call"| df
+    ts -.->|"передаёт search_database и context_rows"| rf
 
-    subgraph infra["Текст и хранение"]
-        parsers["parsers.py<br/>TXT/MD/JSON/PDF"]
-        text["text_utils.py<br/>normalize/chunk/id"]
-        meta["metadata_utils.py<br/>people/type/quality"]
-        schema["search_schema.py<br/>SQLite/FTS migration"]
-    end
+    rf -->|"import"| df
+    rf -->|"import"| text
 
-    ts --> rf
-    ts --> df
-    ts --> rp
-    ts --> schema
-    rf --> df
-    rf --> rp
-    rf --> si
-    bi --> parsers
-    bi --> text
-    bi --> meta
-    bi --> schema
-    si --> text
-    si --> schema
-    sa --> parsers
-    sa -.->|"subprocess после approve"| bi
-    demo --> bi
-    demo --> ts
+    df -->|"import"| meta
+    df -->|"import"| text
+
+    si -->|"import"| text
+
+    bi -->|"import"| parsers
+    bi -->|"import"| schema
+    bi -->|"import"| meta
+    bi -->|"import"| text
+
+    sa -->|"import"| parsers
+    sa -->|"import"| rp
+    sa -->|"import"| text
+    sa -.->|"subprocess build_index.py"| bi
 ```
 
-### 5.1. Наблюдения о связности
+### 5.1. Проверенные зависимости и архитектурные решения
 
-- `taira_search.py` — фасад нового пользовательского и агентского workflow, но
-  часть поисковой логики остаётся в `search_index.py`.
-- `daily_five.py` одновременно содержит legacy-сценарий отбора, общую логику
-  сравнения повторов и актуальный publication journal. Это функционально
-  подтверждено тестами, но увеличивает число причин для изменения модуля.
-- `source_acquisition.py` переиспользует `build_index.py` как subprocess после
-  продвижения, а не дублирует индексатор.
-- SQLite является производным хранилищем; исходный корпус и durable-манифесты
-  остаются самостоятельными источниками данных.
+- `research_findings.py` не зависит от `search_index.py`. Основной CLI передаёт
+  ему свои `search_database` и `context_rows` как функции-параметры
+  ([сигнатура](../../research_findings.py#L404),
+  [вызов](../../taira_search.py#L927)).
+- `search_index.py` не импортирует `search_schema.py`; это самостоятельный
+  сохранённый поисковый интерфейс, работающий с SQLite и `text_utils.py`.
+- `taira_search.py` — основной CLI для новых сценариев. `search_index.py`
+  остаётся доступным ранее реализованным интерфейсом. Удаление или объединение
+  в рамках AS IS не выполняется.
+- В `daily_five.py` сосуществуют legacy-отбор, функции dedup и актуальный
+  publication journal. Разделение модуля возможно как будущий рефакторинг, но
+  текущее сосуществование не является дефектом само по себе.
+- `source_acquisition.py` после отдельного согласия запускает `build_index.py`
+  как subprocess, а не реализует второй индексатор
+  ([вызов](../../source_acquisition.py#L1260)).
 
 ## 6. Ключевые взаимодействия
 
-### 6.1. Индексирование
+### 6.1. Подключение материалов
 
-1. Агент/пользователь задаёт корпус, SQLite и конфигурации.
-2. Индексатор проверяет доступность корпуса и read-only сверяет `corpus_root`
-   существующей базы до её изменения.
-3. Парсеры извлекают текст, `text_utils` нормализует и делит его на фрагменты,
-   `metadata_utils` вычисляет аннотации.
-4. Индексатор обновляет `files`, `chunks` и FTS в транзакционных границах.
-5. Ошибки получают отличимый статус; пригодные старые данные проблемного файла
-   сохраняются.
+Есть три входа:
+
+1. **Готовый индекс:** основной CLI проверяет актуальную схему read-only. Для
+   legacy-схемы существует записывающая миграция с backup, которую onboarding
+   требует отдельно согласовать.
+2. **Документы без индекса:** сначала scan-only, затем отдельное согласие на
+   построение SQLite.
+3. **Нет материалов:** агент выполняет discovery, Python проверяет и помещает
+   одобренные загрузки в staging, после второго согласия выполняются promotion и
+   индексация.
+
+Основание: [онбординг](../../docs/research-onboarding.ru.md).
+
+### 6.2. Индексирование
+
+1. Индексатор проверяет доступность корпуса.
+2. До изменения существующей базы он read-only сверяет `corpus_root`.
+3. Парсеры извлекают текст; утилиты нормализуют, делят и аннотируют фрагменты.
+4. `files`, `chunks` и FTS обновляются в транзакционных границах.
+5. Ошибка отдельного файла сохраняет его последнюю пригодную версию.
 
 Основание: [`build_index`](../../build_index.py#L490),
-[схема](../../build_index.py#L176),
-[incremental safety tests](../../tests/test_incremental_safety.py#L92).
+[тесты](../../tests/test_incremental_safety.py#L92).
 
-### 6.2. Исследование и редактура
+### 6.3. Исследование и редактура
 
 1. `research-findings --preview` читает профиль, индекс и журнал.
-2. Python ищет по интересам, фильтрует технические повторы, загружает соседний
-   контекст и создаёт сравнения с публикационной историей.
-3. Полный JSON хранит доказательства; компактный editorial JSON уменьшает объём
-   первичного чтения агентом.
-4. Агент классифицирует неоднозначные совпадения и выбирает финалистов.
-5. `research-context` собирает полный контекст выбранных и связанных записей из
-   сохранённого результата без нового поиска.
-6. Агент пишет карточки, сохраняя точные ID и источники.
+2. Python создаёт полный результат и компактный editorial packet.
+3. Агент классифицирует неоднозначные совпадения и выбирает финалистов.
+4. `research-context` собирает полный контекст из сохранённого результата.
+5. Агент пишет карточки и сохраняет точные ссылки на находки.
 
-Основание: [research workflow](../../examples/codex/research-workflow.ru.md),
-[`build_research_findings`](../../research_findings.py#L404),
-[`build_editorial_packet`](../../research_findings.py#L110).
+Python не подтверждает историческую достоверность редакционного текста.
+Основание: [workflow](../../examples/codex/research-workflow.ru.md),
+[реализация](../../research_findings.py#L404).
 
-### 6.3. Публикация и восстановление
+### 6.4. Публикация и восстановление
 
-1. В exact scheduled environment выполняется `check-publication-access`.
-2. Агент сохраняет финальный манифест карточек.
-3. `record-publication` полностью валидирует манифест.
-4. Python получает межпроцессный lock, перечитывает журнал, пропускает уже
-   зарегистрированные ID и атомарно заменяет CSV.
-5. `render-publication` проверяет регистрацию всех карточек и печатает точный
-   сохранённый Markdown.
-6. AI-платформа переносит stdout в чат. Этот шаг находится за границей Python.
-7. Если шаг 6 не подтверждён, тот же манифест можно отобразить повторно без
-   нового исследования или изменения журнала.
+1. В scheduled environment выполняется `check-publication-access`.
+2. Агент сохраняет финальный манифест.
+3. `record-publication` проверяет структуру всех карточек.
+4. Python получает межпроцессный lock, перечитывает CSV, формирует полный новый
+   набор строк, пишет временный файл с `fsync` и заменяет журнал через
+   `os.replace`.
+5. `render-publication` выводит точный сохранённый Markdown после проверки ID.
+6. Агент и платформа доставляют вывод в чат; Python этого не подтверждает.
+7. При недоставке тот же манифест можно отобразить повторно.
 
-Основание: [`check_publication_access`](../../taira_search.py#L444),
-[`record_publication_from_json`](../../daily_five.py#L1251),
-[`render_registered_publication_from_json`](../../daily_five.py#L1232).
+Основание: [проверка доступа](../../taira_search.py#L444),
+[атомарная замена](../../daily_five.py#L1321),
+[блокировка](../../daily_five.py#L1340).
 
-### 6.4. Пополнение источников
+### 6.5. Acquisition
 
-1. AI-агент находит библиографические кандидаты и устанавливает их релевантность
-   и допустимый access status.
-2. `check` сравнивает манифест с профилем, acquisition journal и SQLite без
-   загрузки.
-3. После разрешения `stage` повторно проверяет URL/DNS/редиректы и бюджет,
-   сохраняет оригинал, extracted text и metadata атомарными операциями.
-4. Пользователь проверяет staging и отдельно называет разрешённые `source_id`,
-   корпус и индекс.
-5. `promote --approve` переносит выбранные данные в `corpus/acquired`; `--index`
-   опционально запускает основной индексатор.
+1. Агент находит кандидаты и формирует манифест.
+2. `check` ищет дубли без загрузки.
+3. После разрешения `stage` проверяет URL/DNS/редиректы и лимиты, сохраняет
+   original, extracted text и metadata.
+4. Пользователь отдельно подтверждает `source_id`, корпус и индекс.
+5. `promote --approve` переносит данные; `--index` опционально запускает
+   индексатор.
 
-Основание: [source acquisition workflow](../../examples/codex/source-acquisition-workflow.ru.md),
-[`stage_candidates`](../../source_acquisition.py#L956),
-[`promote_sources`](../../source_acquisition.py#L1176).
+Первоначальное создание библиотеки и регулярное пополнение используют этот
+механизм, но являются разными пользовательскими сценариями.
 
 ## 7. Развёртывание и эксплуатационная граница
 
-Минимальное развёртывание — одна локальная папка проекта, Python 3.11 с
-зависимостями, доступный корпус и локальные рабочие файлы. Отдельный сервер,
-контейнерный runtime и постоянно работающий Python-процесс не требуются.
+Минимальное развёртывание — локальная папка проекта, Python 3.11, SQLite и
+доступный корпус. Корпус может находиться в другом пользовательском каталоге.
+Отдельного постоянно работающего Python-процесса нет.
 
-Для ручного запуска пользователь или агент вызывает CLI непосредственно. Для
-регулярного выпуска внешняя платформа должна:
+Для регулярного выпуска внешняя платформа должна предоставить проект, рабочую
+директорию, Python, права чтения SQLite/WAL и атомарной записи рядом с журналом,
+создать настоящий agent turn и показать полный вывод `render-publication`.
+Доступность инструментов в интерактивном чате не доказывает доступность
+scheduled runtime.
 
-- открыть тот же проект и нужную рабочую директорию;
-- предоставить Python и необходимые файловые права;
-- разрешить чтение SQLite/WAL и атомарную запись рядом с журналом;
-- создать настоящий agent turn, а не только чат с текстом задания;
-- передать полный результат `render-publication` в пользовательский чат.
+## 8. AS IS и возможное развитие
 
-Ни наличие активного расписания, ни доступность Git/Python в интерактивном
-чате не подтверждают доступность scheduled runtime. TairaSearch проверяет свою
-часть доступа командой `check-publication-access`, но не способен проверить
-внутренний механизм создания agent turn или доставку платформы.
-
-## 8. AS IS и направления развития
-
-| Область | AS IS | Не считать реализованным |
+| Область | AS IS | Возможное, но не утверждённое улучшение |
 | --- | --- | --- |
-| Идентичность | Позиционный `chunk_id`, text hash, сравнения с журналом | Постоянный доменный ID находки и миграция истории |
-| Cleanup корпуса | Пропавшие документы сохраняются в индексе | Команда удаления с обязательным preview |
-| Редакционное качество | Правила, evidence packet и синтетический benchmark | Метрики качества на репрезентативном реальном корпусе |
-| Планирование | Workflow для внешнего агента/платформы | Собственный scheduler, очередь, retry или SLA доставки |
-| Интеграция | CLI + локальные файлы + stdout | REST API, web UI, message broker, отдельный backend |
-| Масштабирование | Один локальный пользовательский проект | Multi-user tenancy, распределённая индексация и горизонтальное масштабирование |
+| Поисковые CLI | `taira_search.py` основной; `search_index.py` сохранён | Сократить дублирование после отдельного решения |
+| Идентичность | Позиционный `chunk_id` | Постоянный ID смысловой находки и миграция истории |
+| Cleanup | Пропавшие документы сохраняются | Отдельное удаление с preview и подтверждением |
+| Publication | `publication_id`, manifest, CSV journal | Более сложная модель жизненного цикла |
+| Автоматизация | Codex Desktop как основная рассматриваемая платформа | Мониторинг запусков и доставки |
+| Качество | Evidence workflow и синтетические тесты | Метрики на реальном корпусе |
+| Эксплуатация | Локальные файлы и ручные recovery-контракты | Backup/retention и измеримые SLA |
 
-Нерешённые архитектурные вопросы перечислены в
-[разделе 10 системного описания](system-overview.ru.md#102-решения-требующие-владельца-продукта).
-
-## 9. Источники подтверждения
-
-- [README.ru.md](../../README.ru.md) — назначение, продуктовые границы и
-  заявленные пользовательские сценарии.
-- [AGENTS.md](../../AGENTS.md) — обязательные согласия, onboarding и требования
-  к scheduled environment.
-- [docs/development.ru.md](../../docs/development.ru.md) — поддерживаемая среда и
-  ручные контракты.
-- [docs/source-acquisition.ru.md](../../docs/source-acquisition.ru.md) — границы
-  безопасного пополнения.
-- [build_index.py](../../build_index.py), [taira_search.py](../../taira_search.py),
-  [research_findings.py](../../research_findings.py),
-  [daily_five.py](../../daily_five.py),
-  [source_acquisition.py](../../source_acquisition.py) — фактическая реализация.
-- [tests](../../tests) — проверяемые свойства, негативные сценарии и ограничения.
-- [ROADMAP.md](../../ROADMAP.md) — отделение выполненных возможностей от
-  запланированных.
-
-BPMN, UML Sequence, ERD и спецификации интерфейсов намеренно оставлены для
-следующих этапов после ревью этого описания.
+BPMN, ERD, UML Sequence и спецификации интерфейсов намеренно не входят в этап.
