@@ -105,7 +105,8 @@ flowchart TB
 
     maincli -->|"читает профиль"| config
     maincli -->|"current schema: read-only<br/>legacy migration: write + backup"| db
-    maincli -->|"research outputs"| work
+    maincli -->|"записывает research outputs"| work
+    work -->|"читает research result и publication manifest"| maincli
     maincli -->|"lock + read + atomic full-file replace"| journal
     legacycli -->|"поиск и export"| db
 
@@ -298,3 +299,4 @@ scheduled runtime.
 | Эксплуатация | Локальные файлы и ручные recovery-контракты | Backup/retention и измеримые SLA |
 
 BPMN, ERD, UML Sequence и спецификации интерфейсов намеренно не входят в этап.
+
