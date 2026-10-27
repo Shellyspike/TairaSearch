@@ -574,6 +574,8 @@ def make_parser() -> argparse.ArgumentParser:
     research_parser.add_argument("--count", type=int)
     research_parser.add_argument("--top-per-interest", type=int, default=30)
     research_parser.add_argument("--pool-size", type=int, default=160)
+    research_parser.add_argument('--discovery-path', action='append', default=[],
+        help='Необязательный префикс relative_path для обзора источника; hard-фильтры сохраняются')
     research_parser.add_argument(
         "--batch-size",
         type=int,
@@ -692,25 +694,16 @@ def load_runtime(args: argparse.Namespace) -> tuple[
         ) from exc
     configure(connection)
     connection.execute("PRAGMA query_only=ON")
+    connection.execute("BEGIN")
     if search_schema_is_current(connection):
         return connection, topics, people
 
-    # Legacy indexes still retain the previous automatic migration behaviour.
+    # A retrieval command must never migrate a user's real database implicitly.
     connection.close()
-    connection = sqlite3.connect(db_path)
-    configure(connection)
-    migration = ensure_search_schema(
-        connection,
-        db_path,
-        aliases=aliases,
-        topics=topics,
-        people=people,
-        source_types=source_types,
-        progress=lambda message: print(message, file=sys.stderr, flush=True),
+    raise RuntimeError(
+        'Устаревшая схема индекса: поиск не выполняет миграцию. '
+        'Согласуйте отдельное обновление индекса; исходная SQLite не изменена.'
     )
-    if migration["backup_path"]:
-        print(f"Резервная копия: {migration['backup_path']}", file=sys.stderr)
-    return connection, topics, people
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -914,6 +907,7 @@ def main(argv: list[str] | None = None) -> int:
                 build_editorial_packet,
                 build_research_findings,
                 load_continuation_chunk_ids,
+                load_discovery_state,
                 print_research_result,
             )
             from research_profile import load_research_profile
@@ -924,6 +918,11 @@ def main(argv: list[str] | None = None) -> int:
                 [Path(path).expanduser().resolve() for path in args.continue_from],
                 profile,
             )
+            discovery_state = load_discovery_state([Path(path).expanduser().resolve() for path in args.continue_from])
+            for path in args.continue_from:
+                previous = json.loads(Path(path).read_text(encoding='utf-8-sig'))
+                if previous.get('filters', {}).get('discovery_paths', []) != args.discovery_path:
+                    raise ValueError('discovery-path отличается от continuation; начните новый preview')
             result = build_research_findings(
                 connection,
                 topics,
@@ -938,6 +937,9 @@ def main(argv: list[str] | None = None) -> int:
                 batch_size=args.batch_size,
                 preview=args.preview,
                 excluded_chunk_ids=excluded_chunk_ids,
+                discovery_rejections=discovery_state['rejections'],
+                discovery_next_lane=discovery_state['next_lane'],
+                discovery_paths=args.discovery_path,
             )
             output = Path(args.output).expanduser().resolve()
             editorial_output = (

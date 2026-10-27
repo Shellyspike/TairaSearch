@@ -149,3 +149,14 @@ GitHub Actions выполняет поддерживаемый набор на P
 [onboarding](research-onboarding.ru.md),
 [пополнение библиотеки](source-acquisition.ru.md).
 
+
+
+## Режимы и обзор источников
+
+См. [retrieval-discovery.md](retrieval-discovery.md). В профиле сохраняется
+`search_mode`: `open` или `focused_people`. Переключение через агента не требует
+переиндексации; старый профиль не переписывается автоматически. `preferred_kinds`
+участвует в мягких поисковых подсказках, а coverage.discovery показывает охват
+и причины пропуска источников. Для отдельного аудита доступен необязательный
+`research-findings --preview --discovery-path <relative-prefix>` с continuation.
+Типы материалов и фильтры профиля продолжают действовать.

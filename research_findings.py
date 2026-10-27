@@ -22,6 +22,9 @@ from daily_five import (
     source_group,
 )
 from text_utils import normalize_text, unique_normalized
+from research_profile import effective_search_mode
+from source_discovery import (candidate_role, discover_sources, discovery_evidence, document_group, focus_evidence,
+                              interleave, preference_terms, source_round_robin)
 
 
 GENERIC_DATE_RE = re.compile(
@@ -58,7 +61,13 @@ def _compact_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
     return {
         "chunk_id": candidate.get("chunk_id"),
         "title": candidate.get("title"),
-        "thesis": candidate.get("what_happened"),
+        "retrieval_excerpt": candidate.get("what_happened"),
+        "selection_status": "unreviewed",
+        "candidate_role": candidate.get('candidate_role', 'source_passage'),
+        "passage_role": "unreviewed",
+        "retrieval": candidate.get("retrieval", {}),
+        "scope_review": {key: value for key, value in candidate.get('scope_review', {}).items()
+                         if key not in {'research_area', 'focus_people'}},
         "person": list(candidate.get("person", [])),
         "topics": list(candidate.get("topics", [])),
         "date": candidate.get("date"),
@@ -118,6 +127,9 @@ def build_editorial_packet(result: dict[str, Any]) -> dict[str, Any]:
             "research_area": result.get("profile", {}).get("research_area"),
             "result_language": result.get("profile", {}).get("result_language"),
             "max_results": result.get("profile", {}).get("max_results"),
+            "search_mode": effective_search_mode(result['profile']),
+            "focus_people": result['profile'].get('focus_people', []),
+            "finding_preferences": result['profile'].get('finding_preferences', {}),
         },
         "coverage": result.get("coverage", {}),
         "stats": result.get("stats", {}),
@@ -126,6 +138,7 @@ def build_editorial_packet(result: dict[str, Any]) -> dict[str, Any]:
             _compact_candidate(item) for item in result.get("alternates", [])
         ],
         "comparison_context_count": len(result.get("comparison_contexts", [])),
+        "candidate_pool": [item['chunk_id'] for item in result.get('final', []) + result.get('alternates', [])],
         "continuation": result.get("continuation", {}),
         "workflow": {
             "first_pass": "Review this packet once; do not print the full result.",
@@ -271,6 +284,27 @@ def _quoted_query(terms: list[str]) -> str:
     return " OR ".join('"' + term.replace('"', '""') + '"' for term in terms)
 
 
+def load_discovery_state(paths: list[Path]) -> dict:
+    """Called after the ordinary continuation/profile validation, including legacy files."""
+    state = {'rejections': {}, 'next_lane': 0}
+    for path in paths:
+        previous = json.loads(path.read_text(encoding='utf-8-sig')).get('continuation', {})
+        version = previous.get('discovery_state_version')
+        if version is None:
+            continue
+        if version != 1:
+            raise ValueError(f'{path}: неизвестная версия discovery continuation')
+        rejections = previous.get('discovery_rejections', {})
+        turn = previous.get('discovery_next_lane', 0)
+        if not isinstance(rejections, dict) or not all(
+            isinstance(k, str) and isinstance(v, str) for k, v in rejections.items()
+        ) or type(turn) is not int or turn not in (0, 1):
+            raise ValueError(f'{path}: повреждено состояние discovery continuation')
+        state['rejections'].update(rejections)
+        state['next_lane'] = turn
+    return state
+
+
 def _search_args(
     profile: dict[str, Any], interest: dict[str, Any], top: int
 ) -> Namespace:
@@ -378,6 +412,9 @@ def _select_diverse(
                 if candidate in selected or source_counts[source_key] >= max_per_source:
                     continue
                 score = candidate["retrieval_score"]
+                if effective_search_mode(profile) == 'open':
+                    score += 0.25 * len(set(candidate['person']) &
+                        {person['name'] for person in profile.get('focus_people', [])})
                 score += sum(
                     0.5 for topic in candidate["topics"] if topic_counts[topic] == 0
                 )
@@ -416,6 +453,9 @@ def build_research_findings(
     batch_size: int = 25,
     preview: bool = False,
     excluded_chunk_ids: set[str] | None = None,
+    discovery_rejections: dict[str, str] | None = None,
+    discovery_next_lane: int = 0,
+    discovery_paths: list[str] | None = None,
 ) -> dict[str, Any]:
     """Retrieve candidates without changing the index, profile, or journal."""
     requested_count = profile["max_results"] if count is None else count
@@ -426,6 +466,8 @@ def build_research_findings(
     used = load_used_finds(used_finds_path)
     excluded_before = set(excluded_chunk_ids or ())
     by_chunk: dict[str, dict[str, Any]] = {}
+    mode = effective_search_mode(profile)
+    discovery_rejections = dict(discovery_rejections or {})
     interest_hits: dict[str, int] = {}
     for interest in profile["interests"]:
         rows = search_function(
@@ -439,7 +481,7 @@ def build_research_findings(
         for row in rows:
             candidate = by_chunk.setdefault(
                 row["chunk_id"],
-                {**row, "matched_interests": [], "retrieval_score": 0.0},
+                {**row, "matched_interests": [], "retrieval_score": 0.0, "retrieval_methods": ["thematic_fts"]},
             )
             candidate["matched_interests"].append(interest["id"])
             candidate["retrieval_score"] += interest["weight"] / max(row["rank"], 1)
@@ -453,13 +495,32 @@ def build_research_findings(
         ),
         key=lambda item: (-item["retrieval_score"], -item["score"], item["chunk_id"]),
     )
+    # Exploration is independent of name/topic vocabulary, but never of hard filters.
+    # A soft preference probe is optional; lack of lexical overlap (e.g. Russian
+    # preferences and Japanese evidence) cannot suppress uniform exploration.
+    preferences = preference_terms(profile)
+    preference_hits: set[str] = set()
+    if preferences:
+        preference_args = _search_args(profile, {'terms': preferences}, pool_size)
+        preference_hits = {row['chunk_id'] for row in search_function(
+            connection, preference_args, topics, people, events_only=False)}
+    discovery_rows, discovery_stats = (discover_sources(
+        connection, profile, excluded_before, preference_hits, document_group,
+        discovery_rejections, discovery_paths) if connection is not None else ([], {'sources': {}}))
+    exploration_by_id = {row['chunk_id']: row for row in discovery_rows}
+    for row in ranked_unseen:
+        discovery = exploration_by_id.get(row['chunk_id'])
+        if discovery:
+            row['retrieval_methods'] = list(dict.fromkeys(row['retrieval_methods'] + discovery['retrieval_methods']))
+    # Keep the thematic metadata for overlapping IDs in either lane.
+    discovery_rows = [by_chunk.get(row['chunk_id'], row) for row in discovery_rows]
+    ranked_unseen = interleave(ranked_unseen, discovery_rows)
     ranked_pool = ranked_unseen[:pool_size]
     verified: list[dict[str, Any]] = []
     python_rejected_ids: set[str] = set()
     rejected: Counter[str] = Counter()
     focus_mentions: Counter[str] = Counter()
     verified_interest_mentions: Counter[str] = Counter()
-    include_unlisted = profile["finding_preferences"]["include_unlisted_people"]
     for raw in ranked_pool:
         context = context_function(connection, raw["chunk_id"], 1, 1)
         target = next((row for row in context if row["target"]), None)
@@ -467,15 +528,27 @@ def build_research_findings(
             rejected["quality_or_context"] += 1
             python_rejected_ids.add(str(raw["chunk_id"]))
             continue
-        matched_interests = [
-            interest_by_id[item] for item in raw["matched_interests"]
-        ]
+        # An FTS alias/annotation hit is not necessarily target-text evidence.
+        # Exploration may retain the passage, but may not inherit an unproved topic.
+        matched_interests = [interest_by_id[item] for item in raw['matched_interests']
+                             if _find_term(normalize_text(target['text']), interest_by_id[item]['terms'])]
+        discovery = 'source_exploration' in raw['retrieval_methods']
         excerpt, matched_term, matched_focus_people = _evidence(
-            target["text"], matched_interests, profile
-        )
-        if excerpt is None or matched_term is None:
-            rejected["interest_not_in_target_chunk"] += 1
-            python_rejected_ids.add(str(raw["chunk_id"]))
+            target['text'], matched_interests, profile)
+        preference_matches = []
+        if mode == 'focused_people' and profile['focus_people']:
+            # Search a paragraph actually containing an alias, not a name in a
+            # neighboring chunk or an unrelated query-centered excerpt.
+            excerpt = focus_evidence(target['text'], profile)
+            matched_focus_people = _matched_people(excerpt or '', profile)
+        elif excerpt is None and discovery and mode == 'open':
+            excerpt, preference_matches = discovery_evidence(target['text'], profile)
+            matched_focus_people = _matched_people(excerpt or '', profile)
+        if excerpt is None:
+            rejected['interest_not_in_target_chunk' if not discovery else 'no_readable_discovery_passage'] += 1
+            python_rejected_ids.add(str(raw['chunk_id']))
+            if discovery:
+                discovery_rejections[raw['chunk_id']] = exploration_by_id[raw['chunk_id']]['text_hash']
             continue
         if not _evidence_readable(excerpt):
             rejected["unreliable_local_ocr"] += 1
@@ -483,7 +556,7 @@ def build_research_findings(
             continue
         if (
             profile["focus_people"]
-            and not include_unlisted
+            and mode == "focused_people"
             and not matched_focus_people
         ):
             rejected["focus_person_not_in_target_chunk"] += 1
@@ -495,28 +568,28 @@ def build_research_findings(
         )
         interest_ids = [item["id"] for item in matched_interests]
         verified_interest_mentions.update(interest_ids)
-        primary_interest = max(
-            matched_interests,
-            key=lambda item: (item["weight"], -interest_ids.index(item["id"])),
-        )
-        names = ", ".join(candidate_people)
-        title = (
-            f"{names} — {primary_interest['label']}"
-            if names
-            else primary_interest["label"]
-        )
+        primary_interest = (max(matched_interests,
+            key=lambda item: (item['weight'], -interest_ids.index(item['id'])))
+            if matched_interests else None)
+        names = ', '.join(candidate_people)
+        label = primary_interest['label'] if primary_interest else 'Source passage for scope and story review'
+        title = f'{names} — {label}' if names else label
         event = {
             "title": title,
             "person": candidate_people,
             "date": _generic_date(excerpt),
             "place": None,
             "what_happened": excerpt,
+            "retrieval_excerpt": excerpt,
+            "candidate_role": candidate_role(raw['relative_path'], excerpt),
+            "passage_role": "unreviewed",
+            "selection_status": "unreviewed",
             "why_interesting": (
-                f"Matches the saved research interest: {primary_interest['label']}. "
+                f"Retrieval route: {', '.join(raw['retrieval_methods'])}. "
                 "Interpret only from the verified source context."
             ),
             "source": target["source"],
-            "source_group": source_group(target["source"]),
+            "source_group": document_group({**raw, "source": target["source"]}),
             "source_type": target["source_type"],
             "index_source_type": target["source_type"],
             "filename": target["filename"],
@@ -527,7 +600,26 @@ def build_research_findings(
             "chunk_no": target["chunk_no"],
             "chunk_id": target["chunk_id"],
             "topics": interest_ids,
-            "primary_topic": primary_interest["id"],
+            "primary_topic": primary_interest['id'] if primary_interest else None,
+            "retrieval": {
+                "methods": raw['retrieval_methods'],
+                "reason": ('Topical term evidence' if matched_interests else
+                           'Source-balanced exploration of a previously unexposed document position'),
+                "matched_term": matched_term,
+                "preference_lexical_matches": preference_matches,
+                "preference_probe_hit": raw['chunk_id'] in preference_hits,
+                "preferred_kinds": profile['finding_preferences'].get('preferred_kinds', []),
+                "source_position": target['chunk_no'],
+            },
+            "scope_review": {
+                "status": "pending",
+                "search_mode": mode,
+                "research_area": profile['research_area'],
+                "focus_people": profile['focus_people'],
+                "required": "Verify substantive connection to the research area" +
+                    (' and a selected person; a name alone is insufficient' if mode == 'focused_people' else '') +
+                    '; reject unrelated or uncertain passages before editorial acceptance',
+            },
             "text_quality": target["text_quality"],
             "verified_context": {
                 "status": "ok",
@@ -552,6 +644,10 @@ def build_research_findings(
             rejected["used_duplicate"] += 1
         verified.append(event)
 
+    verified_ids = {item['chunk_id'] for item in verified}
+    for raw in ranked_pool:
+        if raw['chunk_id'] not in verified_ids and raw['chunk_id'] in exploration_by_id:
+            discovery_rejections[raw['chunk_id']] = exploration_by_id[raw['chunk_id']]['text_hash']
     verified_before_collapse = verified
     verified = _collapse_candidates(verified_before_collapse)
     kept_ids = {str(item["chunk_id"]) for item in verified}
@@ -568,11 +664,17 @@ def build_research_findings(
             item["source"],
         )
     )
-    final = _select_diverse(verified, requested_count, profile)
-    final_ids = {item["chunk_id"] for item in final}
-    alternates = [item for item in verified if item["chunk_id"] not in final_ids][
-        : max(0, batch_size - len(final))
-    ]
+    thematic = [item for item in verified if 'thematic_fts' in item['retrieval']['methods']]
+    exploration = [item for item in verified if 'source_exploration' in item['retrieval']['methods']]
+    order = {row['chunk_id']: i for i, row in enumerate(discovery_rows)}
+    exploration.sort(key=lambda item: order[item['chunk_id']])
+    lanes = [source_round_robin(thematic, document_group), exploration]
+    if discovery_next_lane:
+        lanes.reverse()
+    batch = interleave(*lanes)[:batch_size]
+    final = _select_diverse(batch, min(requested_count, len(batch)), profile)
+    final_ids = {item['chunk_id'] for item in final}
+    alternates = [item for item in batch if item['chunk_id'] not in final_ids]
     comparison_contexts = _collect_comparison_contexts(
         verified, [*final, *alternates]
     )
@@ -605,18 +707,33 @@ def build_research_findings(
         )
         // 2,
     }
+    for path, info in discovery_stats['sources'].items():
+        info['checked'] = sum(row['relative_path'] == path for row in ranked_pool)
+        info['emitted'] = sum(row['relative_path'] == path for row in batch)
+        info['emitted_chunk_nos'] = [row['chunk_no'] for row in batch if row['relative_path'] == path]
+        info['omission_reason'] = (None if info['emitted'] else
+            'hard_filter_or_navigation' if not info['eligible'] else
+            'not_in_this_batch; use continuation (aliases may share a document turn)')
     return {
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "mode": "research-findings",
         "preview": preview,
         "profile": profile,
         "filters": {
+            "discovery_paths": discovery_paths or [],
             "material_types": profile["material_types"],
             "quality": ["good"],
             "count": requested_count,
         },
         "coverage": {
             "search_hits": interest_hits,
+            "search_mode": mode,
+            "discovery": discovery_stats,
+            "retrieval_methods": {
+                method: {'checked': sum(method in row['retrieval_methods'] for row in ranked_pool),
+                         'emitted': sum(method in row['retrieval']['methods'] for row in batch)}
+                for method in ['thematic_fts', 'source_exploration', 'preference_lexical']
+            },
             "verified_interest_mentions": dict(verified_interest_mentions),
             "interests_without_hits": missing_interests,
             "focus_people_mentions": dict(focus_mentions),
@@ -629,8 +746,9 @@ def build_research_findings(
             ),
         },
         "stats": {
-            "unique_pool": len(by_chunk),
-            "excluded_from_previous_batches": len(set(by_chunk) & excluded_before),
+            "unique_pool": len(ranked_unseen) + len(set(by_chunk) & excluded_before),
+            "excluded_from_previous_batches": max(len(set(by_chunk) & excluded_before),
+                sum(info['previously_exposed'] for info in discovery_stats['sources'].values())),
             "pool_checked": len(ranked_pool),
             "batch_size": batch_size,
             "verified_candidates": len(verified),
@@ -645,6 +763,9 @@ def build_research_findings(
         "comparison_contexts": comparison_contexts,
         "continuation": {
             "seen_before_count": len(excluded_before),
+            "discovery_state_version": 1,
+            "discovery_rejections": discovery_rejections,
+            "discovery_next_lane": (discovery_next_lane + len(batch)) % 2,
             "candidate_chunk_ids": batch_chunk_ids,
             "python_rejected_chunk_ids": sorted(python_rejected_ids),
             "collapsed_duplicate_chunk_ids": sorted(collapsed_ids),

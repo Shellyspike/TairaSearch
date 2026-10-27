@@ -340,7 +340,12 @@ class ResearchProfileTests(unittest.TestCase):
         payload = self.run_profile(
             "rome", profile_path, output_name="missing-interest-results"
         )
-        self.assertEqual(payload["final"], [])
+        # Open discovery may offer evidence from the permitted library without
+        # claiming that the missing thematic query matched or scope was verified.
+        for candidate in payload['final'] + payload['alternates']:
+            self.assertEqual(candidate['scope_review']['status'], 'pending')
+            self.assertIsNone(candidate['primary_topic'])
+            self.assertEqual(candidate['topics'], [])
         self.assertEqual(
             payload["coverage"]["interests_without_hits"], ["not-in-corpus"]
         )

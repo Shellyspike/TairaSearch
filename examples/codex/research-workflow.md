@@ -82,3 +82,18 @@ Errors reading the index, profile, source context, or journal are failures to
 report. Do not turn them into an empty result. Do not claim the corpus is
 exhausted merely because current profile terms or limits produced no finding.
 
+
+
+## Scope and person review
+
+See `docs/retrieval-discovery.md`. The whole candidate_pool (final + alternates)
+is unreviewed; retrieval_excerpt is raw evidence, not a story. Resolve scope_review
+as accepted, rejected or uncertain with a reason and exact quotations before
+novelty and editorial selection. Reject out-of-area or uncertain passages.
+For focused_people, identify a selected person and verify a substantive connection
+to the action, not just their name. Preserve the profile's mode and preferred_kinds.
+New manifests carry root search_mode and focus_people (names), and each card has
+scope_review: status=accepted, reason, evidence (chunk_id/quote objects), plus
+focus_person in person mode. Pending/uncertain cannot be published. Legacy
+manifests remain unchanged. coverage.discovery explains source omissions;
+continuation advances through document positions instead of repeating FTS tops.

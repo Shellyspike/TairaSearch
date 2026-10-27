@@ -145,3 +145,14 @@ production SQLite, `used_finds.csv`, local profiles, and secrets are excluded.
 See also the [AI demo](ai-demo.md), [onboarding](research-onboarding.md), and
 [library acquisition](source-acquisition.md).
 
+
+
+## Search modes and source exploration
+
+See [retrieval-discovery.md](retrieval-discovery.md). Profiles explicitly save
+`search_mode`: `open` or `focused_people`. The agent can switch modes without
+reindexing; legacy profiles are not rewritten automatically. `preferred_kinds`
+supplies soft discovery probes, and coverage.discovery explains coverage and
+source omissions. Optional `research-findings --preview --discovery-path
+<relative-prefix>` audits a source with continuation while preserving all
+material-type and source filters. A source audit is not a publication quota.

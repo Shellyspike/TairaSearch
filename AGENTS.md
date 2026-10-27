@@ -50,7 +50,9 @@ Reply in the user's language. Read the matching onboarding files completely:
 
 Follow this order:
 
-1. Interview the user about interests, useful kinds of stories, language,
+1. Offer open discovery or selected-person search, save the confirmed search_mode,
+   and follow the mode-change/legacy rules in docs/research-onboarding.md.
+   Interview the user about interests, useful kinds of stories, language,
    length, and style. Confirm your understanding, then create the ignored local
    `research_profile.json`; never ask the user to edit JSON.
 2. Offer a recurring personal-news edition. If the user is interested, collect
