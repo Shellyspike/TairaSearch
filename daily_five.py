@@ -1160,11 +1160,33 @@ def _load_publication_manifest(
     if not isinstance(cards, list) or not cards:
         raise ValueError(f"{manifest_path}: ожидается непустой массив cards")
 
+    # New mode-aware editions require a separate evidence-backed scope decision.
+    # Legacy manifests omit search_mode and retain exact recovery semantics.
+    mode = payload.get('search_mode')
+    if mode is not None and (not isinstance(mode, str) or mode not in {'open', 'focused_people'}):
+        raise ValueError('Неизвестный search_mode в манифесте')
+    selected_people = payload.get('focus_people', [])
+    if mode == 'focused_people' and (not isinstance(selected_people, list) or not selected_people
+            or not all(isinstance(person, str) and person.strip() for person in selected_people)):
+        raise ValueError('focused_people требует имена focus_people в манифесте')
+
     validated_cards: list[dict[str, Any]] = []
     events: list[dict[str, Any]] = []
     for index, card in enumerate(cards, start=1):
         if not isinstance(card, dict):
             raise ValueError(f"{manifest_path}: cards[{index}] должен быть объектом")
+        if mode is not None:
+            scope = card.get('scope_review', {})
+            if not isinstance(scope, dict) or scope.get('status') != 'accepted' or not isinstance(scope.get('reason'), str) or not scope['reason'].strip():
+                raise ValueError('scope_review: требуется accepted и причина; pending/uncertain не публикуются')
+            evidence = scope.get('evidence')
+            if not isinstance(evidence, list) or not evidence or not all(
+                isinstance(item, dict) and isinstance(item.get('chunk_id'), str) and item['chunk_id'].strip()
+                and isinstance(item.get('quote'), str) and item['quote'].strip() for item in evidence
+            ):
+                raise ValueError('scope_review: требуются точные evidence chunk_id/quote')
+            if mode == 'focused_people' and scope.get('focus_person') not in selected_people:
+                raise ValueError('scope_review: подтвердите связь с выбранным focus_person')
         card_markdown = card.get("card_markdown")
         if not isinstance(card_markdown, str) or not card_markdown.strip():
             raise ValueError(

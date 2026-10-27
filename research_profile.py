@@ -11,6 +11,15 @@ from text_utils import normalize_text, unique_normalized
 
 PROFILE_SCHEMA_VERSION = 1
 MATERIAL_TYPES = {"historical", "literary", "scholarship", "other"}
+SEARCH_MODES = {"open", "focused_people"}
+
+
+def effective_search_mode(profile: dict[str, Any]) -> str:
+    """Missing mode retains the existing unlisted-people policy, without rewriting it."""
+    return profile.get('search_mode') or (
+        'open' if profile['finding_preferences'].get('include_unlisted_people', True)
+        else 'focused_people'
+    )
 
 
 def _strings(value: Any, label: str, *, allow_empty: bool = True) -> list[str]:
@@ -132,7 +141,14 @@ def load_research_profile(path: Path) -> dict[str, Any]:
         )
     notes = normalize_text(str(preferences.get("notes", "")))
 
+    search_mode = payload.get('search_mode')
+    if search_mode is not None and (not isinstance(search_mode, str) or search_mode not in SEARCH_MODES):
+        raise ValueError(f'{path}: search_mode должен быть open или focused_people')
+    if search_mode == 'focused_people' and not focus_people:
+        raise ValueError(f'{path}: для поиска по персонажам выберите focus_people через AI-агента')
+
     return {
+        **({'search_mode': search_mode} if search_mode is not None else {}),
         "schema_version": PROFILE_SCHEMA_VERSION,
         "name": name,
         "research_area": research_area,

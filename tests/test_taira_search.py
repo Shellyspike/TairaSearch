@@ -376,7 +376,7 @@ class TairaSearchIntegrationTests(unittest.TestCase):
         rows = [json.loads(line) for line in result.stdout.splitlines()]
         self.assertEqual(rows[0]["filename"], "second.txt")
 
-    def test_fts_legacy_database_migrates_with_backup(self) -> None:
+    def test_fts_legacy_database_refuses_implicit_migration(self) -> None:
         root = self.root / "legacy-migration"
         root.mkdir()
         db = root / "legacy.sqlite3"
@@ -412,6 +412,7 @@ class TairaSearchIntegrationTests(unittest.TestCase):
                 INSERT INTO chunks_fts VALUES('legacy_chunk', '平維盛は病む');
                 """
             )
+        before = db.read_bytes()
         result = subprocess.run(
             [
                 sys.executable, str(PROJECT / "taira_search.py"), "search",
@@ -419,14 +420,13 @@ class TairaSearchIntegrationTests(unittest.TestCase):
             ],
             cwd=PROJECT, text=True, encoding="utf-8", capture_output=True, check=False,
         )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        row = json.loads(result.stdout.strip())
-        self.assertEqual(row["people"], ["維盛"])
-        self.assertEqual(row["source_type"], "historical")
-        self.assertEqual(len(list(root.glob("legacy.sqlite3.pre-fts5-v2-*.bak"))), 1)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn('схема', result.stderr)
+        self.assertEqual(db.read_bytes(), before)
+        self.assertEqual(len(list(root.glob("legacy.sqlite3.pre-fts5-v2-*.bak"))), 0)
         with contextlib.closing(sqlite3.connect(db)) as connection:
             columns = {item[1] for item in connection.execute("PRAGMA table_info(chunks)")}
-            self.assertTrue({"source_type", "people_json", "text_quality"}.issubset(columns))
+            self.assertFalse({"source_type", "people_json", "text_quality"} & columns)
             self.assertEqual(
                 connection.execute("SELECT COUNT(*) FROM chunks_fts").fetchone()[0], 1
             )

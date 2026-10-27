@@ -42,6 +42,33 @@ types, and filters. Pure editorial preferences belong in
 `notes`. `examples/profiles/` documents the format, but the user does not edit
 it manually.
 
+
+### Search mode
+
+During the first interview, offer two plain choices:
+- **People I care about** — stories substantively connected to selected people. A name mention alone is insufficient. If no people are listed, help the user choose them.
+- **Open discovery** — interesting stories within the research area, including unknown people and everyday incidents. Listed people may get priority but are not required.
+
+After confirmation, save `search_mode`: `focused_people` or `open`.
+`preferred_kinds` supplies soft lexical discovery probes; language-independent
+exploration of permitted sources still runs without those matches. Python does
+not semantically judge interest or scope. The agent resolves `scope_review` using
+full evidence, then independently decides editorial acceptance. In person mode,
+verify the selected person's substantive role; a bibliography or neighbouring
+story mentioning their name is insufficient.
+
+Later the user can ask the agent to switch modes. Repeat the choice, obtain
+agreement, edit only the profile, and run a new preview. No installation or
+reindexing is needed. Continuation from a different profile is rejected. Do not
+change automations or rewrite an existing profile during an ordinary edition.
+
+Legacy profiles without `search_mode` retain the `include_unlisted_people`
+policy: `true` permits open discovery, `false` keeps the selected-person
+restriction. A legacy empty people list keeps its old behaviour; clarify the
+choice at the next requested profile change rather than silently activating a
+new mode. Explicit `focused_people` requires nonempty `focus_people`. An explicit
+mode takes precedence over the legacy boolean.
+
 ### 3. Offer personal editions
 
 Immediately after profile confirmation, the agent offers recurring personal
