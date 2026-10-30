@@ -112,6 +112,8 @@ class ReleaseSafetyTests(unittest.TestCase):
             self.assertIn("README.ru.md", names)
             self.assertIn("build_index.py", names)
             self.assertIn("docs/ai-workflow.md", names)
+            self.assertIn("docs/editorial-system.md", names)
+            self.assertIn("examples/codex/reader-review.ru.md", names)
             self.assertIn("docs/ai-demo.ru.md", names)
             self.assertIn("docs/daily-automation-proposal.md", names)
             self.assertIn("docs/development.md", names)

@@ -1,8 +1,12 @@
 # Proposal: make the daily cards more engaging
 
-**Status:** review-only proposal. It has not been applied to the active Codex
-automation, has not published anything, and has not changed a publication
-journal.
+**Status: superseded historical proposal.** It is not an active workflow or
+current writing instruction. Use [editorial-system.md](editorial-system.md),
+[the daily template](../examples/codex/daily-news-prompt.md) and the matching
+saved-profile research workflow instead. In particular, the old recommendations
+below to use `daily-five`, explain why every story matters and show technical
+metadata in reader cards are obsolete. The example below is retained as history,
+not as the current literary reference. This file does not update an active task.
 
 ## Proposed editorial change
 

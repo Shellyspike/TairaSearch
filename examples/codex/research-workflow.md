@@ -5,9 +5,10 @@ technical duplicates, and supplies source context. You are the researcher and
 editor: inspect the evidence, decide semantic novelty, continue searching when
 needed, and choose the final findings.
 
-1. Read `docs/ai-workflow.md` and `examples/codex/daily-news-prompt.md`. From
-   the latter use the editorial style, source criticism, factuality, semantic
-   review classes, and publication-safety rules. Do not replace this
+1. Read `docs/ai-workflow.md`, `examples/codex/daily-news-prompt.md`,
+   `docs/editorial-system.md` and `examples/codex/reader-review.ru.md`. Use
+   their writing/review rules and the daily template's source criticism,
+   factuality, semantic-review classes and publication-safety rules. Do not replace this
    profile-driven workflow with legacy `daily-five`.
 2. If `research_profile.json` does not exist, follow
    `examples/codex/research-onboarding.md`: interview me briefly, confirm the
@@ -53,12 +54,23 @@ needed, and choose the final findings.
    saved evidence lacks necessary corroboration or scholarship, and reuse their
    result instead of issuing the same search again. Verify a researcher's
    actual conclusion and distinguish it from historical-source evidence.
-8. Write only the findings that survive your source and semantic review, with
-   exact `relative_path`, `chunk_id`, source role, and cautious attribution.
-   Follow the saved style: for vivid, expanded cards, open with a strong
-   supported detail or conflict, give enough context, and explain why the
-   finding matters without dramatizing beyond the source. Explain briefly when
-   fewer results were justified.
+8. After source and novelty checks, independently select reader-worthy stories.
+   Write and edit under `docs/editorial-system.md` and the operational protocol
+   `examples/codex/reader-review.ru.md`. Check the whole narrative for a newcomer:
+   roles, context and supported causal links, then sentences. Do not invent
+   missing circumstances, append an obligatory moral or explain the joke.
+   Treat 150–250 words as guidance, not a quota.
+   Before finishing a new newspaper preview or registering an edition, invoke a
+   separate reviewer with `spawn_agent`, `fork_turns="none"`. First the reviewer
+   saves a reading of cards/rules/available approved examples without dossiers;
+   only then receives full evidence and checks support and essential omissions.
+   Resolve remarks and return revisions to the same agent, at most three rounds
+   total. Save concrete remarks, a source-detail map, versions and SHA-256 hashes
+   of exact accepted texts under `work/research/`. Exclude unapproved cards; an
+   unavailable reviewer does not permit publication. Judge the final prose yourself
+   after pass. Reader cards end with a compact source; IDs, paths, novelty labels,
+   dossier quotes and review notes remain in structured working artifacts.
+   This is an agent-enforced instruction, not a Python validation feature.
 9. Use the documented commands directly. Do not call `--help`, inspect tests or
    source code, or split one saved packet into repeated tool reads merely to
    rediscover standard syntax. Minimize tool calls without reducing candidate
