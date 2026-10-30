@@ -101,3 +101,14 @@ Do not restart onboarding for ordinary code, test, or documentation work. Do
 not replace a confirmed profile merely because an example profile exists. For
 manual commands, architecture, tests, and release checks, use
 `docs/development.md` (or `docs/development.ru.md`).
+
+## Personal newspaper writing and independent review
+
+For new personal editions and newspaper previews, follow `docs/editorial-system.md`
+and the matching saved-profile research workflow. Invoke a separate literary
+reviewer through `spawn_agent`: first reader-only review, then source/meaning
+retention review. Do not publish/register unapproved cards or substitute the
+author's self-review if the tool is unavailable. At most three rounds total.
+The CLI does not enforce this gate; preserve publication synchronization and
+unchanged recovery of registered editions. Private examples and run artifacts
+stay local and must not enter the public repository.

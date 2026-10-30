@@ -79,19 +79,25 @@ AI news demo retain their contracts.
 
 ## Daily historical news
 
-1. Python queries the local SQLite FTS5 index and ranks matches with BM25.
-2. `daily-five` applies source, topic, person, quality, duplicate, and diversity
-   rules, retrieves neighbouring chunks, and returns up to five candidates.
-3. If it returns one to five candidates, a Codex automation reads those
-   candidates and their context. Zero candidates is a successful empty result:
-   no cards or publication manifest are created and the journal is unchanged.
-4. Codex distinguishes primary, literary, and scholarly sources, checks the
-   available evidence, and writes engaging human-scale cards with citations.
-   Historical or cultural interest belongs in the story; search-system
-   commentary does not. Card length follows the evidence rather than a quota.
-5. Codex saves the exact finalized cards to a local publication manifest and
-   asks Python to record those selected findings before returning the cards in
-   chat. Later runs can then avoid repeats.
+Use the saved-profile `research-findings --preview` route and matching
+`examples/codex/research-workflow.md` or `.ru.md`, not legacy `daily-five`.
+After research and novelty review, independently choose stories, write for a
+reader unfamiliar with the setting, and follow [editorial-system.md](editorial-system.md).
+A separate reviewer first reads cards without dossiers, then checks full evidence
+for additions and essential omissions. Resolve remarks within three rounds and
+withhold unapproved cards. This extends the agent workflow, not the CLI validator.
+The author remains responsible for quality after pass.
+
+The retrieval interaction counts above concern Python evidence handoff only;
+they exclude writing, the independent agent and revision rounds. Do not treat
+them as an end-to-end limit or a reason to skip literary/source checks.
+
+Legacy `daily-five` returns up to five candidates and remains supported for
+manual/demo compatibility. Old demo outputs illustrate that fixed handoff;
+they are not the daily editorial standard.
+An explicitly requested unregistered preview does not write the publication
+journal. New publication still requires explicit authorization and the existing
+record-then-render workflow described below.
 
 The Python retrieval command does not publish a message or silently update the
 publication journal. Publication and editorial synthesis belong to the Codex

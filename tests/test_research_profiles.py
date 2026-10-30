@@ -740,10 +740,14 @@ class ResearchProfileTests(unittest.TestCase):
                     else "Do not call `--help`",
                     prompt,
                 )
-                if path.name.endswith("ru.md"):
-                    self.assertIn("живой развёрнутой подачи", prompt)
-                else:
-                    self.assertIn("vivid, expanded cards", prompt)
+                # Both entry points must link to the shared review contract,
+                # not embed an older prose-style slogan.
+                for instruction in (
+                    "docs/editorial-system.md",
+                    "examples/codex/reader-review.ru.md",
+                ):
+                    self.assertIn(instruction, prompt)
+                    self.assertTrue((PROJECT / instruction).is_file())
 
     def test_editorial_packet_is_compact_and_full_result_keeps_context(self) -> None:
         full = self.run_profile(
