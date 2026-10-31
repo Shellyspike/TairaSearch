@@ -114,7 +114,7 @@ the local CLI receives no display acknowledgement from Codex.
 The three states are intentionally separate:
 
 - `prepared`: the validated manifest contains every complete `card_markdown`;
-- `registered`: every card ID from that manifest is present in the journal;
+- `registered`: every card matches its journal registration;
 - `delivered`: the complete edition is visibly present in the task/chat result.
 
 TairaSearch persists the first two states. It cannot persistently prove the

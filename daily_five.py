@@ -1236,17 +1236,16 @@ def publication_status_from_json(
 ) -> dict[str, Any]:
     """Report durable preparation/registration state without claiming delivery."""
     publication_id, cards, events = _load_publication_manifest(manifest_path)
-    registered_ids = {row["id"] for row in _read_used_rows(used_path)}
-    card_ids = [event["chunk_id"] for event in events]
-    missing_ids = [
-        finding_id for finding_id in card_ids if finding_id not in registered_ids
-    ]
+    missing_ids, conflicting_ids = _publication_registration_issues(
+        events, _read_used_rows(used_path)
+    )
     return {
         "publication_id": publication_id,
         "card_count": len(cards),
         "prepared": True,
-        "registered": not missing_ids,
+        "registered": not missing_ids and not conflicting_ids,
         "missing_registration_ids": missing_ids,
+        "conflicting_registration_ids": conflicting_ids,
         "delivery": "unconfirmed",
     }
 
@@ -1256,16 +1255,21 @@ def render_registered_publication_from_json(
 ) -> tuple[str, str]:
     """Return the exact saved card Markdown only after journal registration."""
     publication_id, cards, events = _load_publication_manifest(manifest_path)
-    registered_ids = {row["id"] for row in _read_used_rows(used_path)}
-    missing_ids = [
-        event["chunk_id"]
-        for event in events
-        if event["chunk_id"] not in registered_ids
-    ]
-    if missing_ids:
+    missing_ids, conflicting_ids = _publication_registration_issues(
+        events, _read_used_rows(used_path)
+    )
+    if missing_ids or conflicting_ids:
+        details = []
+        if missing_ids:
+            details.append(f"отсутствуют ID: {', '.join(missing_ids)}")
+        if conflicting_ids:
+            details.append(
+                "ID зарегистрированы с другим содержанием: "
+                + ", ".join(conflicting_ids)
+            )
         raise ValueError(
             f"{manifest_path}: выпуск не полностью зарегистрирован; "
-            f"отсутствуют ID: {', '.join(missing_ids)}"
+            + "; ".join(details)
         )
     return publication_id, "\n\n".join(str(card["card_markdown"]) for card in cards)
 
@@ -1340,6 +1344,47 @@ def _join_used_values(value: Any) -> str:
     return normalize_text(str(value))
 
 
+def _used_values_for_event(event: dict[str, Any]) -> dict[str, str]:
+    chunk_id = normalize_text(str(event.get("chunk_id", "")))
+    finding_type = normalize_text(str(event.get("type", "event"))).casefold()
+    if finding_type not in USED_TYPES:
+        raise ValueError(f"{chunk_id}: type должен быть event или interpretation")
+    return {
+        "id": chunk_id,
+        "type": finding_type,
+        "persons": _join_used_values(event.get("person", [])),
+        "topics": _join_used_values(event.get("topics", [])),
+        "short_description": normalize_text(
+            str(event.get("what_happened", event.get("title", "")))
+        )[:500],
+        "source": normalize_text(str(event.get("source", ""))),
+    }
+
+
+def _used_row_matches_event(row: dict[str, str], event: dict[str, Any]) -> bool:
+    expected = _used_values_for_event(event)
+    return all(
+        normalize_text(row.get(field, "")) == value
+        for field, value in expected.items()
+    )
+
+
+def _publication_registration_issues(
+    events: list[dict[str, Any]], rows: list[dict[str, str]]
+) -> tuple[list[str], list[str]]:
+    rows_by_id = {normalize_text(row["id"]): row for row in rows}
+    missing: list[str] = []
+    conflicting: list[str] = []
+    for event in events:
+        chunk_id = normalize_text(str(event.get("chunk_id", "")))
+        row = rows_by_id.get(chunk_id)
+        if row is None:
+            missing.append(chunk_id)
+        elif not _used_row_matches_event(row, event):
+            conflicting.append(chunk_id)
+    return missing, conflicting
+
+
 def _atomic_write_used_rows(rows: list[dict[str, str]], path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temp_name = tempfile.mkstemp(
@@ -1408,33 +1453,28 @@ def _publication_lock(used_path: Path, *, timeout: float = 15.0):
 def append_used(events: list[dict[str, Any]], used_path: Path) -> tuple[int, int]:
     with _publication_lock(used_path):
         existing = _read_used_rows(used_path)
-        existing_ids = {normalize_text(record["id"]) for record in existing}
+        existing_by_id = {
+            normalize_text(record["id"]): record for record in existing
+        }
         rows: list[dict[str, str]] = []
         skipped = 0
         for event in events:
-            chunk_id = normalize_text(str(event.get("chunk_id", "")))
-            if not chunk_id or chunk_id in existing_ids:
+            values = _used_values_for_event(event)
+            chunk_id = values["id"]
+            if not chunk_id:
                 skipped += 1
                 continue
-            finding_type = normalize_text(str(event.get("type", "event"))).casefold()
-            if finding_type not in USED_TYPES:
-                raise ValueError(
-                    f"{chunk_id}: type должен быть event или interpretation"
-                )
-            rows.append(
-                {
-                    "id": chunk_id,
-                    "type": finding_type,
-                    "persons": _join_used_values(event.get("person", [])),
-                    "topics": _join_used_values(event.get("topics", [])),
-                    "short_description": normalize_text(
-                        str(event.get("what_happened", event.get("title", "")))
-                    )[:500],
-                    "source": normalize_text(str(event.get("source", ""))),
-                    "date_used": date.today().isoformat(),
-                }
-            )
-            existing_ids.add(chunk_id)
+            previous = existing_by_id.get(chunk_id)
+            if previous is not None:
+                if not _used_row_matches_event(previous, event):
+                    raise ValueError(
+                        f"{chunk_id}: ID уже зарегистрирован с другим содержанием"
+                    )
+                skipped += 1
+                continue
+            row = {**values, "date_used": date.today().isoformat()}
+            rows.append(row)
+            existing_by_id[chunk_id] = row
         if rows:
             _atomic_write_used_rows([*existing, *rows], used_path)
         return len(rows), skipped

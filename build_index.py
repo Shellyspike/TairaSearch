@@ -80,6 +80,50 @@ def corpus_roots_match(stored: Path | str, requested: Path | str) -> bool:
     return normalized_corpus_root(stored) == normalized_corpus_root(requested)
 
 
+def validate_distinct_output_paths(
+    outputs: dict[str, Path], protected_inputs: dict[str, Path]
+) -> None:
+    """Reject output aliases before any file can be opened for writing."""
+
+    normalized: dict[str, tuple[str, Path]] = {}
+    file_ids: dict[tuple[int, int], tuple[str, Path]] = {}
+    conflicts: list[str] = []
+
+    for label, path in [*protected_inputs.items(), *outputs.items()]:
+        key = normalized_corpus_root(path)
+        previous = normalized.get(key)
+        if previous is not None and label in outputs:
+            conflicts.append(f"{label} и {previous[0]} указывают на {path}")
+        else:
+            normalized[key] = (label, path)
+
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        file_id = (stat.st_dev, stat.st_ino)
+        previous = file_ids.get(file_id)
+        same_file = False
+        if previous is not None and previous[1] != path:
+            try:
+                same_file = os.path.samefile(previous[1], path)
+            except OSError:
+                pass
+        if same_file and label in outputs:
+            conflicts.append(
+                f"{label} и {previous[0]} указывают на один существующий файл"
+            )
+        elif not same_file:
+            file_ids[file_id] = (label, path)
+
+    if conflicts:
+        details = "\n".join(f"- {item}" for item in conflicts)
+        raise RuntimeError(
+            "Небезопасное совпадение входных и выходных путей:\n"
+            f"{details}\nНи один выходной файл не был изменён."
+        )
+
+
 def validate_index_corpus_root(db_path: Path, corpus: Path) -> None:
     """Reject an existing index that cannot be safely bound to ``corpus``.
 
@@ -541,6 +585,21 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
             "total_size": sum(stat.st_size for stat in file_stats.values()),
         }
 
+    validate_distinct_output_paths(
+        {
+            "--db": db_path,
+            "--log": log_path,
+            "--drive-csv": drive_csv,
+            "--drive-jsonl": drive_jsonl,
+        },
+        {
+            "--aliases": aliases_path,
+            "--topics": topics_path,
+            "--people": people_path,
+            "--source-types": source_types_path,
+            **{f"файл корпуса {index}": path for index, path in enumerate(supported, 1)},
+        },
+    )
     validate_index_corpus_root(db_path, corpus)
 
     pdf_count = sum(path.suffix.casefold() == ".pdf" for path in supported)
@@ -630,11 +689,6 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
         print(message, flush=True)
         log_error("MISSING_FILES_KEPT", corpus, message)
 
-    text_stems = {
-        (str(path.parent).casefold(), path.stem.casefold())
-        for path in supported
-        if path.suffix.casefold() == ".txt"
-    }
     processed_this_run = 0
     unchanged = 0
     errors = 0
@@ -727,34 +781,6 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
                     )
                 completed += 1
                 reporter.verbose_result("", "ОШИБКА stat", time.monotonic() - file_started)
-                if completed % args.progress_every == 0 or completed == len(supported):
-                    reporter.summary(completed, relative_path, progress_counts())
-                continue
-
-            if path.suffix.casefold() == ".json" and (
-                str(path.parent).casefold(), path.stem.casefold()
-            ) in text_stems:
-                paired_json += 1
-                connection.execute("SAVEPOINT one_file")
-                savepoint_active = True
-                delete_chunks_for_path(connection, relative_path)
-                upsert_file(
-                    connection,
-                    relative_path,
-                    path,
-                    stat,
-                    "paired_json",
-                    "Пропущен: рядом есть одноимённый TXT OCR.",
-                )
-                connection.execute("RELEASE one_file")
-                savepoint_active = False
-                connection.commit()
-                completed += 1
-                reporter.verbose_result(
-                    "JSON с одноимённым TXT",
-                    "SKIP: технический дубль",
-                    time.monotonic() - file_started,
-                )
                 if completed % args.progress_every == 0 or completed == len(supported):
                     reporter.summary(completed, relative_path, progress_counts())
                 continue

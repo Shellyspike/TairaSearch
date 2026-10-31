@@ -15,7 +15,6 @@ files = [
   "docs/ai-demo.ru.md",
   "docs/ai-workflow.md",
   "docs/editorial-system.md",
-  "docs/daily-automation-proposal.md",
   "docs/dedup-audit.md",
   "docs/dedup-audit.ru.md",
   "docs/development.md",
