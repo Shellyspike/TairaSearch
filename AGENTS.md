@@ -102,13 +102,10 @@ not replace a confirmed profile merely because an example profile exists. For
 manual commands, architecture, tests, and release checks, use
 `docs/development.md` (or `docs/development.ru.md`).
 
-## Personal newspaper writing and independent review
+## Personal newspaper writing
 
-For new personal editions and newspaper previews, follow `docs/editorial-system.md`
-and the matching saved-profile research workflow. Invoke a separate literary
-reviewer through `spawn_agent`: first reader-only review, then source/meaning
-retention review. Do not publish/register unapproved cards or substitute the
-author's self-review if the tool is unavailable. At most three rounds total.
-The CLI does not enforce this gate; preserve publication synchronization and
-unchanged recovery of registered editions. Private examples and run artifacts
-stay local and must not enter the public repository.
+For new editions, use the matching saved-profile research workflow. The only
+writing brief is `examples/codex/daily-news-prompt.md`; an optional independent
+reader uses `examples/codex/reader-review.ru.md`. Keep source verification,
+deduplication, record-before-render synchronization, and unchanged recovery of
+registered editions. Private profiles and run artifacts stay local.

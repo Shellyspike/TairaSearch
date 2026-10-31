@@ -5,17 +5,18 @@ technical duplicates, and supplies source context. You are the researcher and
 editor: inspect the evidence, decide semantic novelty, continue searching when
 needed, and choose the final findings.
 
-1. Read `docs/ai-workflow.md`, `examples/codex/daily-news-prompt.md`,
-   `docs/editorial-system.md` and `examples/codex/reader-review.ru.md`. Use
-   their writing/review rules and the daily template's source criticism,
-   factuality, semantic-review classes and publication-safety rules. Do not replace this
-   profile-driven workflow with legacy `daily-five`.
+1. Use this workflow for retrieval and publication. Use only
+   `examples/codex/daily-news-prompt.md` to write cards and
+   `examples/codex/reader-review.ru.md` for an independent reading. Do not
+   replace this profile-driven workflow with legacy `daily-five`.
 2. If `research_profile.json` does not exist, follow
    `examples/codex/research-onboarding.md`: interview me briefly, confirm the
    interpretation, create the ignored local profile, and run its preview.
-   If the profile exists, read `finding_preferences.notes` and apply its saved
-   preferences for detail, tone, and presentation. Those notes do not alter
-   Python ranking and never replace source verification.
+   If the profile exists, use its area, mode, interests, filters, preferences
+   for kinds of findings, and a concise style preference from
+   `finding_preferences.notes`. Apply that preference together with the short
+   author brief; it must not contain another writing guide or replace source
+   verification.
 3. Resolve the intended existing index from my request or the project. If none
    is clear, or several are plausible, ask me for the path instead of guessing.
    Do not rebuild the index, alter the corpus, change the profile's interests,
@@ -54,23 +55,13 @@ needed, and choose the final findings.
    saved evidence lacks necessary corroboration or scholarship, and reuse their
    result instead of issuing the same search again. Verify a researcher's
    actual conclusion and distinguish it from historical-source evidence.
-8. After source and novelty checks, independently select reader-worthy stories.
-   Write and edit under `docs/editorial-system.md` and the operational protocol
-   `examples/codex/reader-review.ru.md`. Check the whole narrative for a newcomer:
-   roles, context and supported causal links, then sentences. Do not invent
-   missing circumstances, append an obligatory moral or explain the joke.
-   Treat 150–250 words as guidance, not a quota.
-   Before finishing a new newspaper preview or registering an edition, invoke a
-   separate reviewer with `spawn_agent`, `fork_turns="none"`. First the reviewer
-   saves a reading of cards/rules/available approved examples without dossiers;
-   only then receives full evidence and checks support and essential omissions.
-   Resolve remarks and return revisions to the same agent, at most three rounds
-   total. Save concrete remarks, a source-detail map, versions and SHA-256 hashes
-   of exact accepted texts under `work/research/`. Exclude unapproved cards; an
-   unavailable reviewer does not permit publication. Judge the final prose yourself
-   after pass. Reader cards end with a compact source; IDs, paths, novelty labels,
-   dossier quotes and review notes remain in structured working artifacts.
-   This is an agent-enforced instruction, not a Python validation feature.
+8. After source and novelty checks, independently select reader-worthy stories
+   and write them under the short author brief. When an independent reader is
+   available, give them only the finished cards and the short reader brief.
+   Check their concrete questions against the dossier and revise when a question
+   reveals a real gap. Do not require a formal `pass`, hashes, multiple rounds,
+   or a literary-process report. Reader cards end with a compact source; IDs,
+   paths, novelty decisions, and evidence remain in structured working data.
 9. Use the documented commands directly. Do not call `--help`, inspect tests or
    source code, or split one saved packet into repeated tool reads merely to
    rediscover standard syntax. Minimize tool calls without reducing candidate

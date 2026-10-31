@@ -680,7 +680,8 @@ class ResearchProfileTests(unittest.TestCase):
                     self.assertIn("не создавай повторную автоматизацию", normalized_prompt)
                     self.assertIn("периодичность", normalized_prompt)
                     self.assertIn("часовой пояс", normalized_prompt)
-                    self.assertIn("живой развёрнутый стиль", normalized_prompt)
+                    self.assertIn("жёлтая пресса", normalized_prompt)
+                    self.assertIn("Не восстанавливай старые стилевые правила", normalized_prompt)
                 else:
                     self.assertLess(
                         normalized_prompt.index("First ask about the research area"),
@@ -697,7 +698,8 @@ class ResearchProfileTests(unittest.TestCase):
                     self.assertIn("do not create a duplicate acquisition task", normalized_prompt)
                     self.assertIn("cadence", normalized_prompt)
                     self.assertIn("time zone", normalized_prompt)
-                    self.assertIn("vivid, expanded cards", normalized_prompt)
+                    self.assertIn("tabloid", normalized_prompt)
+                    self.assertIn("Do not restore old writing rules", normalized_prompt)
 
         ignore = (PROJECT / ".gitignore").read_text(encoding="utf-8")
         self.assertIn("research_profile.json", ignore)
@@ -740,10 +742,10 @@ class ResearchProfileTests(unittest.TestCase):
                     else "Do not call `--help`",
                     prompt,
                 )
-                # Both entry points must link to the shared review contract,
-                # not embed an older prose-style slogan.
+                # Both entry points route writing and reading to the two short
+                # briefs instead of embedding another editorial rule set.
                 for instruction in (
-                    "docs/editorial-system.md",
+                    "examples/codex/daily-news-prompt.md",
                     "examples/codex/reader-review.ru.md",
                 ):
                     self.assertIn(instruction, prompt)

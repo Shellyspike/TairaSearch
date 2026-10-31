@@ -81,16 +81,11 @@ AI news demo retain their contracts.
 
 Use the saved-profile `research-findings --preview` route and matching
 `examples/codex/research-workflow.md` or `.ru.md`, not legacy `daily-five`.
-After research and novelty review, independently choose stories, write for a
-reader unfamiliar with the setting, and follow [editorial-system.md](editorial-system.md).
-A separate reviewer first reads cards without dossiers, then checks full evidence
-for additions and essential omissions. Resolve remarks within three rounds and
-withhold unapproved cards. This extends the agent workflow, not the CLI validator.
-The author remains responsible for quality after pass.
-
-The retrieval interaction counts above concern Python evidence handoff only;
-they exclude writing, the independent agent and revision rounds. Do not treat
-them as an end-to-end limit or a reason to skip literary/source checks.
+After source and novelty review, choose reader-worthy stories and use the short
+[author brief](../examples/codex/daily-news-prompt.md). An optional independent
+reader receives only the cards and the short
+[reader brief](../examples/codex/reader-review.ru.md). This reading does not
+replace the author's final source check and does not add a CLI publication gate.
 
 Legacy `daily-five` returns up to five candidates and remains supported for
 manual/demo compatibility. Old demo outputs illustrate that fixed handoff;

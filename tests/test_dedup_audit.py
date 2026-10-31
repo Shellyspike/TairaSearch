@@ -16,7 +16,7 @@ from text_utils import sha256_text, stable_chunk_id
 
 ROOT = Path(__file__).resolve().parents[1]
 CASES = ROOT / "examples" / "dedup-benchmark" / "cases.json"
-EDITORIAL_PROMPT = ROOT / "examples" / "codex" / "daily-news-prompt.md"
+RESEARCH_WORKFLOW = ROOT / "examples" / "codex" / "research-workflow.md"
 
 
 class DedupAuditTests(unittest.TestCase):
@@ -450,17 +450,16 @@ class DedupAuditTests(unittest.TestCase):
             candidates[1]["what_happened"],
         )
 
-    def test_editorial_prompt_requires_all_four_semantic_classes(self) -> None:
-        prompt = EDITORIAL_PROMPT.read_text(encoding="utf-8")
+    def test_research_workflow_requires_all_four_semantic_classes(self) -> None:
+        prompt = RESEARCH_WORKFLOW.read_text(encoding="utf-8")
 
         for decision in daily_five.SEMANTIC_DECISIONS:
             self.assertIn(f"`{decision}`", prompt)
         self.assertIn("semantic_review", prompt)
-        self.assertIn("Shared people, topics, dates, or source names", prompt)
-        self.assertIn("matching `chunk_id` is only a positional clue", prompt)
-        self.assertIn("number, date, negation, action", prompt)
-        self.assertIn("Keep `probable_repeat_review` visible", prompt)
-        self.assertIn("Do not make a card from `confirmed_repeat`", prompt)
+        self.assertIn("Shared people, topics, sources, dates", prompt)
+        self.assertIn("positional `chunk_id`", prompt)
+        self.assertIn("Do not publish confirmed repeats", prompt)
+        self.assertIn("Keep unresolved probable repeats visible", prompt)
 
     def test_chunk_id_tracks_location_not_text_or_finding_identity(self) -> None:
         original_id = stable_chunk_id("Chronicle/book.txt", None, None, 4)
