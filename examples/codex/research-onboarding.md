@@ -25,16 +25,17 @@ only for the smallest necessary action. Never simulate success.
 ## 2. Interview and profile
 
 First ask about the research area. In plain language ask about interesting fields; important people, events, or
-works, if any; desired kinds of stories; result language; detail; and style.
+works, if any; desired kinds of stories; result language; and detail.
 Ask one question or a small group at a time, skip what is already known, accept
-“everything,” and do not require a list of people.
+“everything,” and do not require a list of people. Do not restore old writing
+rules during a fresh interview; writing follows the short author brief.
 
 Summarize your understanding and let me correct it. After confirmation, create
 the local `research_profile.json` using `docs/research-onboarding.md` and
 `examples/profiles/`. I should not edit it: never store a preference that should change selection only there. Translate retrieval preferences
 into effective `interests[].terms`, `weight`, material types, or filters.
-`notes` do not affect retrieval; put purely editorial preferences in
-`finding_preferences.notes`, including requests for vivid, expanded cards. Do not invent name variants, sources, or corpus
+`notes` do not affect retrieval. Keep only concise preferences about the kinds
+of findings there, not a copy of writing instructions. Do not invent name variants, sources, or corpus
 coverage.
 
 
@@ -114,9 +115,9 @@ with the confirmed profile, output under `work/`, and `--preview`. Never run
 accuracy rules, not its manifest or publication instructions. Show a small
 preview with exact `relative_path` and `chunk_id` references.
 
-Ask whether subjects and presentation feel right. Apply retrieval feedback to
-effective terms, weights, and filters, and style feedback to
-`finding_preferences.notes`. If the first batch fails review, request a
+Ask whether the subjects feel right. Apply retrieval feedback to effective
+terms, weights, filters, and concise finding preferences. Writing feedback
+belongs in the short author brief, not in the profile. If the first batch fails review, request a
 disjoint next batch with `--continue-from`; do not distort the profile.
 
 Only after I accept the preview, repeat the pending personal-edition settings
