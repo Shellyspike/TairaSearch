@@ -404,6 +404,36 @@ daily_five.record_publication_from_json(manifest, used)
         self.assertEqual(second[1:], (0, 5))
         self.assertEqual(len(self.read_history()), 5)
 
+    def test_same_chunk_with_different_finding_is_not_registered(self) -> None:
+        payload = self.write_manifest()
+        daily_five.record_publication_from_json(self.manifest_path, self.used_path)
+        history_before = self.used_path.read_bytes()
+        cards = payload["cards"]
+        assert isinstance(cards, list)
+        assert isinstance(cards[0], dict)
+        conflicting_id = str(cards[0]["id"])
+        cards[0]["short_description"] = "Другой сюжет из того же фрагмента."
+        cards[0]["card_markdown"] = "### Совершенно другая карточка"
+        self.manifest_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+
+        status = daily_five.publication_status_from_json(
+            self.manifest_path, self.used_path
+        )
+
+        self.assertFalse(status["registered"])
+        self.assertEqual(status["conflicting_registration_ids"], [conflicting_id])
+        with self.assertRaisesRegex(ValueError, "другим содержанием"):
+            daily_five.render_registered_publication_from_json(
+                self.manifest_path, self.used_path
+            )
+        with self.assertRaisesRegex(ValueError, "другим содержанием"):
+            daily_five.record_publication_from_json(
+                self.manifest_path, self.used_path
+            )
+        self.assertEqual(self.used_path.read_bytes(), history_before)
+
     def test_publication_access_check_does_not_touch_journal_or_lock(self) -> None:
         self.write_existing_history(2)
         database = self.root / "index.sqlite3"

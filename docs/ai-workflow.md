@@ -131,8 +131,8 @@ manifest:
 python taira_search.py render-publication work/publications/2026-10-12.json
 ```
 
-`render-publication` refuses to emit cards unless all manifest IDs are already
-present in `used_finds.csv`. Its stdout contains the complete saved
+`render-publication` refuses to emit cards unless every manifest ID and its
+stored finding fields match `used_finds.csv`. Its stdout contains the complete saved
 `card_markdown` values and no registration summary. The agent must return that
 output as the primary chat result; titles, short descriptions, counts, and
 technical status are not substitutes for the edition.
@@ -155,7 +155,7 @@ recovery.
 Publication state is deliberately split into three parts:
 
 1. **Prepared** — a valid manifest durably stores every complete card.
-2. **Registered** — every manifest card ID is present in the journal.
+2. **Registered** — every manifest card matches its journal registration.
 3. **Delivered** — the complete rendered edition is visible in the user-facing
    task or chat result.
 

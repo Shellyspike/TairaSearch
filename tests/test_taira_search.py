@@ -688,16 +688,22 @@ class TairaSearchIntegrationTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("落馬", result.stdout)
 
-    def test_deduplication_and_paired_json(self) -> None:
+    def test_deduplication_keeps_same_stem_json_searchable(self) -> None:
         with contextlib.closing(sqlite3.connect(self.db)) as connection:
             duplicate_count = connection.execute(
                 "SELECT COUNT(*) FROM chunks WHERE is_duplicate=1"
             ).fetchone()[0]
-            paired = connection.execute(
-                "SELECT COUNT(*) FROM files WHERE status='paired_json'"
+            json_status = connection.execute(
+                "SELECT status FROM files WHERE relative_path=?",
+                ("玉葉/772049_0000001.json",),
+            ).fetchone()[0]
+            json_chunks = connection.execute(
+                "SELECT COUNT(*) FROM chunks WHERE relative_path=?",
+                ("玉葉/772049_0000001.json",),
             ).fetchone()[0]
         self.assertGreaterEqual(duplicate_count, 1)
-        self.assertGreaterEqual(paired, 1)
+        self.assertEqual(json_status, "ok")
+        self.assertGreaterEqual(json_chunks, 1)
 
     def test_diversify(self) -> None:
         aliases = search_index.load_mapping(PROJECT / "aliases.json")

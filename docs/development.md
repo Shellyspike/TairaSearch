@@ -97,7 +97,7 @@ journal and then render it:
 ```
 
 The render command is read-only and emits every complete `card_markdown` only
-when all card IDs are registered. Status deliberately leaves delivery
+when all cards match their journal registrations. Status deliberately leaves delivery
 unconfirmed: only the Codex task/chat surface can show the response, and the
 CLI has no display acknowledgement. Recovery therefore reuses and renders the
 same manifest without registering it again.

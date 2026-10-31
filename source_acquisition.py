@@ -371,22 +371,44 @@ def path_contains(parent: Path, child: Path) -> bool:
 def journal_lock(path: Path, timeout: float = 10.0) -> Iterable[None]:
     lock_path = path.with_name(path.name + ".lock")
     lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_stream = lock_path.open("a+b")
+    if lock_stream.seek(0, os.SEEK_END) == 0:
+        lock_stream.write(b"\0")
+        lock_stream.flush()
+    lock_stream.seek(0)
     deadline = time.monotonic() + timeout
-    descriptor: int | None = None
-    while descriptor is None:
-        try:
-            descriptor = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            os.write(descriptor, f"{os.getpid()}\n".encode("ascii"))
-        except FileExistsError as exc:
-            if time.monotonic() >= deadline:
-                raise AcquisitionError(f"Журнал занят другим процессом: {path}") from exc
-            time.sleep(0.05)
+    acquired = False
     try:
+        while not acquired:
+            try:
+                if os.name == "nt":
+                    import msvcrt
+
+                    msvcrt.locking(lock_stream.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+
+                    fcntl.flock(lock_stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                acquired = True
+            except OSError as exc:
+                if time.monotonic() >= deadline:
+                    raise AcquisitionError(
+                        f"Журнал занят другим процессом: {path}"
+                    ) from exc
+                time.sleep(0.05)
         yield
     finally:
-        os.close(descriptor)
-        with contextlib.suppress(FileNotFoundError):
-            lock_path.unlink()
+        if acquired:
+            lock_stream.seek(0)
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(lock_stream.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(lock_stream.fileno(), fcntl.LOCK_UN)
+        lock_stream.close()
 
 
 def load_journal(path: Path) -> dict[str, Any]:
@@ -1173,6 +1195,23 @@ def choose_promoted_files(metadata: dict[str, Any], source_dir: Path) -> list[Pa
     return [original, extracted]
 
 
+def promotion_journal_entry(
+    metadata: dict[str, Any], destination: Path
+) -> dict[str, Any]:
+    return {
+        "recorded_at": utc_now(),
+        "status": "promoted",
+        "source_id": metadata.get("source_id", ""),
+        "title": metadata.get("title", ""),
+        "author": metadata.get("author", ""),
+        "doi": metadata.get("doi", ""),
+        "url": metadata.get("url", ""),
+        "filename": metadata.get("original_file", ""),
+        "content_sha256": metadata.get("content_sha256", ""),
+        "local_directory": str(destination),
+    }
+
+
 def promote_sources(
     source_ids: list[str],
     *,
@@ -1216,6 +1255,9 @@ def promote_sources(
                 raise AcquisitionError(
                     f"Папка назначения содержит другую версию: {destination}"
                 )
+            append_journal(
+                journal_path, promotion_journal_entry(promoted_metadata, destination)
+            )
             items.append(
                 {
                     "source_id": source_id,
@@ -1236,18 +1278,7 @@ def promote_sources(
         finally:
             if temporary.exists():
                 shutil.rmtree(temporary)
-        entry = {
-            "recorded_at": utc_now(),
-            "status": "promoted",
-            "source_id": source_id,
-            "title": metadata.get("title", ""),
-            "author": metadata.get("author", ""),
-            "doi": metadata.get("doi", ""),
-            "url": metadata.get("url", ""),
-            "filename": metadata.get("original_file", ""),
-            "content_sha256": metadata.get("content_sha256", ""),
-            "local_directory": str(destination),
-        }
+        entry = promotion_journal_entry(metadata, destination)
         append_journal(journal_path, entry)
         items.append(
             {

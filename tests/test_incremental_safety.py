@@ -279,6 +279,38 @@ class IncrementalSafetyTests(unittest.TestCase):
         self.assertEqual(self.db.read_bytes(), database_before)
         self.assertEqual(self.document_snapshot("document.txt"), snapshot_before)
 
+    def test_colliding_log_path_is_rejected_before_database_change(self) -> None:
+        (self.corpus / "document.txt").write_text(
+            "Корректная версия перед проверкой путей", encoding="utf-8"
+        )
+        self.build()
+        database_before = self.db.read_bytes()
+        arguments = self.arguments()
+        arguments[arguments.index("--log") + 1] = str(self.db)
+        stderr = io.StringIO()
+
+        with contextlib.redirect_stderr(stderr):
+            code = build_index.main(arguments)
+
+        self.assertEqual(code, 1)
+        self.assertIn("совпадение входных и выходных путей", stderr.getvalue())
+        self.assertEqual(self.db.read_bytes(), database_before)
+        self.assertEqual(self.document_snapshot("document.txt")[0][5], "ok")
+
+    def test_empty_same_stem_txt_does_not_suppress_json(self) -> None:
+        (self.corpus / "document.txt").write_text("", encoding="utf-8")
+        (self.corpus / "document.json").write_text(
+            json.dumps({"text": "Полезное содержимое JSON 清盛"}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+        self.build()
+
+        file_row, chunks, _fts_rows = self.document_snapshot("document.json")
+        self.assertEqual(file_row[5], "ok")
+        self.assertGreaterEqual(len(chunks), 1)
+        self.assertIn("Полезное содержимое JSON", chunks[0][7])
+
     def test_existing_index_rejects_different_corpus_before_database_change(self) -> None:
         (self.corpus / "document.txt").write_text(
             "Library A marker 清盛", encoding="utf-8"

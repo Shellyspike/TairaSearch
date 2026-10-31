@@ -121,6 +121,13 @@ class SourceAcquisitionTests(unittest.TestCase):
     def run_public_cli(self, *arguments: str) -> int:
         return source_acquisition.main(list(arguments))
 
+    def test_stale_journal_lock_file_does_not_block_new_process(self) -> None:
+        lock_path = self.journal.with_name(self.journal.name + ".lock")
+        lock_path.write_text("12345\n", encoding="ascii")
+
+        with source_acquisition.journal_lock(self.journal, timeout=0):
+            self.assertTrue(lock_path.exists())
+
     def test_public_downloader_blocks_local_internal_and_service_targets(self) -> None:
         blocked = (
             "http://127.0.0.1/source.txt",
@@ -883,10 +890,36 @@ class SourceAcquisitionTests(unittest.TestCase):
         ).fetchone()[0]
         connection.close()
         self.assertEqual(indexed, 1)
+        journal = source_acquisition.load_journal(self.journal)
+        journal["entries"] = [
+            entry
+            for entry in journal["entries"]
+            if not (
+                entry.get("source_id") == source_id
+                and entry.get("status") == "promoted"
+            )
+        ]
+        source_acquisition.write_json_atomic(self.journal, journal)
         second = self.root / "promote-again.json"
         self.assertEqual(self.run_cli(*common, "--report", str(second)), 0)
         second_payload = json.loads(second.read_text(encoding="utf-8"))
         self.assertEqual(second_payload["summary"]["already_promoted"], 1)
+        promoted_entries = [
+            entry
+            for entry in source_acquisition.load_journal(self.journal)["entries"]
+            if entry.get("source_id") == source_id
+            and entry.get("status") == "promoted"
+        ]
+        self.assertEqual(len(promoted_entries), 1)
+        third = self.root / "promote-third.json"
+        self.assertEqual(self.run_cli(*common, "--report", str(third)), 0)
+        promoted_entries = [
+            entry
+            for entry in source_acquisition.load_journal(self.journal)["entries"]
+            if entry.get("source_id") == source_id
+            and entry.get("status") == "promoted"
+        ]
+        self.assertEqual(len(promoted_entries), 1)
 
     def test_index_failure_is_reported_after_safe_promotion(self) -> None:
         manifest = self.manifest("txt", title_prefix="Index failure")
