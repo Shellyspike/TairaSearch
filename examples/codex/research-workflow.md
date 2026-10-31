@@ -12,9 +12,11 @@ needed, and choose the final findings.
 2. If `research_profile.json` does not exist, follow
    `examples/codex/research-onboarding.md`: interview me briefly, confirm the
    interpretation, create the ignored local profile, and run its preview.
-   If the profile exists, use its area, mode, interests, filters, and the
-   user's preferences for kinds of findings. A profile must not duplicate the
-   writing brief and never replaces source verification.
+   If the profile exists, use its area, mode, interests, filters, preferences
+   for kinds of findings, and a concise style preference from
+   `finding_preferences.notes`. Apply that preference together with the short
+   author brief; it must not contain another writing guide or replace source
+   verification.
 3. Resolve the intended existing index from my request or the project. If none
    is clear, or several are plausible, ask me for the path instead of guessing.
    Do not rebuild the index, alter the corpus, change the profile's interests,

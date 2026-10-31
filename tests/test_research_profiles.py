@@ -652,7 +652,7 @@ class ResearchProfileTests(unittest.TestCase):
                 self.assertIn("interests[].terms", prompt)
                 self.assertIn("weight", prompt)
                 self.assertIn(effective_preference_rule, normalized_prompt)
-                self.assertNotIn("finding_preferences.notes", prompt)
+                self.assertIn("finding_preferences.notes", prompt)
                 self.assertIn("--continue-from", prompt)
                 self.assertIn("codex://automations", prompt)
                 self.assertIn("source-acquisition-workflow", prompt)
@@ -680,6 +680,7 @@ class ResearchProfileTests(unittest.TestCase):
                     self.assertIn("не создавай повторную автоматизацию", normalized_prompt)
                     self.assertIn("периодичность", normalized_prompt)
                     self.assertIn("часовой пояс", normalized_prompt)
+                    self.assertIn("жёлтая пресса", normalized_prompt)
                     self.assertIn("Не восстанавливай старые стилевые правила", normalized_prompt)
                 else:
                     self.assertLess(
@@ -697,6 +698,7 @@ class ResearchProfileTests(unittest.TestCase):
                     self.assertIn("do not create a duplicate acquisition task", normalized_prompt)
                     self.assertIn("cadence", normalized_prompt)
                     self.assertIn("time zone", normalized_prompt)
+                    self.assertIn("tabloid", normalized_prompt)
                     self.assertIn("Do not restore old writing rules", normalized_prompt)
 
         ignore = (PROJECT / ".gitignore").read_text(encoding="utf-8")
@@ -730,7 +732,7 @@ class ResearchProfileTests(unittest.TestCase):
                 )
                 self.assertIn("daily-five", prompt)
                 self.assertIn("used_finds.csv", prompt)
-                self.assertNotIn("finding_preferences.notes", prompt)
+                self.assertIn("finding_preferences.notes", prompt)
                 self.assertIn("*.editorial.json", prompt)
                 self.assertIn("research-context", prompt)
                 self.assertIn("--include-required-review", prompt)

@@ -32,13 +32,15 @@ access.
 ### 2. Interview and `research_profile.json`
 
 In plain language the agent asks about subjects, desired kinds of stories,
-language and detail. Named people and events are optional: a profile
+language, detail, and one short style preference. Named people and events are optional: a profile
 may describe a whole field. The agent summarizes its understanding and accepts
 corrections before creating the local, Git-ignored `research_profile.json`.
 
 Retrieval is actually controlled by `interests[].terms`, `weight`, material
 types, and filters. `finding_preferences.notes` may contain concise preferences
-about kinds of findings, but not a duplicate writing guide. A retrieval
+about kinds of findings and a short user-selected style such as tabloid, vivid
+historical narrative, or restrained popular scholarship, but not a duplicate
+writing guide. A retrieval
 preference must not exist only in `notes`. `examples/profiles/` documents the format, but the user does not edit
 it manually.
 

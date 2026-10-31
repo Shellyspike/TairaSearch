@@ -6,6 +6,7 @@ import io
 import json
 import shutil
 import sqlite3
+import subprocess
 import tempfile
 import threading
 import unittest
@@ -879,7 +880,49 @@ class SourceAcquisitionTests(unittest.TestCase):
             str(db),
             "--approve",
         )
-        self.assertEqual(self.run_cli(*common, "--report", str(report), "--index"), 0)
+        project_outputs = [
+            PROJECT / "drive_index.csv",
+            PROJECT / "drive_index.jsonl",
+            PROJECT / "index_errors.log",
+        ]
+
+        def output_state() -> dict[Path, tuple[bool, int | None, int | None]]:
+            return {
+                path: (
+                    path.exists(),
+                    path.stat().st_size if path.exists() else None,
+                    path.stat().st_mtime_ns if path.exists() else None,
+                )
+                for path in project_outputs
+            }
+
+        project_outputs_before = output_state()
+        real_subprocess_run = subprocess.run
+
+        def run_index_in_test_directory(command: list[str], **kwargs: object):
+            isolated_command = [
+                *command,
+                "--log",
+                str(self.root / "index-errors.log"),
+                "--drive-csv",
+                str(self.root / "drive-index.csv"),
+                "--drive-jsonl",
+                str(self.root / "drive-index.jsonl"),
+            ]
+            return real_subprocess_run(isolated_command, **kwargs)
+
+        with mock.patch.object(
+            source_acquisition.subprocess,
+            "run",
+            side_effect=run_index_in_test_directory,
+        ):
+            self.assertEqual(
+                self.run_cli(*common, "--report", str(report), "--index"), 0
+            )
+        self.assertEqual(output_state(), project_outputs_before)
+        self.assertTrue((self.root / "index-errors.log").is_file())
+        self.assertTrue((self.root / "drive-index.csv").is_file())
+        self.assertTrue((self.root / "drive-index.jsonl").is_file())
         destination = corpus / "acquired" / source_id
         self.assertTrue((destination / "extracted.txt").is_file())
         self.assertTrue((destination / "source-metadata").is_file())
