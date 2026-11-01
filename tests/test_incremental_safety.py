@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import shutil
 import sqlite3
 import sys
 import tempfile
@@ -125,6 +126,43 @@ class IncrementalSafetyTests(unittest.TestCase):
         self.assertIn("NEW-MARKER", after[1][0][7])
         self.assertNotIn("OLD-MARKER", after[1][0][7])
         self.assertNotEqual(after[2], before[2])
+
+    def test_targeted_update_refuses_global_metadata_refresh_without_walking(self) -> None:
+        aliases = self.root / "aliases.json"
+        shutil.copy2(PROJECT / "aliases.json", aliases)
+        original = self.corpus / "original.txt"
+        original.write_text("Исходная запись", encoding="utf-8")
+        self.build("--aliases", str(aliases))
+        target = self.corpus / "new.txt"
+        target.write_text("Новая адресная запись", encoding="utf-8")
+
+        mapping = json.loads(aliases.read_text(encoding="utf-8-sig"))
+        mapping["test-change"] = ["test-change"]
+        aliases.write_text(json.dumps(mapping), encoding="utf-8")
+        args = build_index.make_parser().parse_args(
+            self.arguments(
+                "--aliases",
+                str(aliases),
+                "--only-file",
+                str(target),
+            )
+        )
+
+        with mock.patch.object(
+            build_index,
+            "discover_files",
+            side_effect=AssertionError("полный обход не должен запускаться"),
+        ), self.assertRaisesRegex(
+            RuntimeError, "автоматический полный обход не выполнялся"
+        ):
+            build_index.build_index(args)
+
+        with contextlib.closing(sqlite3.connect(self.db)) as connection:
+            self.assertIsNone(
+                connection.execute(
+                    "SELECT 1 FROM files WHERE relative_path='new.txt'"
+                ).fetchone()
+            )
 
     def test_indexer_reads_russian_japanese_and_unicode_encodings(self) -> None:
         fixtures = {
