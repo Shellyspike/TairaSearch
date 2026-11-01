@@ -35,10 +35,6 @@ class BuildStatusTests(unittest.TestCase):
             str(self.db),
             "--log",
             str(self.log),
-            "--drive-csv",
-            str(self.root / "drive.csv"),
-            "--drive-jsonl",
-            str(self.root / "drive.jsonl"),
         ]
 
     def run_build(self, corpus: Path | None = None) -> tuple[int, str, str]:

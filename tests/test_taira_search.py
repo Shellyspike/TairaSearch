@@ -59,8 +59,6 @@ class TairaSearchIntegrationTests(unittest.TestCase):
         )
 
         cls.db = cls.root / "индекс.sqlite3"
-        cls.drive_csv = cls.root / "drive_index.csv"
-        cls.drive_jsonl = cls.root / "drive_index.jsonl"
         cls.log = cls.root / "index_errors.log"
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(
             io.StringIO()
@@ -70,10 +68,6 @@ class TairaSearchIntegrationTests(unittest.TestCase):
                     str(cls.corpus),
                     "--db",
                     str(cls.db),
-                    "--drive-csv",
-                    str(cls.drive_csv),
-                    "--drive-jsonl",
-                    str(cls.drive_jsonl),
                     "--log",
                     str(cls.log),
                     "--rebuild",
@@ -232,8 +226,6 @@ class TairaSearchIntegrationTests(unittest.TestCase):
                     [
                         str(corpus),
                         "--db", str(db),
-                        "--drive-csv", str(root / "drive.csv"),
-                        "--drive-jsonl", str(root / "drive.jsonl"),
                         "--log", str(root / "errors.log"),
                     ]
                 ),
@@ -307,8 +299,6 @@ class TairaSearchIntegrationTests(unittest.TestCase):
                     [
                         str(corpus),
                         "--db", str(db),
-                        "--drive-csv", str(root / "drive.csv"),
-                        "--drive-jsonl", str(root / "drive.jsonl"),
                         "--log", str(root / "errors.log"),
                     ]
                 ),
@@ -354,8 +344,6 @@ class TairaSearchIntegrationTests(unittest.TestCase):
         db = root / "index.sqlite3"
         common = [
             str(corpus), "--db", str(db),
-            "--drive-csv", str(root / "drive.csv"),
-            "--drive-jsonl", str(root / "drive.jsonl"),
             "--log", str(root / "errors.log"),
         ]
         with contextlib.redirect_stdout(io.StringIO()):
@@ -452,8 +440,6 @@ class TairaSearchIntegrationTests(unittest.TestCase):
                 build_index.main(
                     [
                         str(corpus), "--db", str(db),
-                        "--drive-csv", str(root / "drive.csv"),
-                        "--drive-jsonl", str(root / "drive.jsonl"),
                         "--log", str(root / "errors.log"),
                     ]
                 ),
@@ -723,7 +709,7 @@ class TairaSearchIntegrationTests(unittest.TestCase):
             )
         self.assertGreaterEqual(len({row["relative_path"] for row in results}), 2)
 
-    def test_csv_and_jsonl_exports(self) -> None:
+    def test_search_result_csv_and_jsonl_exports(self) -> None:
         out_csv = self.root / "результаты.csv"
         out_jsonl = self.root / "результаты.jsonl"
         first = self.run_cli("落馬", "--output", str(out_csv))
@@ -734,28 +720,6 @@ class TairaSearchIntegrationTests(unittest.TestCase):
             self.assertGreater(len(list(csv.DictReader(stream))), 0)
         records = [json.loads(line) for line in out_jsonl.read_text(encoding="utf-8").splitlines()]
         self.assertGreater(len(records), 0)
-        self.assertTrue(self.drive_csv.is_file())
-        self.assertTrue(self.drive_jsonl.is_file())
-
-    def test_drive_search_text_keeps_text_after_preview(self) -> None:
-        with self.drive_csv.open(encoding="utf-8-sig", newline="") as stream:
-            rows = list(csv.DictReader(stream))
-        row = next(
-            item for item in rows if item["filename"] == "длинный_search_text.txt"
-        )
-        self.assertLessEqual(len(row["preview"]), 801)
-        self.assertNotIn("СКРЫТОЕСЛОВО", row["preview"])
-        self.assertIn("СКРЫТОЕСЛОВО", row["search_text"])
-        self.assertLessEqual(len(row["search_text"]), 3000)
-
-        records = [
-            json.loads(line)
-            for line in self.drive_jsonl.read_text(encoding="utf-8").splitlines()
-        ]
-        json_record = next(
-            item for item in records if item["filename"] == "длинный_search_text.txt"
-        )
-        self.assertIn("СКРЫТОЕСЛОВО", json_record["search_text"])
 
     def test_cyrillic_path_and_stats(self) -> None:
         result = self.run_cli("不例")
@@ -981,10 +945,6 @@ class TairaSearchIntegrationTests(unittest.TestCase):
                     str(corpus),
                     "--db",
                     str(root / "index.sqlite3"),
-                    "--drive-csv",
-                    str(root / "drive.csv"),
-                    "--drive-jsonl",
-                    str(root / "drive.jsonl"),
                     "--log",
                     str(root / "errors.log"),
                     "--verbose",
@@ -1009,17 +969,11 @@ class TairaSearchIntegrationTests(unittest.TestCase):
                 f"Уникальный текст {number} 平維盛", encoding="utf-8"
             )
         db = root / "index.sqlite3"
-        drive_csv = root / "drive.csv"
-        drive_jsonl = root / "drive.jsonl"
         log = root / "errors.log"
         arguments = [
             str(corpus),
             "--db",
             str(db),
-            "--drive-csv",
-            str(drive_csv),
-            "--drive-jsonl",
-            str(drive_jsonl),
             "--log",
             str(log),
             "--progress-every",
@@ -1042,7 +996,6 @@ class TairaSearchIntegrationTests(unittest.TestCase):
         self.assertEqual(first_code, 130)
         self.assertIn("Индексация остановлена пользователем", first_output.getvalue())
         self.assertIn("Полностью обработано: 2 / 6", first_output.getvalue())
-        self.assertTrue(drive_csv.is_file())
 
         with contextlib.closing(sqlite3.connect(db)) as connection:
             completed_before_resume = connection.execute(

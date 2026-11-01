@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import codecs
-import csv
 import json
 import os
 import sqlite3
@@ -50,8 +49,6 @@ from text_utils import (
 PROJECT_DIR = Path(__file__).resolve().parent
 DEFAULT_CORPUS = PROJECT_DIR / "sample_corpus"
 DEFAULT_DB = PROJECT_DIR / "taira_index.sqlite3"
-DEFAULT_DRIVE_CSV = PROJECT_DIR / "drive_index.csv"
-DEFAULT_DRIVE_JSONL = PROJECT_DIR / "drive_index.jsonl"
 DEFAULT_LOG = PROJECT_DIR / "index_errors.log"
 DEFAULT_PEOPLE = PROJECT_DIR / "people.json"
 DEFAULT_SOURCE_TYPES = PROJECT_DIR / "source_types.json"
@@ -534,74 +531,6 @@ def upsert_file(
     )
 
 
-def write_drive_exports(
-    connection: sqlite3.Connection, csv_path: Path, jsonl_path: Path
-) -> int:
-    rows = connection.execute(
-        """
-        SELECT chunk_id, source, filename, relative_path, page_start, page_end,
-               chunk_no, aliases_json, topics_json, people_json, source_type,
-               text_quality, preview, normalized_text, search_terms_json, text_hash
-        FROM chunks
-        WHERE is_duplicate=0
-        ORDER BY source, relative_path, chunk_no
-        """
-    ).fetchall()
-    fields = [
-        "chunk_id",
-        "source",
-        "filename",
-        "path",
-        "page_start",
-        "page_end",
-        "chunk_no",
-        "aliases",
-        "topics",
-        "people",
-        "source_type",
-        "text_quality",
-        "preview",
-        "search_text",
-        "search_terms",
-        "hash",
-    ]
-    csv_path.parent.mkdir(parents=True, exist_ok=True)
-    jsonl_path.parent.mkdir(parents=True, exist_ok=True)
-    with csv_path.open("w", encoding="utf-8-sig", newline="") as stream:
-        writer = csv.DictWriter(stream, fieldnames=fields)
-        writer.writeheader()
-        for row in rows:
-            writer.writerow(
-                {
-                    "chunk_id": row[0],
-                    "source": row[1],
-                    "filename": row[2],
-                    "path": row[3],
-                    "page_start": row[4] if row[4] is not None else "",
-                    "page_end": row[5] if row[5] is not None else "",
-                    "chunk_no": row[6],
-                    "aliases": "; ".join(json.loads(row[7])),
-                    "topics": "; ".join(json.loads(row[8])),
-                    "people": "; ".join(json.loads(row[9])),
-                    "source_type": row[10],
-                    "text_quality": row[11],
-                    "preview": row[12],
-                    "search_text": row[13],
-                    "search_terms": "; ".join(json.loads(row[14])),
-                    "hash": row[15],
-                }
-            )
-    with jsonl_path.open("w", encoding="utf-8", newline="\n") as stream:
-        for row in rows:
-            record = dict(zip(fields, row))
-            record["aliases"] = json.loads(record["aliases"])
-            record["topics"] = json.loads(record["topics"])
-            record["people"] = json.loads(record["people"])
-            record["search_terms"] = json.loads(record["search_terms"])
-            stream.write(json.dumps(record, ensure_ascii=False) + "\n")
-    return len(rows)
-
-
 def build_index(args: argparse.Namespace) -> dict[str, Any]:
     corpus_input = Path(args.corpus).expanduser()
     print(f"Корпус: {corpus_input}", flush=True)
@@ -629,8 +558,6 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
     people_path = Path(args.people).expanduser().resolve()
     source_types_path = Path(args.source_types).expanduser().resolve()
     log_path = Path(args.log).expanduser().resolve()
-    drive_csv = Path(args.drive_csv).expanduser().resolve()
-    drive_jsonl = Path(args.drive_jsonl).expanduser().resolve()
     text_encoding = None
     if args.text_encoding:
         try:
@@ -670,8 +597,6 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
         {
             "--db": db_path,
             "--log": log_path,
-            "--drive-csv": drive_csv,
-            "--drive-jsonl": drive_jsonl,
         },
         {
             "--aliases": aliases_path,
@@ -1094,7 +1019,7 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
             reporter.summary(completed, relative_path, progress_counts())
 
     reporter.clear_live_line()
-    print("Этап 3/3: финализация индекса и экспорт...", flush=True)
+    print("Этап 3/3: финализация индекса...", flush=True)
 
     if targeted and relative_supported:
         placeholders = ",".join("?" for _ in relative_supported)
@@ -1241,7 +1166,6 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
         "previous_versions_kept": str(previous_versions_kept),
         "missing_files_kept": str(len(missing_kept)),
     }
-    exported = write_drive_exports(connection, drive_csv, drive_jsonl)
     connection.executemany(
         "INSERT OR REPLACE INTO meta(key, value) VALUES(?, ?)", metadata.items()
     )
@@ -1261,11 +1185,8 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
         "previous_versions_kept": previous_versions_kept,
         "paired_json": paired_json,
         "exact_duplicates": exact_duplicates,
-        "exported": exported,
         "extensions": dict(sorted(indexed_extensions.items())),
         "db_path": str(db_path),
-        "drive_csv": str(drive_csv),
-        "drive_jsonl": str(drive_jsonl),
         "log_path": str(log_path),
         "interrupted": interrupted,
         "completed": completed,
@@ -1296,8 +1217,6 @@ def print_stats(stats: dict[str, Any]) -> None:
     print(f"Расширения: {json.dumps(stats['extensions'], ensure_ascii=False)}")
     print(f"Режим поиска: {stats['fts_mode']}")
     print(f"SQLite: {stats['db_path']}")
-    print(f"CSV: {stats['drive_csv']}")
-    print(f"JSONL: {stats['drive_jsonl']}")
     print(f"Лог: {stats['log_path']}")
     if stats["problems"]:
         print("\nПричины проблем:")
@@ -1337,8 +1256,6 @@ def make_parser() -> argparse.ArgumentParser:
         help="Файл правил классификации источников",
     )
     parser.add_argument("--log", default=str(DEFAULT_LOG), help="Файл лога")
-    parser.add_argument("--drive-csv", default=str(DEFAULT_DRIVE_CSV))
-    parser.add_argument("--drive-jsonl", default=str(DEFAULT_DRIVE_JSONL))
     parser.add_argument(
         "--only-file",
         action="append",

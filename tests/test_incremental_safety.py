@@ -27,8 +27,6 @@ class IncrementalSafetyTests(unittest.TestCase):
         self.corpus.mkdir()
         self.db = self.root / "index.sqlite3"
         self.log = self.root / "index.log"
-        self.drive_csv = self.root / "drive.csv"
-        self.drive_jsonl = self.root / "drive.jsonl"
 
     def tearDown(self) -> None:
         self.temp.cleanup()
@@ -40,10 +38,6 @@ class IncrementalSafetyTests(unittest.TestCase):
             str(self.db),
             "--log",
             str(self.log),
-            "--drive-csv",
-            str(self.drive_csv),
-            "--drive-jsonl",
-            str(self.drive_jsonl),
             *extra,
         ]
 
