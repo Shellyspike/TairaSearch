@@ -75,8 +75,6 @@ class PdfHandlingTests(unittest.TestCase):
             original_database = db.read_bytes()
 
             log = root / "index.log"
-            drive_csv = root / "drive.csv"
-            drive_jsonl = root / "drive.jsonl"
             stdout = io.StringIO()
             stderr = io.StringIO()
             error = PdfDependencyError("pypdf is unavailable")
@@ -91,10 +89,6 @@ class PdfHandlingTests(unittest.TestCase):
                         str(db),
                         "--log",
                         str(log),
-                        "--drive-csv",
-                        str(drive_csv),
-                        "--drive-jsonl",
-                        str(drive_jsonl),
                     ]
                 )
 
@@ -105,8 +99,6 @@ class PdfHandlingTests(unittest.TestCase):
                 marker = connection.execute("SELECT value FROM marker").fetchone()[0]
             self.assertEqual(marker, "unchanged")
             self.assertFalse(log.exists())
-            self.assertFalse(drive_csv.exists())
-            self.assertFalse(drive_jsonl.exists())
 
 
 if __name__ == "__main__":

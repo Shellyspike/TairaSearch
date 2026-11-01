@@ -41,7 +41,6 @@ class DiscoveryTests(unittest.TestCase):
         cls.used.write_text('id,type,persons,topics,short_description,source,date_used\n', encoding='utf-8')
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             code = build_index.main([str(corpus), '--db', str(cls.database),
-                '--drive-csv', str(cls.root / 'drive.csv'), '--drive-jsonl', str(cls.root / 'drive.jsonl'),
                 '--log', str(cls.root / 'build.log')])
         assert code == 0
         cls.profile = dict(schema_version=1, name='Synthetic discovery', research_area='Household history',

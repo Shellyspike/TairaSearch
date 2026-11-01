@@ -713,10 +713,6 @@ class SourceAcquisitionTests(unittest.TestCase):
                 str(db),
                 "--log",
                 str(self.root / "guard-index.log"),
-                "--drive-csv",
-                str(self.root / "guard.csv"),
-                "--drive-jsonl",
-                str(self.root / "guard.jsonl"),
             ]
         )
         build_index.build_index(arguments)
@@ -905,10 +901,6 @@ class SourceAcquisitionTests(unittest.TestCase):
                 *command,
                 "--log",
                 str(self.root / "index-errors.log"),
-                "--drive-csv",
-                str(self.root / "drive-index.csv"),
-                "--drive-jsonl",
-                str(self.root / "drive-index.jsonl"),
             ]
             return real_subprocess_run(isolated_command, **kwargs)
 
@@ -922,8 +914,6 @@ class SourceAcquisitionTests(unittest.TestCase):
             )
         self.assertEqual(output_state(), project_outputs_before)
         self.assertTrue((self.root / "index-errors.log").is_file())
-        self.assertTrue((self.root / "drive-index.csv").is_file())
-        self.assertTrue((self.root / "drive-index.jsonl").is_file())
         destination = corpus / "acquired" / source_id
         self.assertTrue((destination / "extracted.txt").is_file())
         self.assertTrue((destination / "source-metadata").is_file())
@@ -979,10 +969,6 @@ class SourceAcquisitionTests(unittest.TestCase):
             str(db),
             "--log",
             str(self.root / "targeted-index.log"),
-            "--drive-csv",
-            str(self.root / "targeted-drive.csv"),
-            "--drive-jsonl",
-            str(self.root / "targeted-drive.jsonl"),
         ]
         build_index.build_index(build_index.make_parser().parse_args(output_arguments))
         with contextlib.closing(sqlite3.connect(db)) as connection:
@@ -1036,10 +1022,6 @@ class SourceAcquisitionTests(unittest.TestCase):
                 *command,
                 "--log",
                 str(self.root / "targeted-index.log"),
-                "--drive-csv",
-                str(self.root / "targeted-drive.csv"),
-                "--drive-jsonl",
-                str(self.root / "targeted-drive.jsonl"),
             ]
             return real_subprocess_run(isolated_command, **kwargs)
 
@@ -1134,10 +1116,6 @@ class SourceAcquisitionTests(unittest.TestCase):
             str(db),
             "--log",
             str(self.root / "duplicate-index.log"),
-            "--drive-csv",
-            str(self.root / "duplicate-drive.csv"),
-            "--drive-jsonl",
-            str(self.root / "duplicate-drive.jsonl"),
         ]
         build_index.build_index(build_index.make_parser().parse_args(index_outputs))
 
@@ -1186,10 +1164,6 @@ class SourceAcquisitionTests(unittest.TestCase):
                     *command,
                     "--log",
                     str(self.root / "duplicate-index.log"),
-                    "--drive-csv",
-                    str(self.root / "duplicate-drive.csv"),
-                    "--drive-jsonl",
-                    str(self.root / "duplicate-drive.jsonl"),
                 ],
                 **kwargs,
             )
