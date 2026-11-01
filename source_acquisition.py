@@ -1233,6 +1233,7 @@ def promote_sources(
         except RuntimeError as exc:
             raise AcquisitionError(str(exc)) from exc
     items: list[dict[str, Any]] = []
+    promoted_paths: list[Path] = []
     for source_id in source_ids:
         source_id = safe_slug(source_id)
         source_dir = staging_root / source_id
@@ -1258,6 +1259,10 @@ def promote_sources(
             append_journal(
                 journal_path, promotion_journal_entry(promoted_metadata, destination)
             )
+            promoted_paths.extend(
+                destination / path.name
+                for path in choose_promoted_files(metadata, source_dir)
+            )
             items.append(
                 {
                     "source_id": source_id,
@@ -1280,6 +1285,10 @@ def promote_sources(
                 shutil.rmtree(temporary)
         entry = promotion_journal_entry(metadata, destination)
         append_journal(journal_path, entry)
+        promoted_paths.extend(
+            destination / path.name
+            for path in choose_promoted_files(metadata, source_dir)
+        )
         items.append(
             {
                 "source_id": source_id,
@@ -1289,7 +1298,7 @@ def promote_sources(
         )
 
     index_result: dict[str, Any] | None = None
-    if run_index and items:
+    if run_index and promoted_paths:
         command = [
             sys.executable,
             str(PROJECT_DIR / "build_index.py"),
@@ -1297,6 +1306,8 @@ def promote_sources(
             "--db",
             str(db_path),
         ]
+        for path in promoted_paths:
+            command.extend(("--only-file", str(path)))
         completed = subprocess.run(command, check=False)
         index_result = {
             "command": command,

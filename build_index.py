@@ -31,7 +31,12 @@ from parsers import (
     ensure_pdf_support,
     parse_file,
 )
-from search_schema import FTS_MODE, ensure_search_schema, upsert_fts_chunk
+from search_schema import (
+    FTS_MODE,
+    ensure_search_schema,
+    search_schema_is_current,
+    upsert_fts_chunk,
+)
 from text_utils import (
     derive_source,
     detect_labels,
@@ -302,6 +307,72 @@ def discover_files(root: Path, log_error: Any) -> list[Path]:
     return result
 
 
+def select_explicit_files(root: Path, requested: list[str]) -> list[Path]:
+    """Resolve an explicit file selection without walking the corpus."""
+
+    selected: list[Path] = []
+    seen: set[str] = set()
+    for value in requested:
+        candidate = Path(value).expanduser()
+        if not candidate.is_absolute():
+            candidate = root / candidate
+        resolved = candidate.resolve(strict=False)
+        try:
+            resolved.relative_to(root)
+        except ValueError as exc:
+            raise RuntimeError(
+                f"--only-file должен указывать на файл внутри корпуса: {value}"
+            ) from exc
+        if not resolved.is_file():
+            raise RuntimeError(f"Файл из --only-file недоступен: {resolved}")
+        key = normalized_corpus_root(resolved)
+        if key not in seen:
+            seen.add(key)
+            selected.append(resolved)
+    selected.sort(key=lambda item: str(item).casefold())
+    return selected
+
+
+def validate_targeted_index_state(db_path: Path, config_hash: str) -> None:
+    """Reject targeted updates that would require a global migration/refresh."""
+
+    if not db_path.exists() or db_path.stat().st_size == 0:
+        return
+    uri = db_path.as_uri() + "?mode=ro"
+    try:
+        connection = sqlite3.connect(uri, uri=True)
+        connection.execute("PRAGMA query_only=ON")
+        tables = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        if not {"meta", "files", "chunks"}.issubset(tables):
+            raise RuntimeError("структура существующей SQLite не инициализирована")
+        meta = dict(connection.execute("SELECT key, value FROM meta"))
+        if meta.get("schema_version") != SCHEMA_VERSION:
+            raise RuntimeError("версия схемы индекса требует полного обновления")
+        if not search_schema_is_current(connection):
+            raise RuntimeError("поисковая схема требует общей миграции")
+        if meta.get("config_hash") != config_hash:
+            raise RuntimeError(
+                "изменились справочники индексатора; требуется обновить metadata "
+                "существующих документов"
+            )
+    except (OSError, sqlite3.Error) as exc:
+        raise RuntimeError(f"не удалось проверить существующий индекс: {exc}") from exc
+    except RuntimeError as exc:
+        raise RuntimeError(
+            "Адресное обновление индекса невозможно без дополнительных действий "
+            f"со всем индексом: {exc}. Запустите полную инкрементальную проверку "
+            "корпуса отдельно; автоматический полный обход не выполнялся."
+        ) from exc
+    finally:
+        if "connection" in locals():
+            connection.close()
+
+
 def relative_posix(path: Path, root: Path) -> str:
     return path.relative_to(root).as_posix()
 
@@ -546,6 +617,12 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
             "Проверьте, что Google Drive for Desktop запущен и диск G: подключён."
         )
     corpus = corpus_input.resolve()
+    only_files = list(args.only_file or [])
+    targeted = bool(only_files)
+    if targeted and (args.rebuild or args.text_encoding or args.scan_only):
+        raise RuntimeError(
+            "--only-file нельзя сочетать с --rebuild, --text-encoding или --scan-only"
+        )
     db_path = Path(args.db).expanduser().resolve()
     aliases_path = Path(args.aliases).expanduser().resolve()
     topics_path = Path(args.topics).expanduser().resolve()
@@ -568,7 +645,11 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
     def collect_discovery_error(kind: str, path: Path, message: str) -> None:
         discovery_errors.append((kind, path, message))
 
-    all_files = discover_files(corpus, collect_discovery_error)
+    if targeted:
+        all_files = select_explicit_files(corpus, only_files)
+        print("Режим: адресная индексация явно указанных файлов.", flush=True)
+    else:
+        all_files = discover_files(corpus, collect_discovery_error)
     extensions = Counter(path.suffix.casefold() or "[без расширения]" for path in all_files)
     supported = [path for path in all_files if path.suffix.casefold() in SUPPORTED_EXTENSIONS]
     file_stats = collect_file_stats(supported, collect_discovery_error)
@@ -619,6 +700,8 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
     config_hash = mapping_fingerprint(
         aliases_path, topics_path, people_path, source_types_path
     )
+    if targeted:
+        validate_targeted_index_state(db_path, config_hash)
 
     db_path.parent.mkdir(parents=True, exist_ok=True)
     log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -680,7 +763,11 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
         str(row[0])
         for row in connection.execute("SELECT relative_path FROM files").fetchall()
     }
-    missing_kept = sorted(indexed_paths - relative_supported, key=str.casefold)
+    missing_kept = (
+        []
+        if targeted
+        else sorted(indexed_paths - relative_supported, key=str.casefold)
+    )
     if missing_kept:
         message = (
             "В индексе сохранено документов, не найденных при текущем "
@@ -707,6 +794,19 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
         if kind == "WALK_ERROR"
     ]
     reporter = ProgressReporter(len(supported), args.progress_every, args.verbose)
+    affected_duplicate_groups: set[tuple[str, str]] = set()
+    if targeted and relative_supported:
+        placeholders = ",".join("?" for _ in relative_supported)
+        affected_duplicate_groups.update(
+            (str(row[0]), str(row[1]))
+            for row in connection.execute(
+                f"""
+                SELECT DISTINCT text_hash, normalized_text
+                FROM chunks WHERE relative_path IN ({placeholders})
+                """,
+                sorted(relative_supported),
+            )
+        )
 
     def progress_counts() -> dict[str, int]:
         raw_chunks = connection.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
@@ -996,26 +1096,83 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
     reporter.clear_live_line()
     print("Этап 3/3: финализация индекса и экспорт...", flush=True)
 
-    connection.execute("UPDATE chunks SET is_duplicate=0")
-    connection.execute(
-        """
-        WITH ranked AS (
-            SELECT id,
-                   ROW_NUMBER() OVER (
-                       PARTITION BY text_hash, normalized_text
-                       ORDER BY
-                           CASE WHEN page_start IS NULL THEN 1 ELSE 0 END,
-                           relative_path COLLATE NOCASE,
-                           chunk_no,
-                           id
-                   ) AS duplicate_rank
-            FROM chunks
+    if targeted and relative_supported:
+        placeholders = ",".join("?" for _ in relative_supported)
+        affected_duplicate_groups.update(
+            (str(row[0]), str(row[1]))
+            for row in connection.execute(
+                f"""
+                SELECT DISTINCT text_hash, normalized_text
+                FROM chunks WHERE relative_path IN ({placeholders})
+                """,
+                sorted(relative_supported),
+            )
         )
-        UPDATE chunks
-        SET is_duplicate=1
-        WHERE id IN (SELECT id FROM ranked WHERE duplicate_rank > 1)
-        """
-    )
+        connection.execute(
+            """
+            CREATE TEMP TABLE affected_duplicate_groups(
+                text_hash TEXT NOT NULL,
+                normalized_text TEXT NOT NULL,
+                PRIMARY KEY(text_hash, normalized_text)
+            )
+            """
+        )
+        connection.executemany(
+            "INSERT INTO affected_duplicate_groups VALUES(?, ?)",
+            affected_duplicate_groups,
+        )
+        connection.execute(
+            """
+            UPDATE chunks SET is_duplicate=0
+            WHERE EXISTS (
+                SELECT 1 FROM affected_duplicate_groups affected
+                WHERE affected.text_hash=chunks.text_hash
+                  AND affected.normalized_text=chunks.normalized_text
+            )
+            """
+        )
+        connection.execute(
+            """
+            WITH ranked AS (
+                SELECT chunks.id,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY chunks.text_hash, chunks.normalized_text
+                           ORDER BY
+                               CASE WHEN chunks.page_start IS NULL THEN 1 ELSE 0 END,
+                               chunks.relative_path COLLATE NOCASE,
+                               chunks.chunk_no,
+                               chunks.id
+                       ) AS duplicate_rank
+                FROM chunks
+                JOIN affected_duplicate_groups affected
+                  ON affected.text_hash=chunks.text_hash
+                 AND affected.normalized_text=chunks.normalized_text
+            )
+            UPDATE chunks SET is_duplicate=1
+            WHERE id IN (SELECT id FROM ranked WHERE duplicate_rank > 1)
+            """
+        )
+    elif not targeted:
+        connection.execute("UPDATE chunks SET is_duplicate=0")
+        connection.execute(
+            """
+            WITH ranked AS (
+                SELECT id,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY text_hash, normalized_text
+                           ORDER BY
+                               CASE WHEN page_start IS NULL THEN 1 ELSE 0 END,
+                               relative_path COLLATE NOCASE,
+                               chunk_no,
+                               id
+                       ) AS duplicate_rank
+                FROM chunks
+            )
+            UPDATE chunks
+            SET is_duplicate=1
+            WHERE id IN (SELECT id FROM ranked WHERE duplicate_rank > 1)
+            """
+        )
     exact_duplicates = connection.execute(
         "SELECT COUNT(*) FROM chunks WHERE is_duplicate=1"
     ).fetchone()[0]
@@ -1031,7 +1188,22 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
     paired_current = connection.execute(
         "SELECT COUNT(*) FROM files WHERE status='paired_json'"
     ).fetchone()[0]
-    skipped = len(all_files) - processed_current
+    if targeted:
+        indexed_file_count = int(
+            connection.execute("SELECT COUNT(*) FROM files").fetchone()[0]
+        )
+        indexed_extensions = Counter(
+            {
+                str(row[0]): int(row[1])
+                for row in connection.execute(
+                    "SELECT extension, COUNT(*) FROM files GROUP BY extension"
+                )
+            }
+        )
+    else:
+        indexed_file_count = len(all_files)
+        indexed_extensions = extensions
+    skipped = indexed_file_count - processed_current
     unsupported_files = max(len(all_files) - len(supported), 0)
     unattempted_files = max(len(supported) - completed, 0)
     skipped_this_run = unchanged + paired_json + unsupported_files + unattempted_files
@@ -1052,13 +1224,15 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
         "config_hash": config_hash,
         "corpus_root": str(corpus),
         "last_build_utc": now,
-        "files_found": str(len(all_files)),
+        "files_found": str(indexed_file_count),
         "files_processed": str(processed_current),
         "files_skipped": str(max(skipped, 0)),
         "pdf_without_text": str(pdf_no_text),
         "chunks": str(chunk_count),
         "duplicates": str(exact_duplicates + paired_current),
-        "extensions_json": json.dumps(dict(sorted(extensions.items())), ensure_ascii=False),
+        "extensions_json": json.dumps(
+            dict(sorted(indexed_extensions.items())), ensure_ascii=False
+        ),
         "fts_mode": fts_mode,
         "build_status": build_status,
         "successful_files": str(processed_this_run),
@@ -1088,7 +1262,7 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
         "paired_json": paired_json,
         "exact_duplicates": exact_duplicates,
         "exported": exported,
-        "extensions": dict(sorted(extensions.items())),
+        "extensions": dict(sorted(indexed_extensions.items())),
         "db_path": str(db_path),
         "drive_csv": str(drive_csv),
         "drive_jsonl": str(drive_jsonl),
@@ -1097,6 +1271,8 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
         "completed": completed,
         "supported_files": len(supported),
         "missing_kept": len(missing_kept),
+        "targeted": targeted,
+        "selected_files": len(all_files),
     }
 
 
@@ -1163,6 +1339,15 @@ def make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--log", default=str(DEFAULT_LOG), help="Файл лога")
     parser.add_argument("--drive-csv", default=str(DEFAULT_DRIVE_CSV))
     parser.add_argument("--drive-jsonl", default=str(DEFAULT_DRIVE_JSONL))
+    parser.add_argument(
+        "--only-file",
+        action="append",
+        metavar="PATH",
+        help=(
+            "Индексировать только явно указанный файл внутри корпуса; можно "
+            "повторить. Полный обход корпуса не выполняется"
+        ),
+    )
     parser.add_argument(
         "--rebuild", action="store_true", help="Принудительно перестроить все файлы"
     )
