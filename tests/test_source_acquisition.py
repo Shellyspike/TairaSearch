@@ -1119,6 +1119,141 @@ class SourceAcquisitionTests(unittest.TestCase):
             self.assertEqual(completed.returncode, 0, completed.stderr)
             self.assertIn(marker, completed.stdout)
 
+    def test_promote_marks_exact_duplicate_without_damaging_existing_book(self) -> None:
+        corpus = self.root / "duplicate-corpus"
+        book_a = corpus / "acquired" / "book-a" / "book-a.txt"
+        book_a.parent.mkdir(parents=True)
+        shared_text = (
+            "Одинаковый проверочный фрагмент EXACTPROMOTEDDUPLICATE. " * 20
+        )
+        book_a.write_text(shared_text, encoding="utf-8")
+        db = self.root / "duplicate.sqlite3"
+        index_outputs = [
+            str(corpus),
+            "--db",
+            str(db),
+            "--log",
+            str(self.root / "duplicate-index.log"),
+            "--drive-csv",
+            str(self.root / "duplicate-drive.csv"),
+            "--drive-jsonl",
+            str(self.root / "duplicate-drive.jsonl"),
+        ]
+        build_index.build_index(build_index.make_parser().parse_args(index_outputs))
+
+        existing_columns = (
+            "id, chunk_id, source, filename, relative_path, page_start, page_end, "
+            "chunk_no, original_text, normalized_text, text_hash"
+        )
+        with contextlib.closing(sqlite3.connect(db)) as connection:
+            book_a_before = connection.execute(
+                f"SELECT {existing_columns} FROM chunks "
+                "WHERE relative_path='acquired/book-a/book-a.txt'"
+            ).fetchone()
+        self.assertIsNotNone(book_a_before)
+
+        source_id = "book-b"
+        source_dir = self.staging / source_id
+        source_dir.mkdir(parents=True)
+        original = source_dir / "book-b.txt"
+        extracted = source_dir / "extracted.txt"
+        original.write_text(shared_text, encoding="utf-8")
+        extracted.write_text(shared_text, encoding="utf-8")
+        (source_dir / "metadata.json").write_text(
+            json.dumps(
+                {
+                    "source_id": source_id,
+                    "title": "Book B",
+                    "author": "Test author",
+                    "url": "https://example.invalid/book-b",
+                    "format": "txt",
+                    "original_file": original.name,
+                    "extracted_file": extracted.name,
+                    "content_sha256": source_acquisition.sha256_bytes(
+                        original.read_bytes()
+                    ),
+                    "quality": {},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        real_subprocess_run = subprocess.run
+
+        def run_index_in_test_directory(command: list[str], **kwargs: object):
+            return real_subprocess_run(
+                [
+                    *command,
+                    "--log",
+                    str(self.root / "duplicate-index.log"),
+                    "--drive-csv",
+                    str(self.root / "duplicate-drive.csv"),
+                    "--drive-jsonl",
+                    str(self.root / "duplicate-drive.jsonl"),
+                ],
+                **kwargs,
+            )
+
+        with mock.patch.object(
+            source_acquisition.subprocess,
+            "run",
+            side_effect=run_index_in_test_directory,
+        ):
+            first = source_acquisition.promote_sources(
+                [source_id],
+                staging_root=self.staging,
+                corpus=corpus,
+                journal_path=self.journal,
+                db_path=db,
+                run_index=True,
+            )
+            with contextlib.closing(sqlite3.connect(db)) as connection:
+                book_a_after = connection.execute(
+                    f"SELECT {existing_columns} FROM chunks "
+                    "WHERE relative_path='acquired/book-a/book-a.txt'"
+                ).fetchone()
+                duplicate_rows_after_first = connection.execute(
+                    "SELECT relative_path, text_hash, is_duplicate FROM chunks "
+                    "ORDER BY relative_path, chunk_no"
+                ).fetchall()
+
+            second = source_acquisition.promote_sources(
+                [source_id],
+                staging_root=self.staging,
+                corpus=corpus,
+                journal_path=self.journal,
+                db_path=db,
+                run_index=True,
+            )
+
+        with contextlib.closing(sqlite3.connect(db)) as connection:
+            duplicate_rows_after_second = connection.execute(
+                "SELECT relative_path, text_hash, is_duplicate FROM chunks "
+                "ORDER BY relative_path, chunk_no"
+            ).fetchall()
+            book_a_final = connection.execute(
+                f"SELECT {existing_columns} FROM chunks "
+                "WHERE relative_path='acquired/book-a/book-a.txt'"
+            ).fetchone()
+
+        self.assertEqual(first["index"]["status"], "succeeded")
+        self.assertEqual(second["index"]["status"], "succeeded")
+        self.assertEqual(book_a_after, book_a_before)
+        self.assertEqual(book_a_final, book_a_before)
+        self.assertEqual(duplicate_rows_after_second, duplicate_rows_after_first)
+        self.assertEqual(len(duplicate_rows_after_first), 2)
+        self.assertEqual(
+            [row[0] for row in duplicate_rows_after_first],
+            [
+                "acquired/book-a/book-a.txt",
+                "acquired/book-b/book-b.txt",
+            ],
+        )
+        self.assertEqual(
+            duplicate_rows_after_first[0][1], duplicate_rows_after_first[1][1]
+        )
+        self.assertEqual([row[2] for row in duplicate_rows_after_first], [0, 1])
+
     def test_index_failure_is_reported_after_safe_promotion(self) -> None:
         manifest = self.manifest("txt", title_prefix="Index failure")
         stage_report = self.root / "stage-before-index-failure.json"
