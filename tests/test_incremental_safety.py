@@ -84,6 +84,54 @@ class IncrementalSafetyTests(unittest.TestCase):
                 fts_rows = []
         return file_row, chunks, fts_rows
 
+    def test_preferred_sidecar_excludes_original_from_index(self) -> None:
+        source = self.corpus / "acquired" / "ocr-source"
+        source.mkdir(parents=True)
+        original = source / "original-source.pdf"
+        preferred = source / "extracted.txt"
+        original.write_bytes(b"%PDF-1.4\nbroken")
+        preferred.write_text(
+            "Reviewed Japanese OCR text about Cao Wei. " * 20,
+            encoding="utf-8",
+        )
+        (source / "source-metadata").write_text(
+            json.dumps({"preferred_index_text": preferred.name}),
+            encoding="utf-8",
+        )
+
+        first, _ = self.build()
+        second, _ = self.build()
+
+        self.assertEqual(first["errors"], 0)
+        self.assertEqual(second["errors"], 0)
+        with contextlib.closing(sqlite3.connect(self.db)) as connection:
+            paths = {
+                row[0]
+                for row in connection.execute(
+                    "SELECT relative_path FROM files WHERE relative_path LIKE ?",
+                    ("acquired/ocr-source/%",),
+                )
+            }
+        self.assertEqual(paths, {"acquired/ocr-source/extracted.txt"})
+
+    def test_missing_preferred_sidecar_fails_before_changing_index(self) -> None:
+        existing = self.corpus / "existing.txt"
+        existing.write_text("Existing indexed text", encoding="utf-8")
+        self.build()
+        before = self.document_snapshot("existing.txt")
+        source = self.corpus / "acquired" / "missing-preferred"
+        source.mkdir(parents=True)
+        (source / "original.docx").write_bytes(b"unsupported original")
+        (source / "source-metadata").write_text(
+            json.dumps({"preferred_index_text": "reviewed.txt"}),
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "Не найден preferred_index_text"):
+            self.build()
+
+        self.assertEqual(self.document_snapshot("existing.txt"), before)
+
     def test_parse_error_keeps_last_good_chunks_and_fts(self) -> None:
         document = self.corpus / "document.json"
         document.write_text(

@@ -1184,10 +1184,38 @@ def stage_candidates(
 
 
 def choose_promoted_files(metadata: dict[str, Any], source_dir: Path) -> list[Path]:
+    quality = metadata.get("quality")
+    if not isinstance(quality, dict) or quality.get("status") != "ready_for_review":
+        raise AcquisitionError(
+            f"Источник не прошёл проверку и не готов к переносу: {source_dir}"
+        )
     original = source_dir / str(metadata["original_file"])
     extracted = source_dir / str(metadata["extracted_file"])
     if not original.is_file() or not extracted.is_file():
         raise AcquisitionError(f"Неполная staging-папка: {source_dir}")
+    preferred_name = metadata.get("preferred_index_text")
+    if preferred_name is not None:
+        if (
+            not isinstance(preferred_name, str)
+            or not preferred_name
+            or Path(preferred_name).name != preferred_name
+        ):
+            raise AcquisitionError(
+                f"Некорректный preferred_index_text в {source_dir}"
+            )
+        preferred = source_dir / preferred_name
+        if not preferred.is_file():
+            raise AcquisitionError(
+                f"Не найден preferred_index_text в {source_dir}: {preferred_name}"
+            )
+        from build_index import SUPPORTED_EXTENSIONS
+
+        if preferred.suffix.casefold() not in SUPPORTED_EXTENSIONS:
+            raise AcquisitionError(
+                f"Неподдерживаемый формат preferred_index_text в "
+                f"{source_dir}: {preferred_name}"
+            )
+        return [original, preferred]
     # PDF/TXT/Markdown are already indexable. Other originals are retained beside
     # an extracted TXT that the existing indexer understands.
     if metadata["format"] in {"pdf", "txt", "md"}:
@@ -1240,6 +1268,7 @@ def promote_sources(
         metadata = read_json_object(source_dir / "metadata.json", "metadata staging")
         if metadata.get("source_id") != source_id:
             raise AcquisitionError(f"Несовпадение source_id в {source_dir}")
+        files_to_promote = choose_promoted_files(metadata, source_dir)
         destination = corpus / "acquired" / source_id
         if destination.exists():
             provenance_path = destination / "source-metadata"
@@ -1261,7 +1290,7 @@ def promote_sources(
             )
             promoted_paths.extend(
                 destination / path.name
-                for path in choose_promoted_files(metadata, source_dir)
+                for path in files_to_promote
             )
             items.append(
                 {
@@ -1274,7 +1303,7 @@ def promote_sources(
         destination.parent.mkdir(parents=True, exist_ok=True)
         temporary = Path(tempfile.mkdtemp(prefix=f".{source_id}.", dir=destination.parent))
         try:
-            for path in choose_promoted_files(metadata, source_dir):
+            for path in files_to_promote:
                 shutil.copy2(path, temporary / path.name)
             # Keep provenance beside the promoted source without feeding it to the
             # existing JSON text parser as a second, artificial document.
@@ -1287,7 +1316,7 @@ def promote_sources(
         append_journal(journal_path, entry)
         promoted_paths.extend(
             destination / path.name
-            for path in choose_promoted_files(metadata, source_dir)
+            for path in files_to_promote
         )
         items.append(
             {
