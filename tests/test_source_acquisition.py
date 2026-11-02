@@ -195,6 +195,47 @@ class SourceAcquisitionTests(unittest.TestCase):
         self.assertEqual(list(corpus.iterdir()), [])
         self.assertFalse(self.journal.exists())
 
+    def test_unsupported_preferred_index_text_is_not_promoted(self) -> None:
+        source_id = "unsupported-preferred-source"
+        source_dir = self.staging / source_id
+        source_dir.mkdir(parents=True)
+        original = source_dir / "original.epub"
+        extracted = source_dir / "extracted.txt"
+        preferred = source_dir / "reviewed.html"
+        original.write_bytes(b"unsupported original")
+        extracted.write_text("Unselected extraction", encoding="utf-8")
+        preferred.write_text("<p>Reviewed text</p>", encoding="utf-8")
+        (source_dir / "metadata.json").write_text(
+            json.dumps(
+                {
+                    "source_id": source_id,
+                    "format": "epub",
+                    "original_file": original.name,
+                    "extracted_file": extracted.name,
+                    "preferred_index_text": preferred.name,
+                    "quality": {"status": "ready_for_review"},
+                }
+            ),
+            encoding="utf-8",
+        )
+        corpus = self.root / "corpus"
+        corpus.mkdir()
+
+        with self.assertRaisesRegex(
+            source_acquisition.AcquisitionError,
+            "Неподдерживаемый формат preferred_index_text",
+        ):
+            source_acquisition.promote_sources(
+                [source_id],
+                staging_root=self.staging,
+                corpus=corpus,
+                journal_path=self.journal,
+                db_path=None,
+                run_index=False,
+            )
+        self.assertEqual(list(corpus.iterdir()), [])
+        self.assertFalse(self.journal.exists())
+
     def test_stale_journal_lock_file_does_not_block_new_process(self) -> None:
         lock_path = self.journal.with_name(self.journal.name + ".lock")
         lock_path.write_text("12345\n", encoding="ascii")

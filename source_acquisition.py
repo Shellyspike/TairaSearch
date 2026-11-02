@@ -1208,6 +1208,13 @@ def choose_promoted_files(metadata: dict[str, Any], source_dir: Path) -> list[Pa
             raise AcquisitionError(
                 f"Не найден preferred_index_text в {source_dir}: {preferred_name}"
             )
+        from build_index import SUPPORTED_EXTENSIONS
+
+        if preferred.suffix.casefold() not in SUPPORTED_EXTENSIONS:
+            raise AcquisitionError(
+                f"Неподдерживаемый формат preferred_index_text в "
+                f"{source_dir}: {preferred_name}"
+            )
         return [original, preferred]
     # PDF/TXT/Markdown are already indexable. Other originals are retained beside
     # an extracted TXT that the existing indexer understands.
