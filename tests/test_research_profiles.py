@@ -24,6 +24,90 @@ from research_profile import load_research_profile  # noqa: E402
 USED_HEADER = "id,type,persons,topics,short_description,source,date_used\n"
 
 
+class ResearchSelectionTests(unittest.TestCase):
+    @staticmethod
+    def profile() -> dict:
+        return {
+            "search_mode": "open",
+            "focus_people": [],
+            "finding_preferences": {"avoid_person_repetition": True},
+        }
+
+    @staticmethod
+    def candidate(chunk_id: str, role: str, score: float) -> dict:
+        return {
+            "chunk_id": chunk_id,
+            "candidate_role": role,
+            "source_group": chunk_id,
+            "retrieval_score": score,
+            "topics": [],
+            "person": [],
+            "duplicate_check": {"auto_exclude": False},
+        }
+
+    def test_content_candidates_outrank_navigation_in_mixed_selection(self) -> None:
+        candidates = [
+            self.candidate("navigation", "navigation", 100.0),
+            self.candidate("story-a", "source_passage", 10.0),
+            self.candidate("story-b", "source_passage", 9.0),
+        ]
+
+        selected = research_findings._select_diverse(
+            candidates, 2, self.profile()
+        )
+
+        self.assertEqual(
+            [item["chunk_id"] for item in selected], ["story-a", "story-b"]
+        )
+
+    def test_navigation_fills_selection_when_no_content_exists(self) -> None:
+        candidates = [
+            self.candidate("navigation-a", "navigation", 10.0),
+            self.candidate("navigation-b", "navigation", 9.0),
+        ]
+
+        selected = research_findings._select_diverse(
+            candidates, 2, self.profile()
+        )
+
+        self.assertEqual(
+            [item["chunk_id"] for item in selected],
+            ["navigation-a", "navigation-b"],
+        )
+
+    def test_navigation_remains_in_alternates_and_candidate_pool(self) -> None:
+        candidates = [
+            self.candidate("navigation", "navigation", 100.0),
+            self.candidate("story-a", "source_passage", 10.0),
+            self.candidate("story-b", "source_passage", 9.0),
+        ]
+        final = research_findings._select_diverse(candidates, 2, self.profile())
+        final_ids = {item["chunk_id"] for item in final}
+        alternates = [
+            item for item in candidates if item["chunk_id"] not in final_ids
+        ]
+        packet = research_findings.build_editorial_packet(
+            {
+                "profile": {
+                    "name": "Synthetic selection",
+                    "research_area": "Synthetic history",
+                    "result_language": "en",
+                    "max_results": 2,
+                    "search_mode": "open",
+                    "focus_people": [],
+                    "finding_preferences": {},
+                },
+                "final": final,
+                "alternates": alternates,
+            }
+        )
+
+        self.assertEqual(
+            [item["chunk_id"] for item in alternates], ["navigation"]
+        )
+        self.assertIn("navigation", packet["candidate_pool"])
+
+
 class ResearchProfileTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
