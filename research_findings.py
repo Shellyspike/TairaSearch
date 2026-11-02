@@ -397,17 +397,19 @@ def _select_diverse(
     candidates: list[dict[str, Any]], count: int, profile: dict[str, Any]
 ) -> list[dict[str, Any]]:
     eligible = [item for item in candidates if not _auto_excluded(item)]
+    content = [item for item in eligible if item.get("candidate_role") != "navigation"]
+    navigation = [item for item in eligible if item.get("candidate_role") == "navigation"]
     selected: list[dict[str, Any]] = []
     source_counts: Counter[str] = Counter()
     topic_counts: Counter[str] = Counter()
     people_counts: Counter[str] = Counter()
     avoid_people = profile["finding_preferences"]["avoid_person_repetition"]
 
-    def choose(max_per_source: int) -> None:
+    def choose(pool: list[dict[str, Any]], max_per_source: int) -> None:
         while len(selected) < count:
             best: dict[str, Any] | None = None
             best_score = float("-inf")
-            for candidate in eligible:
+            for candidate in pool:
                 source_key = candidate["source_group"]
                 if candidate in selected or source_counts[source_key] >= max_per_source:
                     continue
@@ -432,9 +434,13 @@ def _select_diverse(
             topic_counts.update(best["topics"])
             people_counts.update(best["person"])
 
-    choose(1)
+    choose(content, 1)
     if len(selected) < count:
-        choose(2)
+        choose(content, 2)
+    if len(selected) < count:
+        choose(navigation, 1)
+    if len(selected) < count:
+        choose(navigation, 2)
     return selected
 
 
