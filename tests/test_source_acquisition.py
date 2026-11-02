@@ -123,6 +123,78 @@ class SourceAcquisitionTests(unittest.TestCase):
     def run_public_cli(self, *arguments: str) -> int:
         return source_acquisition.main(list(arguments))
 
+    def test_preferred_index_text_is_promoted_with_original(self) -> None:
+        source_dir = self.staging / "preferred-source"
+        source_dir.mkdir(parents=True)
+        original = source_dir / "original-source.pdf"
+        extracted = source_dir / "extracted.txt"
+        original.write_bytes(b"%PDF-1.4\n")
+        extracted.write_text("Reviewed OCR text", encoding="utf-8")
+        metadata = {
+            "format": "pdf",
+            "original_file": original.name,
+            "extracted_file": extracted.name,
+            "preferred_index_text": extracted.name,
+            "quality": {"status": "ready_for_review"},
+        }
+
+        self.assertEqual(
+            source_acquisition.choose_promoted_files(metadata, source_dir),
+            [original, extracted],
+        )
+
+    def test_unreviewed_source_cannot_be_promoted(self) -> None:
+        source_dir = self.staging / "unreviewed-source"
+        source_dir.mkdir(parents=True)
+        with self.assertRaisesRegex(
+            source_acquisition.AcquisitionError, "не прошёл проверку"
+        ):
+            source_acquisition.choose_promoted_files(
+                {
+                    "format": "pdf",
+                    "original_file": "original.pdf",
+                    "extracted_file": "extracted.txt",
+                    "quality": {"status": "needs_ocr"},
+                },
+                source_dir,
+            )
+
+    def test_missing_preferred_index_text_is_reported(self) -> None:
+        source_id = "missing-preferred-source"
+        source_dir = self.staging / source_id
+        source_dir.mkdir(parents=True)
+        original = source_dir / "original-source.pdf"
+        extracted = source_dir / "extracted.txt"
+        original.write_bytes(b"%PDF-1.4\n")
+        extracted.write_text("Unselected extraction", encoding="utf-8")
+        metadata = {
+            "source_id": source_id,
+            "format": "pdf",
+            "original_file": original.name,
+            "extracted_file": extracted.name,
+            "preferred_index_text": "reviewed.txt",
+            "quality": {"status": "ready_for_review"},
+        }
+        (source_dir / "metadata.json").write_text(
+            json.dumps(metadata), encoding="utf-8"
+        )
+        corpus = self.root / "corpus"
+        corpus.mkdir()
+
+        with self.assertRaisesRegex(
+            source_acquisition.AcquisitionError, "Не найден preferred_index_text"
+        ):
+            source_acquisition.promote_sources(
+                [source_id],
+                staging_root=self.staging,
+                corpus=corpus,
+                journal_path=self.journal,
+                db_path=None,
+                run_index=False,
+            )
+        self.assertEqual(list(corpus.iterdir()), [])
+        self.assertFalse(self.journal.exists())
+
     def test_stale_journal_lock_file_does_not_block_new_process(self) -> None:
         lock_path = self.journal.with_name(self.journal.name + ".lock")
         lock_path.write_text("12345\n", encoding="ascii")
@@ -988,27 +1060,39 @@ class SourceAcquisitionTests(unittest.TestCase):
 
         source_ids = ["targeted-book-one", "targeted-book-two"]
         markers = ["FIRSTPROMOTEDMARKER", "SECONDPROMOTEDMARKER"]
-        for source_id, marker in zip(source_ids, markers, strict=True):
+        for number, (source_id, marker) in enumerate(
+            zip(source_ids, markers, strict=True), start=1
+        ):
             source_dir = self.staging / source_id
             source_dir.mkdir(parents=True)
             text = f"Новая книга с уникальным маркером {marker}. " * 20
-            original = source_dir / f"{source_id}.txt"
             extracted = source_dir / "extracted.txt"
-            original.write_text(text, encoding="utf-8")
             extracted.write_text(text, encoding="utf-8")
+            if number == 1:
+                original = source_dir / f"{source_id}.txt"
+                original.write_text(text, encoding="utf-8")
+                source_format = "txt"
+                preferred_index_text = None
+            else:
+                original = source_dir / f"{source_id}.pdf"
+                original.write_bytes(b"%PDF-1.4\nbroken text layer")
+                source_format = "pdf"
+                preferred_index_text = extracted.name
             metadata = {
                 "source_id": source_id,
                 "title": source_id,
                 "author": "Test author",
                 "url": f"https://example.invalid/{source_id}",
-                "format": "txt",
+                "format": source_format,
                 "original_file": original.name,
                 "extracted_file": extracted.name,
                 "content_sha256": source_acquisition.sha256_bytes(
                     original.read_bytes()
                 ),
-                "quality": {},
+                "quality": {"status": "ready_for_review"},
             }
+            if preferred_index_text is not None:
+                metadata["preferred_index_text"] = preferred_index_text
             (source_dir / "metadata.json").write_text(
                 json.dumps(metadata), encoding="utf-8"
             )
@@ -1051,7 +1135,11 @@ class SourceAcquisitionTests(unittest.TestCase):
         self.assertEqual(second["index"]["status"], "succeeded")
         self.assertEqual(len(commands), 2)
         for command in commands:
-            self.assertEqual(command.count("--only-file"), 2)
+            self.assertEqual(command.count("--only-file"), 3)
+
+        preferred_destination = corpus / "acquired" / source_ids[1]
+        self.assertTrue((preferred_destination / f"{source_ids[1]}.pdf").is_file())
+        self.assertTrue((preferred_destination / "extracted.txt").is_file())
 
         with contextlib.closing(sqlite3.connect(db)) as connection:
             self.assertEqual(
@@ -1060,6 +1148,12 @@ class SourceAcquisitionTests(unittest.TestCase):
             self.assertIsNone(
                 connection.execute(
                     "SELECT 1 FROM files WHERE relative_path='not-selected.txt'"
+                ).fetchone()
+            )
+            self.assertIsNone(
+                connection.execute(
+                    "SELECT 1 FROM files WHERE relative_path=?",
+                    (f"acquired/{source_ids[1]}/{source_ids[1]}.pdf",),
                 ).fetchone()
             )
             self.assertEqual(
@@ -1150,7 +1244,7 @@ class SourceAcquisitionTests(unittest.TestCase):
                     "content_sha256": source_acquisition.sha256_bytes(
                         original.read_bytes()
                     ),
-                    "quality": {},
+                    "quality": {"status": "ready_for_review"},
                 }
             ),
             encoding="utf-8",

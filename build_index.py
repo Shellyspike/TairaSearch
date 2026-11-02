@@ -304,6 +304,71 @@ def discover_files(root: Path, log_error: Any) -> list[Path]:
     return result
 
 
+def select_preferred_index_files(
+    paths: list[Path], discovered_paths: list[Path] | None = None
+) -> list[Path]:
+    """Index an explicitly selected text sidecar instead of its source file."""
+
+    result: list[Path] = []
+    seen: set[Path] = set()
+    preferred_by_directory: dict[Path, Path | None] = {}
+
+    def preferred_for(directory: Path) -> Path | None:
+        if directory in preferred_by_directory:
+            return preferred_by_directory[directory]
+        metadata_path = directory / "source-metadata"
+        if not metadata_path.is_file():
+            preferred_by_directory[directory] = None
+            return None
+        try:
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise RuntimeError(
+                f"Не удалось прочитать metadata источника {metadata_path}: {exc}"
+            ) from exc
+        if not isinstance(metadata, dict):
+            raise RuntimeError(
+                f"Metadata источника должна быть JSON-объектом: {metadata_path}"
+            )
+        preferred_name = metadata.get("preferred_index_text")
+        if preferred_name is None:
+            preferred_by_directory[directory] = None
+            return None
+        if (
+            not isinstance(preferred_name, str)
+            or not preferred_name
+            or Path(preferred_name).name != preferred_name
+        ):
+            raise RuntimeError(
+                "Некорректный preferred_index_text в "
+                f"{metadata_path}: {preferred_name!r}"
+            )
+        preferred_path = directory / preferred_name
+        if not preferred_path.is_file():
+            raise RuntimeError(
+                f"Не найден preferred_index_text из {metadata_path}: "
+                f"{preferred_name}"
+            )
+        if preferred_path.suffix.casefold() not in SUPPORTED_EXTENSIONS:
+            raise RuntimeError(
+                f"Неподдерживаемый формат preferred_index_text из "
+                f"{metadata_path}: {preferred_name}"
+            )
+        preferred_by_directory[directory] = preferred_path
+        return preferred_path
+
+    for path in discovered_paths or []:
+        if path.name == "source-metadata":
+            preferred_for(path.parent)
+    for path in paths:
+        preferred_path = preferred_for(path.parent)
+        selected = preferred_path or path
+        if selected not in seen:
+            seen.add(selected)
+            result.append(selected)
+    return result
+
+
 def select_explicit_files(root: Path, requested: list[str]) -> list[Path]:
     """Resolve an explicit file selection without walking the corpus."""
 
@@ -578,7 +643,10 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
     else:
         all_files = discover_files(corpus, collect_discovery_error)
     extensions = Counter(path.suffix.casefold() or "[без расширения]" for path in all_files)
-    supported = [path for path in all_files if path.suffix.casefold() in SUPPORTED_EXTENSIONS]
+    supported_candidates = [
+        path for path in all_files if path.suffix.casefold() in SUPPORTED_EXTENSIONS
+    ]
+    supported = select_preferred_index_files(supported_candidates, all_files)
     file_stats = collect_file_stats(supported, collect_discovery_error)
     print_scan_summary(all_files, supported, extensions, file_stats)
     if discovery_errors:
@@ -603,7 +671,12 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
             "--topics": topics_path,
             "--people": people_path,
             "--source-types": source_types_path,
-            **{f"файл корпуса {index}": path for index, path in enumerate(supported, 1)},
+            **{
+                f"файл корпуса {index}": path
+                for index, path in enumerate(
+                    dict.fromkeys([*supported_candidates, *supported]), 1
+                )
+            },
         },
     )
     validate_index_corpus_root(db_path, corpus)
