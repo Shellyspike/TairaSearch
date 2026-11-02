@@ -446,8 +446,6 @@ def _select_diverse(
 
 def build_research_findings(
     connection: sqlite3.Connection,
-    topics: dict[str, list[str]],
-    people: dict[str, dict[str, Any]],
     profile: dict[str, Any],
     used_finds_path: Path,
     *,
@@ -479,9 +477,6 @@ def build_research_findings(
         rows = search_function(
             connection,
             _search_args(profile, interest, top_per_interest),
-            topics,
-            people,
-            events_only=False,
         )
         interest_hits[interest["id"]] = len(rows)
         for row in rows:
@@ -509,7 +504,7 @@ def build_research_findings(
     if preferences:
         preference_args = _search_args(profile, {'terms': preferences}, pool_size)
         preference_hits = {row['chunk_id'] for row in search_function(
-            connection, preference_args, topics, people, events_only=False)}
+            connection, preference_args)}
     discovery_rows, discovery_stats = (discover_sources(
         connection, profile, excluded_before, preference_hits, document_group,
         discovery_rejections, discovery_paths) if connection is not None else ([], {'sources': {}}))
@@ -569,9 +564,7 @@ def build_research_findings(
             python_rejected_ids.add(str(raw["chunk_id"]))
             continue
         focus_mentions.update(matched_focus_people)
-        candidate_people = unique_normalized(
-            [*matched_focus_people, *target.get("people", [])]
-        )
+        candidate_people = unique_normalized(matched_focus_people)
         interest_ids = [item["id"] for item in matched_interests]
         verified_interest_mentions.update(interest_ids)
         primary_interest = (max(matched_interests,

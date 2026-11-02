@@ -170,21 +170,23 @@ class IncrementalSafetyTests(unittest.TestCase):
         self.assertNotEqual(after[2], before[2])
 
     def test_targeted_update_refuses_global_metadata_refresh_without_walking(self) -> None:
-        aliases = self.root / "aliases.json"
-        shutil.copy2(PROJECT / "aliases.json", aliases)
+        source_types = self.root / "source-types.json"
+        shutil.copy2(
+            PROJECT / "examples" / "source-types.medieval-japan.json", source_types
+        )
         original = self.corpus / "original.txt"
         original.write_text("Исходная запись", encoding="utf-8")
-        self.build("--aliases", str(aliases))
+        self.build("--source-types", str(source_types))
         target = self.corpus / "new.txt"
         target.write_text("Новая адресная запись", encoding="utf-8")
 
-        mapping = json.loads(aliases.read_text(encoding="utf-8-sig"))
-        mapping["test-change"] = ["test-change"]
-        aliases.write_text(json.dumps(mapping), encoding="utf-8")
+        mapping = json.loads(source_types.read_text(encoding="utf-8-sig"))
+        mapping["other"] = ["test-change"]
+        source_types.write_text(json.dumps(mapping), encoding="utf-8")
         args = build_index.make_parser().parse_args(
             self.arguments(
-                "--aliases",
-                str(aliases),
+                "--source-types",
+                str(source_types),
                 "--only-file",
                 str(target),
             )
@@ -203,6 +205,47 @@ class IncrementalSafetyTests(unittest.TestCase):
             self.assertIsNone(
                 connection.execute(
                     "SELECT 1 FROM files WHERE relative_path='new.txt'"
+                ).fetchone()
+            )
+
+    def test_targeted_update_accepts_matching_legacy_source_classification(self) -> None:
+        source_types = self.root / "legacy-source-types.json"
+        shutil.copy2(
+            PROJECT / "examples" / "source-types.medieval-japan.json", source_types
+        )
+        original = self.corpus / "original.txt"
+        original.write_text("Исходная запись", encoding="utf-8")
+        self.build("--source-types", str(source_types))
+        with contextlib.closing(sqlite3.connect(self.db)) as connection:
+            connection.execute("DELETE FROM meta WHERE key='source_types_hash'")
+            connection.execute(
+                "UPDATE meta SET value='legacy-four-dictionary-hash' "
+                "WHERE key='config_hash'"
+            )
+            connection.commit()
+
+        target = self.corpus / "new.txt"
+        target.write_text("Новая адресная запись", encoding="utf-8")
+        args = build_index.make_parser().parse_args(
+            self.arguments(
+                "--source-types",
+                str(source_types),
+                "--only-file",
+                str(target),
+            )
+        )
+        with mock.patch.object(
+            build_index,
+            "discover_files",
+            side_effect=AssertionError("полный обход не должен запускаться"),
+        ):
+            stats = build_index.build_index(args)
+
+        self.assertEqual(stats["processed_this_run"], 1)
+        with contextlib.closing(sqlite3.connect(self.db)) as connection:
+            self.assertIsNotNone(
+                connection.execute(
+                    "SELECT value FROM meta WHERE key='source_types_hash'"
                 ).fetchone()
             )
 

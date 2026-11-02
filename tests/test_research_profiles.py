@@ -131,19 +131,24 @@ class ResearchProfileTests(unittest.TestCase):
             scenario = cls.root / name
             scenario.mkdir()
             database = scenario / "index.sqlite3"
+            build_arguments = [
+                str(corpus),
+                "--db",
+                str(database),
+                "--log",
+                str(scenario / "index.log"),
+                "--rebuild",
+            ]
+            build_arguments.extend(
+                [
+                    "--source-types",
+                    str(PROJECT / "examples" / "source-types.medieval-japan.json"),
+                ]
+            )
             with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(
                 io.StringIO()
             ):
-                code = build_index.main(
-                    [
-                        str(corpus),
-                        "--db",
-                        str(database),
-                        "--log",
-                        str(scenario / "index.log"),
-                        "--rebuild",
-                    ]
-                )
+                code = build_index.main(build_arguments)
             if code:
                 raise AssertionError(f"{name} demo index failed with exit code {code}")
             cls.databases[name] = database
@@ -348,7 +353,8 @@ class ResearchProfileTests(unittest.TestCase):
         payload = self.run_profile("japan", profile_path, output_name="japan")
         focus = {item["name"] for item in profile["focus_people"]}
         returned = {name for item in payload["final"] for name in item["person"]}
-        self.assertTrue(returned - focus)
+        self.assertTrue(returned <= focus)
+        self.assertTrue(any(not item["person"] for item in payload["final"]))
         self.assertIn("Ёсицунэ", payload["coverage"]["focus_people_without_hits"])
         self.assertIn("Дзэами", payload["coverage"]["focus_people_without_hits"])
         self.assertEqual(
@@ -603,8 +609,6 @@ class ResearchProfileTests(unittest.TestCase):
 
         result = research_findings.build_research_findings(
             None,
-            {},
-            {},
             profile,
             used_path,
             search_function=fake_search,
@@ -637,10 +641,6 @@ class ResearchProfileTests(unittest.TestCase):
             "--db": self.databases["rome"],
             "--profile": self.root / "protected-profile.json",
             "--used-finds": self.root / "protected-used.csv",
-            "--aliases": self.root / "protected-aliases.json",
-            "--topics-config": self.root / "protected-topics.json",
-            "--people-config": self.root / "protected-people.json",
-            "--source-types-config": self.root / "protected-source-types.json",
             "--continue-from": self.root / "protected-continuation.json",
         }
         inputs["--profile"].write_bytes(
@@ -648,14 +648,6 @@ class ResearchProfileTests(unittest.TestCase):
         )
         inputs["--used-finds"].write_text(USED_HEADER, encoding="utf-8-sig")
         inputs["--continue-from"].write_text("{}\n", encoding="utf-8")
-        for option, source_name in (
-            ("--aliases", "aliases.json"),
-            ("--topics-config", "topics.json"),
-            ("--people-config", "people.json"),
-            ("--source-types-config", "source_types.json"),
-        ):
-            inputs[option].write_bytes((PROJECT / source_name).read_bytes())
-
         base_arguments = ["research-findings"]
         for option, path in inputs.items():
             base_arguments.extend([option, str(path)])
@@ -806,7 +798,7 @@ class ResearchProfileTests(unittest.TestCase):
                     else "complete stdout",
                     prompt,
                 )
-                self.assertIn("daily-five", prompt)
+                self.assertNotIn("daily-five", prompt)
                 self.assertIn("used_finds.csv", prompt)
                 self.assertIn("finding_preferences.notes", prompt)
                 self.assertIn("*.editorial.json", prompt)

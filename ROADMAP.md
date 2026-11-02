@@ -31,8 +31,8 @@ as two visible, separately testable parts.
   a short natural-language interview.
 - [x] Add profile-driven retrieval that reuses FTS5, context, diversity, and
   publication-history checks without changing the SQLite schema or `chunk_id`.
-- [x] Keep legacy `daily-five`, presentation cards, CLI contracts, and the AI
-  demo unchanged.
+- [x] Demonstrate profile-driven retrieval without requiring built-in people,
+  alias, or topic dictionaries.
 - [x] Demonstrate medieval Japan and Ancient Rome, including a profile with no
   predefined people.
 - [x] Keep preview selections read-only with respect to `used_finds.csv`.
@@ -62,7 +62,7 @@ as two visible, separately testable parts.
 ## 0.3.1 — Codex-controlled research continuation
 
 - [x] Make profile-driven `research-findings` the primary retrieval tool for
-  Codex while retaining legacy `daily-five` unchanged.
+  Codex and retire the duplicate legacy selection CLI.
 - [x] Let Codex request disjoint later batches with `--continue-from` after
   source or semantic review rejects earlier candidates.
 - [x] Keep final selection with Codex and source evidence with each Python

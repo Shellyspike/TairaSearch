@@ -8,8 +8,7 @@
 
 1. Следуй этому сценарию для поиска и публикации. Для написания карточек
    используй только `examples/codex/daily-news-prompt.md`; для независимого
-   чтения — `examples/codex/reader-review.ru.md`. Не заменяй профильный
-   сценарий старой командой `daily-five`.
+   чтения — `examples/codex/reader-review.ru.md`.
 2. Если `research_profile.json` отсутствует, выполни
    `examples/codex/research-onboarding.ru.md`: проведи короткий опрос, подтверди
    понимание, создай игнорируемый локальный профиль и запусти preview.

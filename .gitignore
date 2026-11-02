@@ -35,6 +35,7 @@ daily_five_candidates.json
 daily_five_*.json
 research_candidates.json
 research_profile.json
+source_types.json
 /research_profiles/
 source_acquisition_policy.json
 library-staging/

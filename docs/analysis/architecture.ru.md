@@ -92,7 +92,6 @@ flowchart TB
 
     subgraph ts["TairaSearch"]
         maincli["Основной CLI<br/>taira_search.py<br/>FTS и обзор, контекст, публикационный контракт"]
-        legacycli["Сохранённый поисковый CLI<br/>search_index.py"]
         indexer["Индексатор<br/>build_index.py"]
         acquisition["Acquisition CLI<br/>source_acquisition.py"]
         workflow["Workflow Markdown<br/>инструкции AI-агенту"]
@@ -109,7 +108,6 @@ flowchart TB
     user <-->|"диалог и согласия"| agent
 
     agent -->|"основные команды"| maincli
-    agent -->|"совместимый старый поиск"| legacycli
     agent -->|"scan/build"| indexer
     agent -->|"check/stage/promote"| acquisition
 
@@ -118,11 +116,10 @@ flowchart TB
     maincli -->|"непроверенные кандидаты,<br/>контекст и диагностика"| work
     work -->|"читает research result и publication manifest"| maincli
     maincli -->|"после валидации manifest и scope:<br/>lock, read, atomic full-file replace"| journal
-    legacycli -->|"поиск и export"| db
 
     indexer -->|"читает документы"| corpus
     indexer -->|"transactional update"| db
-    indexer -->|"читает mappings"| config
+    indexer -->|"читает необязательные правила типов источников"| config
 
     acquisition -->|"bounded download"| web
     acquisition -->|"read/write"| staging
@@ -142,7 +139,6 @@ flowchart TB
 | Контейнер | Технология | Ответственность |
 | --- | --- | --- |
 | Основной CLI | Python 3.11, `argparse`, `sqlite3` | FTS и обзор в выбранном режиме, контекст/continuation/диагностика, publication access, валидация манифеста, регистрация и render. |
-| Сохранённый поисковый CLI | Python, `sqlite3` | Ранее реализованный поиск, ranking, diversification и export; поддерживается параллельно с основным CLI. |
 | Индексатор | Python, SQLite WAL/FTS5, `pypdf` | Scan и транзакционное построение индекса. |
 | Acquisition CLI | Python, `urllib`, файловая система | Валидация, bounded download, extraction, staging и promotion. |
 | AI-агент | Внешний runtime | Выбор/смена режима по согласию, внешние источники, проверка области и содержательных связей, редактура и CLI. |
@@ -164,7 +160,6 @@ flowchart LR
     db[("SQLite: индексированные chunks")]
     df["daily_five.py"]
     rp["research_profile.py"]
-    si["search_index.py"]
     bi["build_index.py"]
     sa["source_acquisition.py"]
     parsers["parsers.py"]
@@ -187,10 +182,7 @@ flowchart LR
     sd -->|"import / source_group"| df
     sd -->|"SELECT метаданных и hash<br/>без FTS-условия"| db
 
-    df -->|"import"| meta
     df -->|"import"| text
-
-    si -->|"import"| text
 
     bi -->|"import"| parsers
     bi -->|"import"| schema
@@ -214,18 +206,14 @@ flowchart LR
   использует результат при формировании кандидатов, а не только в инструкциях.
 
 
-- `research_findings.py` не зависит от `search_index.py`. Основной CLI передаёт
-  ему свои `search_database` и `context_rows` как функции-параметры
+- Основной CLI передаёт `research_findings.py` свои `search_database` и
+  `context_rows` как функции-параметры
   ([сигнатура](../../research_findings.py),
   [вызов](../../taira_search.py)).
-- `search_index.py` не импортирует `search_schema.py`; это самостоятельный
-  сохранённый поисковый интерфейс, работающий с SQLite и `text_utils.py`.
-- `taira_search.py` — основной CLI для новых сценариев. `search_index.py`
-  остаётся доступным ранее реализованным интерфейсом. Удаление или объединение
-  в рамках AS IS не выполняется.
-- В `daily_five.py` сосуществуют legacy-отбор, функции dedup и актуальный
-  publication journal. Разделение модуля возможно как будущий рефакторинг, но
-  текущее сосуществование не является дефектом само по себе.
+- `taira_search.py` — единственный поисковый CLI. Персонажи, их алиасы и
+  исследовательские интересы задаются профилем, а не глобальными словарями.
+- `daily_five.py` содержит общие функции dedup и действующий publication
+  journal; отдельная legacy-команда отбора удалена.
 - `source_acquisition.py` после отдельного согласия запускает `build_index.py`
   как subprocess, а не реализует второй индексатор
   ([вызов](../../source_acquisition.py)).
@@ -378,7 +366,7 @@ scheduled runtime.
 
 | Область | AS IS | Возможное, но не утверждённое улучшение |
 | --- | --- | --- |
-| Поисковые CLI | `taira_search.py` основной; `search_index.py` сохранён | Сократить дублирование после отдельного решения |
+| Поисковый CLI | Один `taira_search.py`; профиль задаёт исследовательскую область | Семантическое ранжирование видов историй в Python не реализовано |
 | Идентичность | Позиционный `chunk_id` | Постоянный ID смысловой находки и миграция истории |
 | Cleanup | Пропавшие документы сохраняются | Отдельное удаление с preview и подтверждением |
 | Поиск | FTS и обзор, два режима, сохранённое продолжение | Семантическое ранжирование видов историй в Python не реализовано |

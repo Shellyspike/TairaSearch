@@ -1,7 +1,6 @@
 # TairaSearch
 
-**[Русская версия](README.ru.md)** · [How setup works](docs/research-onboarding.md) ·
-[View the AI demo](docs/ai-demo.md)
+**[Русская версия](README.ru.md)** · [How setup works](docs/research-onboarding.md)
 
 ## Tired of the news? Make your own!
 
@@ -30,8 +29,8 @@ These are the news stories we deserve.
 - why illness at court may be more visible in an empty seat than in a list of
   symptoms.
 
-These are headlines from the [fictional demonstration edition](examples/demo/ai-output.en.md),
-not real historical claims. Your feed depends on your interests and library.
+These are examples, not claims from the bundled synthetic corpus. Your feed
+depends on your interests and library.
 
 ## Start with one request
 
@@ -125,9 +124,9 @@ Ask the agent:
 
 > **Show me the reproducible TairaSearch demo in this repository and explain what Python did and what the AI did.**
 
-The demo builds a separate index from fictional material and creates five
-`[DEMO]` cards. It does not use the internet, personal files, or the OpenAI API.
-See [docs/ai-demo.md](docs/ai-demo.md).
+The demo builds a separate index from fictional material and runs a
+profile-driven preview. It does not use the internet, personal files, or the
+OpenAI API.
 
 Python does not call or impersonate a model: it produces candidates and source
 context, while the agent performs the editorial analysis. For a manual setup,

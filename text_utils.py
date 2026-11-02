@@ -118,29 +118,6 @@ def make_preview(text: str, limit: int = 800) -> str:
     return cut.rstrip() + "…"
 
 
-def detect_labels(text: str, groups: dict[str, list[str]]) -> tuple[list[str], list[str]]:
-    """Return canonical labels and the concrete variants found in text."""
-    normalized = normalize_text(text)
-    compact = ALL_SPACE_RE.sub("", normalized)
-    labels: list[str] = []
-    terms: set[str] = set()
-    for label, variants in groups.items():
-        candidates = list(dict.fromkeys([label, *variants]))
-        found = []
-        for term in candidates:
-            normalized_term = normalize_text(term)
-            compact_term = ALL_SPACE_RE.sub("", normalized_term)
-            if normalized_term and (
-                normalized_term in normalized
-                or (compact_term and compact_term in compact)
-            ):
-                found.append(term)
-        if found:
-            labels.append(label)
-            terms.update(found)
-    return sorted(labels), sorted(terms)
-
-
 def derive_source(relative_path: str) -> str:
     path = PurePosixPath(relative_path)
     raw = path.parts[0] if len(path.parts) > 1 else Path(path.name).stem
