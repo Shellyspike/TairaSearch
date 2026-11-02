@@ -249,6 +249,44 @@ class IncrementalSafetyTests(unittest.TestCase):
                 ).fetchone()
             )
 
+    def test_legacy_library_classification_is_not_silently_replaced(self) -> None:
+        source_types = self.root / "legacy-source-types.json"
+        source_types.write_text(
+            json.dumps({"historical": ["Chronicle"]}), encoding="utf-8"
+        )
+        source_dir = self.corpus / "Chronicle"
+        source_dir.mkdir()
+        original = source_dir / "entry.txt"
+        original.write_text("Старая классифицированная запись", encoding="utf-8")
+        self.build("--source-types", str(source_types))
+        with contextlib.closing(sqlite3.connect(self.db)) as connection:
+            connection.execute("DELETE FROM meta WHERE key='source_types_hash'")
+            connection.execute(
+                "UPDATE meta SET value='legacy-four-dictionary-hash' "
+                "WHERE key='config_hash'"
+            )
+            connection.commit()
+            before = connection.execute(
+                "SELECT relative_path, source_type, original_text FROM chunks"
+            ).fetchall()
+        self.assertEqual(before[0][1], "historical")
+
+        with self.assertRaisesRegex(
+            RuntimeError, "нельзя молча заменить общими значениями"
+        ):
+            self.build()
+
+        with contextlib.closing(sqlite3.connect(self.db)) as connection:
+            after = connection.execute(
+                "SELECT relative_path, source_type, original_text FROM chunks"
+            ).fetchall()
+            self.assertEqual(after, before)
+            self.assertIsNone(
+                connection.execute(
+                    "SELECT value FROM meta WHERE key='source_types_hash'"
+                ).fetchone()
+            )
+
     def test_indexer_reads_russian_japanese_and_unicode_encodings(self) -> None:
         fixtures = {
             "russian.txt": ("Привет мир из Windows", "cp1251"),

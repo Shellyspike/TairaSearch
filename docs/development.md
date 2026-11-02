@@ -91,6 +91,11 @@ local `source_types.json` beside the project or pass `--source-types PATH` to
 `scholarship` and other files to `other`. A demonstration mapping is available
 at `examples/source-types.medieval-japan.json`.
 
+Before upgrading an existing installation, preserve its previous
+`source_types.json`, then restore it as an ignored local file after the update.
+If omitting it would change classifications already stored in SQLite, the
+indexer stops before modifying the database and asks for that file explicitly.
+
 Python indexes, ranks, retrieves context, and performs reproducible checks.
 Codex investigates sources, reviews semantic novelty, and writes cards.
 Publication and the `used_finds.csv` update are separate operations through a

@@ -433,6 +433,66 @@ def validate_targeted_index_state(
             connection.close()
 
 
+def validate_legacy_source_type_migration(
+    db_path: Path,
+    source_types_path: Path | None,
+    source_types: dict[str, list[str]],
+) -> None:
+    """Do not silently replace library-specific labels with generic defaults."""
+
+    if (
+        source_types_path is not None
+        or not db_path.exists()
+        or db_path.stat().st_size == 0
+    ):
+        return
+    uri = db_path.as_uri() + "?mode=ro"
+    connection: sqlite3.Connection | None = None
+    try:
+        connection = sqlite3.connect(uri, uri=True)
+        tables = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        if not {"meta", "chunks"}.issubset(tables):
+            return
+        meta = dict(connection.execute("SELECT key, value FROM meta"))
+        if meta.get("source_types_hash"):
+            return
+        columns = {
+            str(row[1]) for row in connection.execute("PRAGMA table_info(chunks)")
+        }
+        required = {"source", "filename", "relative_path", "source_type"}
+        if not required.issubset(columns):
+            return
+        rows = connection.execute(
+            """
+            SELECT DISTINCT source, filename, relative_path, source_type
+            FROM chunks
+            """
+        )
+        if any(
+            classify_source_type(source, filename, relative_path, source_types)
+            != source_type
+            for source, filename, relative_path, source_type in rows
+        ):
+            raise RuntimeError(
+                "Существующий индекс содержит библиотечную классификацию "
+                "источников, которую нельзя молча заменить общими значениями. "
+                "Восстановите прежний локальный source_types.json или явно "
+                "передайте его через --source-types. Индекс не изменён."
+            )
+    except (OSError, sqlite3.Error) as exc:
+        raise RuntimeError(
+            f"не удалось проверить классификацию существующего индекса: {exc}"
+        ) from exc
+    finally:
+        if connection is not None:
+            connection.close()
+
+
 def relative_posix(path: Path, root: Path) -> str:
     return path.relative_to(root).as_posix()
 
@@ -693,6 +753,10 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
     config_hash = source_types_hash
     if targeted:
         validate_targeted_index_state(db_path, source_types_hash, source_types)
+    else:
+        validate_legacy_source_type_migration(
+            db_path, source_types_path, source_types
+        )
 
     db_path.parent.mkdir(parents=True, exist_ok=True)
     log_path.parent.mkdir(parents=True, exist_ok=True)
