@@ -107,7 +107,8 @@ Before publication, save the complete finalized batch under the ignored
 must contain a `publication_id` and a non-empty `cards` array. Every card must
 contain `id` or `chunk_id`, `type` (`event` or `interpretation`), `persons`,
 `topics`, `short_description`, `source`, and the exact final text in
-`card_markdown`.
+`card_markdown`. When the research result contains `exploration_checkpoint`,
+copy that root object unchanged into the publication manifest.
 
 Then run:
 
@@ -115,8 +116,9 @@ Then run:
 python taira_search.py record-publication work/publications/2026-10-12.json
 ```
 
-After exit code 0, render the user-facing edition from that same immutable
-manifest:
+After exit code 0, render the user-facing edition from that same manifest. The
+cards remain immutable; `record-publication` may add only the root checkpoint
+registration seal after the journal update succeeds:
 
 ```powershell
 python taira_search.py render-publication work/publications/2026-10-12.json
@@ -140,8 +142,14 @@ daily run. If chat delivery fails after the journal update, check run/chat
 history and run `render-publication` against the same manifest; do not search
 again, rewrite the cards, or create a new registration. Idempotent retry of the
 same manifest still skips already registered IDs, but it is unnecessary for
-recovery. The unchanged local JSON contains the exact cards needed for
-recovery.
+recovery. The local JSON contains the unchanged exact cards needed for recovery.
+
+The default `research-findings --preview` resumes source exploration by scanning
+`work/publications/`. It accepts a checkpoint only when the seal matches the
+manifest and all cards still match `used_finds.csv`; file date and presence are
+not registration evidence. Failed preparation/registration therefore leaves
+the previous checkpoint active, and replaying one registered manifest cannot
+advance it twice.
 
 Publication state is deliberately split into three parts:
 

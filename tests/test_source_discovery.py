@@ -44,6 +44,8 @@ class DiscoveryTests(unittest.TestCase):
         }), encoding='utf-8')
         cls.used = cls.root / 'used.csv'
         cls.used.write_text('id,type,persons,topics,short_description,source,date_used\n', encoding='utf-8')
+        cls.publications = cls.root / 'publications'
+        cls.publications.mkdir()
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             code = build_index.main([str(corpus), '--db', str(cls.database),
                 '--log', str(cls.root / 'build.log'),
@@ -62,7 +64,8 @@ class DiscoveryTests(unittest.TestCase):
     def tearDownClass(cls):
         cls.temp.cleanup()
 
-    def run_preview(self, mode='open', changes=None, previous=None, batch_size=10):
+    def run_preview(self, mode='open', changes=None, previous=None, batch_size=10,
+                    used_path=None, publications_path=None, database=None):
         profile = copy.deepcopy(self.profile)
         if mode is not None:
             profile['search_mode'] = mode
@@ -74,15 +77,33 @@ class DiscoveryTests(unittest.TestCase):
         if previous:
             previous_path = self.root / 'previous.json'
             previous_path.write_text(json.dumps(previous), encoding='utf-8')
-        args = ['research-findings', '--db', str(self.database), '--profile', str(path),
-                '--used-finds', str(self.used), '--output', str(output), '--preview',
-                '--batch-size', str(batch_size)]
+        args = ['research-findings', '--db', str(database or self.database), '--profile', str(path),
+                '--used-finds', str(used_path or self.used), '--output', str(output), '--preview',
+                '--batch-size', str(batch_size),
+                '--resume-exploration-from', str(publications_path or self.publications)]
         if previous:
             args += ['--continue-from', str(previous_path)]
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()) as err:
             code = taira_search.main(args)
         self.assertEqual(code, 0, err.getvalue())
         return json.loads(output.read_text(encoding='utf-8'))
+
+    def register_checkpoint(self, result, number, publications=None, used=None):
+        publications = publications or self.publications
+        used = used or self.used
+        manifest = publications / f'edition-{number}.json'
+        manifest.write_text(json.dumps({
+            'publication_id': f'edition-{number}',
+            'exploration_checkpoint': result['exploration_checkpoint'],
+            'cards': [{
+                'id': f'ch_published_{number}', 'type': 'event',
+                'short_description': f'Published test card {number}',
+                'source': 'Synthetic publication',
+                'card_markdown': f'### Published test card {number}',
+            }],
+        }), encoding='utf-8')
+        daily_five.record_publication_from_json(manifest, used)
+        return manifest
 
     @staticmethod
     def candidates(result):
@@ -164,6 +185,20 @@ class DiscoveryTests(unittest.TestCase):
         self.assertIn('unknown.txt', names)
         self.assertIn('known.txt', names)
 
+    def test_continuation_accumulates_one_pending_checkpoint_generation(self):
+        first = self.run_preview(batch_size=1)
+        second = self.run_preview(previous=first, batch_size=1)
+        first_checkpoint = first['exploration_checkpoint']
+        second_checkpoint = second['exploration_checkpoint']
+        self.assertEqual(second_checkpoint['generation'], first_checkpoint['generation'])
+        self.assertEqual(
+            second_checkpoint['parent_checkpoint_id'],
+            first_checkpoint['parent_checkpoint_id'],
+        )
+        first_seen = {item['chunk_id'] for item in first_checkpoint['seen']}
+        second_seen = {item['chunk_id'] for item in second_checkpoint['seen']}
+        self.assertTrue(first_seen <= second_seen)
+
     def test_no_lexical_preference_overlap_does_not_block_exploration(self):
         preferences = dict(self.profile['finding_preferences'], preferred_kinds=['повседневная жизнь'])
         result = self.run_preview(changes={'finding_preferences': preferences})
@@ -210,6 +245,137 @@ class DiscoveryTests(unittest.TestCase):
         path.write_text(json.dumps(result), encoding='utf-8')
         with self.assertRaisesRegex(ValueError, 'версия'):
             research_findings.load_discovery_state([path])
+
+    def test_registered_checkpoint_advances_daily_exploration_and_cycles(self):
+        publications = self.root / 'checkpoint-publications'
+        publications.mkdir(exist_ok=True)
+        used = self.root / 'checkpoint-used.csv'
+        used.write_text('id,type,persons,topics,short_description,source,date_used\n', encoding='utf-8')
+        shown_by_edition = []
+        checkpoints = []
+        first_cycle = None
+        for number in range(1, 10):
+            result = self.run_preview(
+                batch_size=2, used_path=used, publications_path=publications
+            )
+            shown = result['exploration_checkpoint_status']['shown_via_source_exploration']
+            self.assertTrue(shown)
+            shown_by_edition.append(set(shown))
+            checkpoints.append(result['exploration_checkpoint'])
+            self.register_checkpoint(result, number, publications, used)
+            first_cycle = first_cycle or result['exploration_checkpoint']['cycle']
+            if result['exploration_checkpoint']['cycle'] > first_cycle:
+                break
+
+        self.assertGreater(checkpoints[-1]['cycle'], first_cycle)
+        first_cycle_rows = [
+            shown for shown, checkpoint in zip(shown_by_edition, checkpoints)
+            if checkpoint['cycle'] == first_cycle
+        ]
+        accumulated = set()
+        for shown in first_cycle_rows:
+            self.assertTrue(accumulated.isdisjoint(shown))
+            accumulated.update(shown)
+        self.assertTrue(shown_by_edition[-1] & accumulated)
+
+        latest, latest_path = daily_five.load_latest_registered_exploration_checkpoint(
+            publications, used
+        )
+        self.assertEqual(latest['checkpoint_id'], checkpoints[-1]['checkpoint_id'])
+        self.assertEqual(latest_path.name, f'edition-{len(checkpoints)}.json')
+        # Idempotent replay seals the same checkpoint instead of creating progress.
+        daily_five.record_publication_from_json(latest_path, used)
+        daily_five.record_publication_from_json(publications / 'edition-1.json', used)
+        replayed, _ = daily_five.load_latest_registered_exploration_checkpoint(
+            publications, used
+        )
+        self.assertEqual(replayed['checkpoint_id'], latest['checkpoint_id'])
+
+    def test_unregistered_checkpoint_is_ignored_and_thematic_search_is_not_bookmarked(self):
+        publications = self.root / 'failure-publications'
+        publications.mkdir(exist_ok=True)
+        used = self.root / 'failure-used.csv'
+        used.write_text('id,type,persons,topics,short_description,source,date_used\n', encoding='utf-8')
+        first = self.run_preview(
+            batch_size=2, used_path=used, publications_path=publications
+        )
+        self.register_checkpoint(first, 'registered', publications, used)
+        second = self.run_preview(
+            batch_size=10, used_path=used, publications_path=publications
+        )
+        known = next(
+            item for item in self.candidates(second) if item['filename'] == 'known.txt'
+        )
+        self.assertIn('thematic_fts', known['retrieval']['methods'])
+
+        draft = publications / 'failed-before-registration.json'
+        draft.write_text(json.dumps({
+            'publication_id': 'failed-before-registration',
+            'exploration_checkpoint': second['exploration_checkpoint'],
+            'cards': [{
+                'id': 'ch_never_registered', 'type': 'event',
+                'short_description': 'Not registered', 'source': 'Synthetic',
+                'card_markdown': 'Not registered',
+            }],
+        }), encoding='utf-8')
+        latest, _ = daily_five.load_latest_registered_exploration_checkpoint(
+            publications, used
+        )
+        self.assertEqual(
+            latest['checkpoint_id'], first['exploration_checkpoint']['checkpoint_id']
+        )
+        status = daily_five.publication_status_from_json(draft, used)
+        self.assertFalse(status['registered'])
+        self.assertFalse(status['exploration_checkpoint_registered'])
+        with self.assertRaisesRegex(ValueError, 'record-publication'):
+            daily_five.render_registered_publication_from_json(draft, used)
+
+    def test_new_source_joins_an_existing_checkpoint_without_reset(self):
+        connection = sqlite3.connect(':memory:')
+        self.addCleanup(connection.close)
+        connection.row_factory = sqlite3.Row
+        connection.execute('CREATE TABLE chunks (chunk_id TEXT, source TEXT, filename TEXT, relative_path TEXT, chunk_no INT, source_type TEXT, text_quality TEXT, is_duplicate INT, text_hash TEXT)')
+        connection.executemany('INSERT INTO chunks VALUES (?,?,?,?,?,?,?,?,?)', [
+            ('old-1', 'Old', 'old.txt', 'Old/old.txt', 0, 'other', 'good', 0, 'old-hash-1'),
+            ('old-2', 'Old', 'old.txt', 'Old/old.txt', 1, 'other', 'good', 0, 'old-hash-2'),
+        ])
+        profile = dict(self.profile, exclude_sources=[])
+        seen = {'old-1': 'old-hash-1', 'old-2': 'old-hash-2'}
+        before, _ = discover_sources(connection, profile, seen, set(), document_group)
+        self.assertEqual(before, [])
+        connection.execute('INSERT INTO chunks VALUES (?,?,?,?,?,?,?,?,?)',
+            ('new-1', 'New', 'new.txt', 'New/new.txt', 0, 'other', 'good', 0, 'new-hash-1'))
+        after, _ = discover_sources(connection, profile, seen, set(), document_group)
+        self.assertEqual([row['chunk_id'] for row in after], ['new-1'])
+        connection.execute(
+            'UPDATE chunks SET text_hash=? WHERE chunk_id=?',
+            ('old-hash-1-changed', 'old-1'),
+        )
+        changed, _ = discover_sources(connection, profile, seen, set(), document_group)
+        self.assertIn('old-1', {row['chunk_id'] for row in changed})
+
+    def test_profile_change_starts_a_new_checkpoint_cycle(self):
+        publications = self.root / 'profile-change-publications'
+        publications.mkdir(exist_ok=True)
+        used = self.root / 'profile-change-used.csv'
+        used.write_text('id,type,persons,topics,short_description,source,date_used\n', encoding='utf-8')
+        first = self.run_preview(
+            batch_size=2, used_path=used, publications_path=publications
+        )
+        self.register_checkpoint(first, 'old-profile', publications, used)
+        changed = self.run_preview(
+            batch_size=2, used_path=used, publications_path=publications,
+            changes={'research_area': 'Changed synthetic area'},
+        )
+        self.assertTrue(changed['exploration_checkpoint_status']['profile_changed_reset'])
+        self.assertEqual(
+            changed['exploration_checkpoint']['generation'],
+            first['exploration_checkpoint']['generation'] + 1,
+        )
+        self.assertEqual(
+            changed['exploration_checkpoint']['cycle'],
+            first['exploration_checkpoint']['cycle'] + 1,
+        )
 
     def test_pending_scope_and_unselected_person_cannot_be_registered(self):
         path = self.root / 'publication.json'

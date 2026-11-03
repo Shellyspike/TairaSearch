@@ -77,7 +77,7 @@ def interleave(*lanes: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def discover_sources(connection: sqlite3.Connection, profile: dict[str, Any],
-                     excluded: set[str], preference_hits: set[str], group: Callable,
+                     excluded: set[str] | dict[str, str], preference_hits: set[str], group: Callable,
                      rejections: dict[str, str] | None = None,
                      paths: list[str] | None = None) -> tuple[list[dict], dict]:
     """Inventory only metadata/hashes; fetch full passages through normal context.
@@ -87,6 +87,11 @@ def discover_sources(connection: sqlite3.Connection, profile: dict[str, Any],
     consumes a thematic candidate or an unexposed, context-verified passage.
     """
     rejections = rejections or {}
+    def previously_exposed(row: dict[str, Any]) -> bool:
+        if isinstance(excluded, dict):
+            return excluded.get(row['chunk_id']) == row['text_hash']
+        return row['chunk_id'] in excluded
+
     documents: dict[str, list[dict]] = {}
     diagnostics: dict[str, dict] = {}
     for record in connection.execute(
@@ -117,7 +122,7 @@ def discover_sources(connection: sqlite3.Connection, profile: dict[str, Any],
             diagnostic['filtered'][reason] += 1
             continue
         diagnostic['eligible'] += 1
-        diagnostic['previously_exposed'] += row['chunk_id'] in excluded
+        diagnostic['previously_exposed'] += previously_exposed(row)
         documents.setdefault(path, []).append(row)
 
     # Identical full documents under different paths must not buy extra turns.
@@ -136,16 +141,16 @@ def discover_sources(connection: sqlite3.Connection, profile: dict[str, Any],
     prior_counts = Counter()
     for key, by_hash in grouped.items():
         rows = sorted(by_hash.values(), key=lambda row: (row['chunk_no'], row['relative_path']))
-        prior_counts[key] = sum(row['chunk_id'] in excluded for row in rows)
+        prior_counts[key] = sum(previously_exposed(row) for row in rows)
         documents_in_group: dict[str, list] = {}
         for row in rows:
             documents_in_group.setdefault(row['relative_path'], []).append(row)
         document_queues = {}
         document_visits = Counter()
         for path, document in documents_in_group.items():
-            document_visits[path] = sum(row['chunk_id'] in excluded for row in document)
+            document_visits[path] = sum(previously_exposed(row) for row in document)
             spread = [document[index] for index in spread_indices(len(document))]
-            unseen = [row for row in spread if row['chunk_id'] not in excluded
+            unseen = [row for row in spread if not previously_exposed(row)
                       and rejections.get(row['chunk_id']) != row['text_hash']]
             preferred = [row for row in unseen if row['chunk_id'] in preference_hits]
             document_queues[path] = deque(interleave(preferred, unseen))
