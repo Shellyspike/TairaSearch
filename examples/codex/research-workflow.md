@@ -7,8 +7,7 @@ needed, and choose the final findings.
 
 1. Use this workflow for retrieval and publication. Use only
    `examples/codex/daily-news-prompt.md` to write cards and
-   `examples/codex/reader-review.ru.md` for an independent reading. Do not
-   replace this profile-driven workflow with legacy `daily-five`.
+   `examples/codex/reader-review.ru.md` for an independent reading.
 2. If `research_profile.json` does not exist, follow
    `examples/codex/research-onboarding.md`: interview me briefly, confirm the
    interpretation, create the ignored local profile, and run its preview.

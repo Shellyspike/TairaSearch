@@ -54,7 +54,7 @@ python3.11 -m venv .venv
 
 ```powershell
 .venv\Scripts\python build_index.py "ПУТЬ_К_КОРПУСУ" --db work/index.sqlite3
-.venv\Scripts\python taira_search.py search "поисковый запрос" --db work/index.sqlite3
+.venv\Scripts\python taira_search.py search --query "поисковый запрос" --db work/index.sqlite3
 ```
 
 Существующая SQLite привязана к сохранённому `corpus_root`. Попытка использовать
@@ -80,8 +80,23 @@ python3.11 -m venv .venv
 .venv\Scripts\python taira_search.py research-context work/research/candidates.json --chunk-id ID1 --chunk-id ID2 --include-required-review --output work/research/review.json
 ```
 
-`daily-five` сохранён для обратной совместимости. Новый сценарий использует
-`research-findings` и при необходимости `--continue-from`.
+Действующий сценарий использует `research-findings` и при необходимости
+`--continue-from`. Интересы и персонажи берутся из `research_profile.json`;
+индексации и обычному поиску больше не нужны глобальные справочники персон,
+алиасов и тем.
+
+Правила классификации источников необязательны и относятся к конкретной
+библиотеке. Если нужны явные метки `historical`, `literary` и `scholarship`,
+сохраните игнорируемый локальный `source_types.json` рядом с проектом или
+передайте `build_index.py` параметр `--source-types ПУТЬ`. Без файла PDF
+классифицируются как `scholarship`, остальные файлы — как `other`. Пример
+находится в `examples/source-types.medieval-japan.json`.
+
+При обновлении существующей установки сначала сохраните прежний
+`source_types.json`, а после обновления верните его как локальный игнорируемый
+файл. Если его отсутствие изменило бы уже записанную классификацию, индексатор
+остановится до изменения SQLite и попросит вернуть файл или передать его через
+`--source-types`.
 
 Python индексирует, ранжирует, собирает контекст и выполняет воспроизводимые
 проверки. Codex исследует источники, оценивает смысловую новизну и пишет
@@ -145,8 +160,7 @@ GitHub Actions выполняет поддерживаемый набор на P
 не входят личные книги, рабочая SQLite, `used_finds.csv`, локальный профиль или
 секреты.
 
-Подробнее: [AI-демо](ai-demo.ru.md),
-[onboarding](research-onboarding.ru.md),
+Подробнее: [onboarding](research-onboarding.ru.md),
 [пополнение библиотеки](source-acquisition.ru.md).
 
 

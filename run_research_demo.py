@@ -55,6 +55,8 @@ def run_scenario(name: str, work_root: Path) -> int:
             str(database),
             "--log",
             str(scenario_dir / "index.log"),
+            "--source-types",
+            str(PROJECT_DIR / "examples" / "source-types.medieval-japan.json"),
             "--rebuild",
         ]
     )

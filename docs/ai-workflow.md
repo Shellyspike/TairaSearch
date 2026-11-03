@@ -73,23 +73,19 @@ reads). This is a workflow bound, not a measured Codex latency result.
 Preview and retrieval are read-only for `used_finds.csv`. Only an explicit
 publication request crosses the existing manifest and `record-publication`
 boundary. Building a new index remains a separate, explicit step: onboarding
-first scans a proposed corpus and asks before creating an index. Legacy
-`daily-five`, existing profiles and indexes, the publication journal, and the
-AI news demo retain their contracts.
+first scans a proposed corpus and asks before creating an index. Existing
+profiles and indexes and the publication journal retain their contracts.
 
 ## Daily historical news
 
 Use the saved-profile `research-findings --preview` route and matching
-`examples/codex/research-workflow.md` or `.ru.md`, not legacy `daily-five`.
+`examples/codex/research-workflow.md` or `.ru.md`.
 After source and novelty review, choose reader-worthy stories and use the short
 [author brief](../examples/codex/daily-news-prompt.md). An optional independent
 reader receives only the cards and the short
 [reader brief](../examples/codex/reader-review.ru.md). This reading does not
 replace the author's final source check and does not add a CLI publication gate.
 
-Legacy `daily-five` returns up to five candidates and remains supported for
-manual/demo compatibility. Old demo outputs illustrate that fixed handoff;
-they are not the daily editorial standard.
 An explicitly requested unregistered preview does not write the publication
 journal. New publication still requires explicit authorization and the existing
 record-then-render workflow described below.
@@ -218,12 +214,8 @@ and candidate selection. Final prose can vary between model runs, so AI output
 is demonstrated through documented inputs and expected editorial constraints,
 not treated as a byte-for-byte deterministic build artifact.
 
-The complete English and Russian walkthroughs are in [ai-demo.md](ai-demo.md)
-and [ai-demo.ru.md](ai-demo.ru.md). Their primary route is one Codex app chat
-that runs Python, reads the generated handoff, and writes the demonstration
-cards. A separate `codex exec` process is documented only as an optional
-alternative. Both routes use committed inputs and example outputs and do not
-depend on an active automation or previous conversation.
+`run_demo.py` builds a synthetic index and runs the same profile-driven preview
+used by the current workflow. It does not call a model or publish findings.
 
 
 

@@ -63,7 +63,7 @@ class DedupAuditTests(unittest.TestCase):
 
         self.assertEqual(themes, {"ancient_rome", "medieval_japan"})
 
-    def test_distinct_nearby_events_are_preserved_by_both_selectors(self) -> None:
+    def test_distinct_nearby_events_are_preserved(self) -> None:
         candidates = [
             {
                 "chunk_id": "bath",
@@ -87,7 +87,6 @@ class DedupAuditTests(unittest.TestCase):
             },
         ]
 
-        self.assertEqual(len(daily_five._collapse_neighbours(candidates)), 2)
         self.assertEqual(len(research_findings._collapse_candidates(candidates)), 2)
         self.assertEqual(
             daily_five.candidate_pair_check(*candidates)["action"], "review"
@@ -117,10 +116,9 @@ class DedupAuditTests(unittest.TestCase):
             },
         ]
 
-        self.assertEqual(len(daily_five._collapse_neighbours(candidates)), 1)
         self.assertEqual(len(research_findings._collapse_candidates(candidates)), 1)
 
-    def test_near_identical_factual_changes_require_review_in_both_selectors(
+    def test_near_identical_factual_changes_require_review_in_current_selector(
         self,
     ) -> None:
         variants = {
@@ -158,7 +156,6 @@ class DedupAuditTests(unittest.TestCase):
 
                 pair = daily_five.candidate_pair_check(*candidates)
                 self.assertEqual(pair["action"], "review")
-                self.assertEqual(len(daily_five._collapse_neighbours(candidates)), 2)
                 self.assertEqual(
                     len(research_findings._collapse_candidates(candidates)), 2
                 )
@@ -244,7 +241,7 @@ class DedupAuditTests(unittest.TestCase):
         self.assertTrue(result["auto_exclude"])
         self.assertFalse(result["requires_editorial_review"])
 
-    def test_same_chunk_id_with_changed_claim_requires_review_in_both_selectors(
+    def test_same_chunk_id_with_changed_claim_requires_review(
         self,
     ) -> None:
         candidate = {
@@ -288,10 +285,6 @@ class DedupAuditTests(unittest.TestCase):
             used[0]["description"],
         )
         self.assertEqual(
-            [item["chunk_id"] for item in daily_five._select_diverse([candidate], 1)],
-            ["same-location"],
-        )
-        self.assertEqual(
             [
                 item["chunk_id"]
                 for item in research_findings._select_diverse(
@@ -303,7 +296,7 @@ class DedupAuditTests(unittest.TestCase):
             ["same-location"],
         )
 
-    def test_published_neighbour_is_sent_to_review_by_both_selectors(self) -> None:
+    def test_published_neighbour_is_sent_to_review(self) -> None:
         candidate = {
             "chunk_id": "new-target",
             "retrieval_score": 2.0,
@@ -353,10 +346,6 @@ class DedupAuditTests(unittest.TestCase):
             ]
         )
         self.assertEqual(
-            [item["chunk_id"] for item in daily_five._select_diverse([candidate], 1)],
-            ["new-target"],
-        )
-        self.assertEqual(
             [
                 item["chunk_id"]
                 for item in research_findings._select_diverse(
@@ -368,7 +357,7 @@ class DedupAuditTests(unittest.TestCase):
             ["new-target"],
         )
 
-    def test_uncertain_history_match_remains_eligible_in_both_selectors(self) -> None:
+    def test_uncertain_history_match_remains_eligible(self) -> None:
         uncertain = {
             "chunk_id": "uncertain",
             "retrieval_score": 2.0,
@@ -391,14 +380,12 @@ class DedupAuditTests(unittest.TestCase):
             },
         }
 
-        daily_selected = daily_five._select_diverse([confirmed, uncertain], 2)
         research_selected = research_findings._select_diverse(
             [confirmed, uncertain],
             2,
             {"finding_preferences": {"avoid_person_repetition": False}},
         )
 
-        self.assertEqual([item["chunk_id"] for item in daily_selected], ["uncertain"])
         self.assertEqual(
             [item["chunk_id"] for item in research_selected], ["uncertain"]
         )

@@ -37,11 +37,17 @@ class DiscoveryTests(unittest.TestCase):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text, encoding='utf-8')
         cls.database = cls.root / 'index.sqlite3'
+        source_types = cls.root / 'source-types.json'
+        source_types.write_text(json.dumps({
+            'historical': [], 'literary': [],
+            'scholarship': ['Articles'], 'other': []
+        }), encoding='utf-8')
         cls.used = cls.root / 'used.csv'
         cls.used.write_text('id,type,persons,topics,short_description,source,date_used\n', encoding='utf-8')
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             code = build_index.main([str(corpus), '--db', str(cls.database),
-                '--log', str(cls.root / 'build.log')])
+                '--log', str(cls.root / 'build.log'),
+                '--source-types', str(source_types)])
         assert code == 0
         cls.profile = dict(schema_version=1, name='Synthetic discovery', research_area='Household history',
             result_language='en', max_results=1,

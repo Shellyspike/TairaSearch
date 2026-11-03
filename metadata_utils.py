@@ -26,40 +26,10 @@ def load_json_object(path: Path, label: str) -> dict[str, Any]:
     return value
 
 
-def load_people(path: Path) -> dict[str, dict[str, Any]]:
-    """Load a person mapping while accepting a deliberately simple JSON shape."""
-    raw = load_json_object(path, "people.json")
-    result: dict[str, dict[str, Any]] = {}
-    for canonical, value in raw.items():
-        if not isinstance(canonical, str):
-            raise RuntimeError(f"{path}: имя персонажа должно быть строкой")
-        romanized = ""
-        aliases: list[str]
-        if isinstance(value, str):
-            romanized = value
-            aliases = [canonical]
-        elif isinstance(value, list) and all(isinstance(item, str) for item in value):
-            aliases = list(value)
-        elif isinstance(value, dict):
-            romanized_value = value.get("romanized", "")
-            aliases_value = value.get("aliases", [])
-            if not isinstance(romanized_value, str) or not isinstance(aliases_value, list):
-                raise RuntimeError(f"{path}: неверная запись персонажа {canonical!r}")
-            if not all(isinstance(item, str) for item in aliases_value):
-                raise RuntimeError(f"{path}: aliases для {canonical!r} должны быть строками")
-            romanized = romanized_value
-            aliases = list(aliases_value)
-        else:
-            raise RuntimeError(f"{path}: неверная запись персонажа {canonical!r}")
-        variants = list(dict.fromkeys([canonical, *aliases, romanized]))
-        result[canonical] = {
-            "romanized": romanized,
-            "aliases": [item for item in variants if normalize_text(item)],
-        }
-    return result
-
-
-def load_source_types(path: Path) -> dict[str, list[str]]:
+def load_source_types(path: Path | None) -> dict[str, list[str]]:
+    """Load optional library-specific source classification rules."""
+    if path is None:
+        return {}
     raw = load_json_object(path, "source_types.json")
     allowed = {"historical", "scholarship", "literary", "other"}
     result: dict[str, list[str]] = {}
@@ -72,30 +42,6 @@ def load_source_types(path: Path) -> dict[str, list[str]]:
             raise RuntimeError(f"{path}: шаблоны должны быть строками")
         result[source_type] = patterns
     return result
-
-
-def person_variants(people: dict[str, dict[str, Any]], name: str) -> tuple[str, list[str]]:
-    needle = normalize_text(name).casefold()
-    for canonical, record in people.items():
-        variants = [normalize_text(item) for item in record["aliases"]]
-        if needle in {item.casefold() for item in variants}:
-            return canonical, variants
-    raise ValueError(f"Неизвестный персонаж {name!r}. Доступны: {', '.join(people)}")
-
-
-def detect_people(text: str, people: dict[str, dict[str, Any]]) -> list[str]:
-    haystack = normalize_text(text).casefold()
-    compact_haystack = "".join(haystack.split())
-    found: list[str] = []
-    for canonical, record in people.items():
-        if any(
-            normalize_text(alias).casefold() in haystack
-            or "".join(normalize_text(alias).casefold().split()) in compact_haystack
-            for alias in record["aliases"]
-            if normalize_text(alias)
-        ):
-            found.append(canonical)
-    return found
 
 
 def classify_source_type(

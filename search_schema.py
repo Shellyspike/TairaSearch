@@ -8,8 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-from metadata_utils import classify_source_type, classify_text_quality, detect_people
-from text_utils import detect_labels
+from metadata_utils import classify_source_type, classify_text_quality
 
 
 FTS_SCHEMA_VERSION = "2"
@@ -163,26 +162,17 @@ def _create_fts(connection: sqlite3.Connection) -> None:
 
 def _annotated_rows(
     rows: Iterable[sqlite3.Row],
-    aliases: dict[str, list[str]],
-    topics: dict[str, list[str]],
-    people: dict[str, dict[str, Any]],
     source_types: dict[str, list[str]],
 ) -> Iterable[tuple[Any, ...]]:
     for row in rows:
-        alias_labels, alias_terms = detect_labels(row["normalized_text"], aliases)
-        topic_labels, topic_terms = detect_labels(row["normalized_text"], topics)
-        people_labels = detect_people(row["normalized_text"], people)
-        search_terms = sorted(
-            set(alias_labels + alias_terms + topic_labels + topic_terms + people_labels)
-        )
         yield (
-            json.dumps(alias_labels, ensure_ascii=False),
-            json.dumps(topic_labels, ensure_ascii=False),
-            json.dumps(search_terms, ensure_ascii=False),
+            "[]",
+            "[]",
+            "[]",
             classify_source_type(
                 row["source"], row["filename"], row["relative_path"], source_types
             ),
-            json.dumps(people_labels, ensure_ascii=False),
+            "[]",
             classify_text_quality(row["normalized_text"]),
             row["id"],
         )
@@ -192,9 +182,6 @@ def ensure_search_schema(
     connection: sqlite3.Connection,
     db_path: Path,
     *,
-    aliases: dict[str, list[str]],
-    topics: dict[str, list[str]],
-    people: dict[str, dict[str, Any]],
     source_types: dict[str, list[str]],
     refresh_metadata: bool = False,
     create_backup: bool = True,
@@ -240,7 +227,7 @@ def ensure_search_schema(
             """
         )
         batch: list[tuple[Any, ...]] = []
-        for values in _annotated_rows(rows, aliases, topics, people, source_types):
+        for values in _annotated_rows(rows, source_types):
             batch.append(values)
             if len(batch) >= 500:
                 connection.executemany(

@@ -53,7 +53,7 @@ Build a new index and search it:
 
 ```powershell
 .venv\Scripts\python build_index.py "CORPUS_PATH" --db work/index.sqlite3
-.venv\Scripts\python taira_search.py search "search terms" --db work/index.sqlite3
+.venv\Scripts\python taira_search.py search --query "search terms" --db work/index.sqlite3
 ```
 
 An existing SQLite is bound to its recorded `corpus_root`. Reusing it with a
@@ -79,8 +79,22 @@ once in the full JSON and are included automatically:
 .venv\Scripts\python taira_search.py research-context work/research/candidates.json --chunk-id ID1 --chunk-id ID2 --include-required-review --output work/research/review.json
 ```
 
-`daily-five` remains for compatibility. The current workflow uses
-`research-findings` and, when needed, `--continue-from`.
+The current workflow uses `research-findings` and, when needed,
+`--continue-from`. Interests and named people come from
+`research_profile.json`; indexing and ordinary search do not require global
+people, alias, or topic dictionaries.
+
+Source classification rules are optional and library-specific. Keep an ignored
+local `source_types.json` beside the project or pass `--source-types PATH` to
+`build_index.py` when the library needs explicit
+`historical`/`literary`/`scholarship` labels. Without it, PDFs default to
+`scholarship` and other files to `other`. A demonstration mapping is available
+at `examples/source-types.medieval-japan.json`.
+
+Before upgrading an existing installation, preserve its previous
+`source_types.json`, then restore it as an ignored local file after the update.
+If omitting it would change classifications already stored in SQLite, the
+indexer stops before modifying the database and asks for that file explicitly.
 
 Python indexes, ranks, retrieves context, and performs reproducible checks.
 Codex investigates sources, reviews semantic novelty, and writes cards.
@@ -142,7 +156,7 @@ GitHub Actions runs the supported suite on Python 3.11 for Windows and Linux.
 The public archive is built only from `release_manifest.toml`; personal books,
 production SQLite, `used_finds.csv`, local profiles, and secrets are excluded.
 
-See also the [AI demo](ai-demo.md), [onboarding](research-onboarding.md), and
+See also [onboarding](research-onboarding.md) and
 [library acquisition](source-acquisition.md).
 
 

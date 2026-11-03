@@ -16,6 +16,7 @@ PROJECT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT))
 
 import build_index  # noqa: E402
+import taira_search  # noqa: E402
 from parsers import ParsedDocument, TextUnit  # noqa: E402
 
 
@@ -169,22 +170,114 @@ class IncrementalSafetyTests(unittest.TestCase):
         self.assertNotIn("OLD-MARKER", after[1][0][7])
         self.assertNotEqual(after[2], before[2])
 
+    def test_full_incremental_pass_indexes_only_new_file(self) -> None:
+        first = self.corpus / "first.txt"
+        first.write_text("Existing indexed document", encoding="utf-8")
+        initial_stats, _ = self.build()
+        before = self.document_snapshot("first.txt")
+
+        second = self.corpus / "second.txt"
+        second.write_text(
+            "A newly discovered IncrementalMarker document", encoding="utf-8"
+        )
+        update_stats, _ = self.build()
+
+        self.assertEqual(initial_stats["processed_this_run"], 1)
+        self.assertEqual(update_stats["processed_this_run"], 1)
+        self.assertEqual(update_stats["unchanged"], 1)
+        self.assertEqual(self.document_snapshot("first.txt"), before)
+        args = taira_search.make_parser().parse_args(
+            ["search", "--query", "IncrementalMarker", "--db", str(self.db)]
+        )
+        connection = taira_search.load_runtime(args)
+        try:
+            results = taira_search.search_database(connection, args)
+        finally:
+            connection.close()
+        self.assertEqual([row["filename"] for row in results], ["second.txt"])
+
+    def test_interrupt_commits_completed_files_and_resume_skips_them(self) -> None:
+        for number in range(1, 7):
+            (self.corpus / f"{number:02d}.txt").write_text(
+                f"Уникальный текст {number} для возобновления", encoding="utf-8"
+            )
+        original_parse = build_index.parse_file
+        calls = 0
+
+        def interrupt_on_third(path: Path, progress_callback=None):
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise KeyboardInterrupt
+            return original_parse(path, progress_callback=progress_callback)
+
+        first_stdout = io.StringIO()
+        with mock.patch.object(
+            build_index, "parse_file", side_effect=interrupt_on_third
+        ), contextlib.redirect_stdout(first_stdout):
+            first_code = build_index.main(self.arguments("--progress-every", "1"))
+
+        self.assertEqual(first_code, 130)
+        self.assertIn("Индексация остановлена пользователем", first_stdout.getvalue())
+        with contextlib.closing(sqlite3.connect(self.db)) as connection:
+            self.assertEqual(
+                connection.execute(
+                    "SELECT COUNT(*) FROM files WHERE status='ok'"
+                ).fetchone()[0],
+                2,
+            )
+            self.assertEqual(
+                connection.execute(
+                    "SELECT value FROM meta WHERE key='build_status'"
+                ).fetchone()[0],
+                "interrupted",
+            )
+            self.assertEqual(
+                connection.execute("PRAGMA integrity_check").fetchone()[0], "ok"
+            )
+
+        second_stdout = io.StringIO()
+        with contextlib.redirect_stdout(second_stdout):
+            second_code = build_index.main(
+                self.arguments("--progress-every", "1")
+            )
+        self.assertEqual(second_code, 0)
+        self.assertIn("Без изменений: 2", second_stdout.getvalue())
+        with contextlib.closing(sqlite3.connect(self.db)) as connection:
+            self.assertEqual(
+                connection.execute(
+                    "SELECT COUNT(*) FROM files WHERE status='ok'"
+                ).fetchone()[0],
+                6,
+            )
+            self.assertEqual(
+                connection.execute(
+                    "SELECT COUNT(*) FROM chunks WHERE is_duplicate=0"
+                ).fetchone()[0],
+                6,
+            )
+            self.assertEqual(
+                connection.execute("PRAGMA integrity_check").fetchone()[0], "ok"
+            )
+
     def test_targeted_update_refuses_global_metadata_refresh_without_walking(self) -> None:
-        aliases = self.root / "aliases.json"
-        shutil.copy2(PROJECT / "aliases.json", aliases)
+        source_types = self.root / "source-types.json"
+        shutil.copy2(
+            PROJECT / "examples" / "source-types.medieval-japan.json", source_types
+        )
         original = self.corpus / "original.txt"
         original.write_text("Исходная запись", encoding="utf-8")
-        self.build("--aliases", str(aliases))
+        self.build("--source-types", str(source_types))
         target = self.corpus / "new.txt"
         target.write_text("Новая адресная запись", encoding="utf-8")
 
-        mapping = json.loads(aliases.read_text(encoding="utf-8-sig"))
-        mapping["test-change"] = ["test-change"]
-        aliases.write_text(json.dumps(mapping), encoding="utf-8")
+        mapping = json.loads(source_types.read_text(encoding="utf-8-sig"))
+        mapping["other"] = ["test-change"]
+        source_types.write_text(json.dumps(mapping), encoding="utf-8")
         args = build_index.make_parser().parse_args(
             self.arguments(
-                "--aliases",
-                str(aliases),
+                "--source-types",
+                str(source_types),
                 "--only-file",
                 str(target),
             )
@@ -203,6 +296,85 @@ class IncrementalSafetyTests(unittest.TestCase):
             self.assertIsNone(
                 connection.execute(
                     "SELECT 1 FROM files WHERE relative_path='new.txt'"
+                ).fetchone()
+            )
+
+    def test_targeted_update_accepts_matching_legacy_source_classification(self) -> None:
+        source_types = self.root / "legacy-source-types.json"
+        shutil.copy2(
+            PROJECT / "examples" / "source-types.medieval-japan.json", source_types
+        )
+        original = self.corpus / "original.txt"
+        original.write_text("Исходная запись", encoding="utf-8")
+        self.build("--source-types", str(source_types))
+        with contextlib.closing(sqlite3.connect(self.db)) as connection:
+            connection.execute("DELETE FROM meta WHERE key='source_types_hash'")
+            connection.execute(
+                "UPDATE meta SET value='legacy-four-dictionary-hash' "
+                "WHERE key='config_hash'"
+            )
+            connection.commit()
+
+        target = self.corpus / "new.txt"
+        target.write_text("Новая адресная запись", encoding="utf-8")
+        args = build_index.make_parser().parse_args(
+            self.arguments(
+                "--source-types",
+                str(source_types),
+                "--only-file",
+                str(target),
+            )
+        )
+        with mock.patch.object(
+            build_index,
+            "discover_files",
+            side_effect=AssertionError("полный обход не должен запускаться"),
+        ):
+            stats = build_index.build_index(args)
+
+        self.assertEqual(stats["processed_this_run"], 1)
+        with contextlib.closing(sqlite3.connect(self.db)) as connection:
+            self.assertIsNotNone(
+                connection.execute(
+                    "SELECT value FROM meta WHERE key='source_types_hash'"
+                ).fetchone()
+            )
+
+    def test_legacy_library_classification_is_not_silently_replaced(self) -> None:
+        source_types = self.root / "legacy-source-types.json"
+        source_types.write_text(
+            json.dumps({"historical": ["Chronicle"]}), encoding="utf-8"
+        )
+        source_dir = self.corpus / "Chronicle"
+        source_dir.mkdir()
+        original = source_dir / "entry.txt"
+        original.write_text("Старая классифицированная запись", encoding="utf-8")
+        self.build("--source-types", str(source_types))
+        with contextlib.closing(sqlite3.connect(self.db)) as connection:
+            connection.execute("DELETE FROM meta WHERE key='source_types_hash'")
+            connection.execute(
+                "UPDATE meta SET value='legacy-four-dictionary-hash' "
+                "WHERE key='config_hash'"
+            )
+            connection.commit()
+            before = connection.execute(
+                "SELECT relative_path, source_type, original_text FROM chunks"
+            ).fetchall()
+        self.assertEqual(before[0][1], "historical")
+
+        with self.assertRaisesRegex(
+            RuntimeError, "нельзя молча заменить общими значениями"
+        ):
+            self.build()
+
+        with contextlib.closing(sqlite3.connect(self.db)) as connection:
+            after = connection.execute(
+                "SELECT relative_path, source_type, original_text FROM chunks"
+            ).fetchall()
+            self.assertEqual(after, before)
+            self.assertIsNone(
+                connection.execute(
+                    "SELECT value FROM meta WHERE key='source_types_hash'"
                 ).fetchone()
             )
 

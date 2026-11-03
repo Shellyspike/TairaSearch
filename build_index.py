@@ -19,8 +19,6 @@ from typing import Any
 from metadata_utils import (
     classify_source_type,
     classify_text_quality,
-    detect_people,
-    load_people,
     load_source_types,
 )
 from parsers import (
@@ -38,7 +36,6 @@ from search_schema import (
 )
 from text_utils import (
     derive_source,
-    detect_labels,
     make_preview,
     normalize_text,
     sha256_text,
@@ -50,8 +47,7 @@ PROJECT_DIR = Path(__file__).resolve().parent
 DEFAULT_CORPUS = PROJECT_DIR / "sample_corpus"
 DEFAULT_DB = PROJECT_DIR / "taira_index.sqlite3"
 DEFAULT_LOG = PROJECT_DIR / "index_errors.log"
-DEFAULT_PEOPLE = PROJECT_DIR / "people.json"
-DEFAULT_SOURCE_TYPES = PROJECT_DIR / "source_types.json"
+DEFAULT_LOCAL_SOURCE_TYPES = PROJECT_DIR / "source_types.json"
 SUPPORTED_EXTENSIONS = {".txt", ".md", ".json", ".pdf"}
 SCHEMA_VERSION = "1"
 INDEX_FORMAT_VERSION = "2026-09-22.1"
@@ -193,29 +189,10 @@ def configure_console() -> None:
             stream.reconfigure(encoding="utf-8", errors="replace")
 
 
-def load_mapping(path: Path, label: str) -> dict[str, list[str]]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except FileNotFoundError as exc:
-        raise RuntimeError(f"Не найден {label}: {path}") from exc
-    except json.JSONDecodeError as exc:
-        raise RuntimeError(f"Ошибка JSON в {path}: {exc}") from exc
-    if not isinstance(value, dict):
-        raise RuntimeError(f"{path}: ожидается JSON-объект")
-    result: dict[str, list[str]] = {}
-    for key, variants in value.items():
-        if not isinstance(key, str) or not isinstance(variants, list):
-            raise RuntimeError(f"{path}: значения должны быть списками строк")
-        if not all(isinstance(item, str) for item in variants):
-            raise RuntimeError(f"{path}: найдено нестроковое значение")
-        result[key] = variants
-    return result
-
-
-def mapping_fingerprint(*paths: Path) -> str:
+def source_types_fingerprint(source_types_path: Path | None) -> str:
     material = [INDEX_FORMAT_VERSION]
-    for path in paths:
-        material.append(path.read_text(encoding="utf-8-sig"))
+    if source_types_path is not None:
+        material.append(source_types_path.read_text(encoding="utf-8-sig"))
     return sha256_text("\x1e".join(material))
 
 
@@ -395,7 +372,11 @@ def select_explicit_files(root: Path, requested: list[str]) -> list[Path]:
     return selected
 
 
-def validate_targeted_index_state(db_path: Path, config_hash: str) -> None:
+def validate_targeted_index_state(
+    db_path: Path,
+    source_types_hash: str,
+    source_types: dict[str, list[str]],
+) -> None:
     """Reject targeted updates that would require a global migration/refresh."""
 
     if not db_path.exists() or db_path.stat().st_size == 0:
@@ -417,11 +398,28 @@ def validate_targeted_index_state(db_path: Path, config_hash: str) -> None:
             raise RuntimeError("версия схемы индекса требует полного обновления")
         if not search_schema_is_current(connection):
             raise RuntimeError("поисковая схема требует общей миграции")
-        if meta.get("config_hash") != config_hash:
+        stored_source_types_hash = meta.get("source_types_hash")
+        if stored_source_types_hash and stored_source_types_hash != source_types_hash:
             raise RuntimeError(
-                "изменились справочники индексатора; требуется обновить metadata "
+                "изменились правила типов источников; требуется обновить metadata "
                 "существующих документов"
             )
+        if not stored_source_types_hash:
+            mismatches = connection.execute(
+                """
+                SELECT DISTINCT source, filename, relative_path, source_type
+                FROM chunks
+                """
+            ).fetchall()
+            if any(
+                classify_source_type(source, filename, relative_path, source_types)
+                != source_type
+                for source, filename, relative_path, source_type in mismatches
+            ):
+                raise RuntimeError(
+                    "существующая классификация источников не совпадает с "
+                    "текущими необязательными правилами"
+                )
     except (OSError, sqlite3.Error) as exc:
         raise RuntimeError(f"не удалось проверить существующий индекс: {exc}") from exc
     except RuntimeError as exc:
@@ -432,6 +430,66 @@ def validate_targeted_index_state(db_path: Path, config_hash: str) -> None:
         ) from exc
     finally:
         if "connection" in locals():
+            connection.close()
+
+
+def validate_legacy_source_type_migration(
+    db_path: Path,
+    source_types_path: Path | None,
+    source_types: dict[str, list[str]],
+) -> None:
+    """Do not silently replace library-specific labels with generic defaults."""
+
+    if (
+        source_types_path is not None
+        or not db_path.exists()
+        or db_path.stat().st_size == 0
+    ):
+        return
+    uri = db_path.as_uri() + "?mode=ro"
+    connection: sqlite3.Connection | None = None
+    try:
+        connection = sqlite3.connect(uri, uri=True)
+        tables = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        if not {"meta", "chunks"}.issubset(tables):
+            return
+        meta = dict(connection.execute("SELECT key, value FROM meta"))
+        if meta.get("source_types_hash"):
+            return
+        columns = {
+            str(row[1]) for row in connection.execute("PRAGMA table_info(chunks)")
+        }
+        required = {"source", "filename", "relative_path", "source_type"}
+        if not required.issubset(columns):
+            return
+        rows = connection.execute(
+            """
+            SELECT DISTINCT source, filename, relative_path, source_type
+            FROM chunks
+            """
+        )
+        if any(
+            classify_source_type(source, filename, relative_path, source_types)
+            != source_type
+            for source, filename, relative_path, source_type in rows
+        ):
+            raise RuntimeError(
+                "Существующий индекс содержит библиотечную классификацию "
+                "источников, которую нельзя молча заменить общими значениями. "
+                "Восстановите прежний локальный source_types.json или явно "
+                "передайте его через --source-types. Индекс не изменён."
+            )
+    except (OSError, sqlite3.Error) as exc:
+        raise RuntimeError(
+            f"не удалось проверить классификацию существующего индекса: {exc}"
+        ) from exc
+    finally:
+        if connection is not None:
             connection.close()
 
 
@@ -618,10 +676,12 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
             "--only-file нельзя сочетать с --rebuild, --text-encoding или --scan-only"
         )
     db_path = Path(args.db).expanduser().resolve()
-    aliases_path = Path(args.aliases).expanduser().resolve()
-    topics_path = Path(args.topics).expanduser().resolve()
-    people_path = Path(args.people).expanduser().resolve()
-    source_types_path = Path(args.source_types).expanduser().resolve()
+    if args.source_types:
+        source_types_path = Path(args.source_types).expanduser().resolve()
+    elif DEFAULT_LOCAL_SOURCE_TYPES.is_file():
+        source_types_path = DEFAULT_LOCAL_SOURCE_TYPES.resolve()
+    else:
+        source_types_path = None
     log_path = Path(args.log).expanduser().resolve()
     text_encoding = None
     if args.text_encoding:
@@ -667,10 +727,7 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
             "--log": log_path,
         },
         {
-            "--aliases": aliases_path,
-            "--topics": topics_path,
-            "--people": people_path,
-            "--source-types": source_types_path,
+            **({"--source-types": source_types_path} if source_types_path else {}),
             **{
                 f"файл корпуса {index}": path
                 for index, path in enumerate(
@@ -691,15 +748,15 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
 
     print("Начинаю индексацию...", flush=True)
     print("Этап 2/3: индексация содержимого...", flush=True)
-    aliases = load_mapping(aliases_path, "aliases.json")
-    topics = load_mapping(topics_path, "topics.json")
-    people = load_people(people_path)
     source_types = load_source_types(source_types_path)
-    config_hash = mapping_fingerprint(
-        aliases_path, topics_path, people_path, source_types_path
-    )
+    source_types_hash = source_types_fingerprint(source_types_path)
+    config_hash = source_types_hash
     if targeted:
-        validate_targeted_index_state(db_path, config_hash)
+        validate_targeted_index_state(db_path, source_types_hash, source_types)
+    else:
+        validate_legacy_source_type_migration(
+            db_path, source_types_path, source_types
+        )
 
     db_path.parent.mkdir(parents=True, exist_ok=True)
     log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -723,8 +780,8 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
     prior_schema = connection.execute(
         "SELECT value FROM meta WHERE key='schema_version'"
     ).fetchone()
-    prior_config = connection.execute(
-        "SELECT value FROM meta WHERE key='config_hash'"
+    prior_source_types = connection.execute(
+        "SELECT value FROM meta WHERE key='source_types_hash'"
     ).fetchone()
     full_rebuild = bool(args.rebuild or text_encoding)
     if prior_schema and prior_schema[0] != SCHEMA_VERSION:
@@ -732,12 +789,14 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
     migration = ensure_search_schema(
         connection,
         db_path,
-        aliases=aliases,
-        topics=topics,
-        people=people,
         source_types=source_types,
         refresh_metadata=bool(
-            prior_config and prior_config[0] != config_hash and not full_rebuild
+            not targeted
+            and not full_rebuild
+            and (
+                not prior_source_types
+                or prior_source_types[0] != source_types_hash
+            )
         ),
         create_backup=True,
         progress=lambda message: print(message, flush=True),
@@ -751,6 +810,7 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
         (
             ("schema_version", SCHEMA_VERSION),
             ("config_hash", config_hash),
+            ("source_types_hash", source_types_hash),
             ("corpus_root", str(corpus)),
         ),
     )
@@ -947,22 +1007,10 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
                     normalized = normalize_text(chunk.text)
                     if not normalized:
                         continue
-                    alias_labels, alias_terms = detect_labels(normalized, aliases)
-                    topic_labels, topic_terms = detect_labels(normalized, topics)
-                    people_labels = detect_people(normalized, people)
                     source_type = classify_source_type(
                         source, path.name, relative_path, source_types
                     )
                     text_quality = classify_text_quality(normalized)
-                    search_terms = sorted(
-                        set(
-                            alias_labels
-                            + alias_terms
-                            + topic_labels
-                            + topic_terms
-                            + people_labels
-                        )
-                    )
                     chunk_id = stable_chunk_id(
                         relative_path,
                         chunk.page_start,
@@ -980,12 +1028,12 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
                         chunk.text,
                         normalized,
                         make_preview(chunk.text, 800),
-                        json.dumps(alias_labels, ensure_ascii=False),
-                        json.dumps(topic_labels, ensure_ascii=False),
-                        json.dumps(search_terms, ensure_ascii=False),
+                        "[]",
+                        "[]",
+                        "[]",
                         sha256_text(normalized),
                         source_type,
-                        json.dumps(people_labels, ensure_ascii=False),
+                        "[]",
                         text_quality,
                     )
                     connection.execute(
@@ -1006,8 +1054,8 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
                             chunk_id,
                             normalized,
                             make_preview(chunk.text, 800),
-                            json.dumps(alias_labels, ensure_ascii=False),
-                            json.dumps(topic_labels, ensure_ascii=False),
+                            "[]",
+                            "[]",
                         )
                     inserted_chunks += 1
             connection.execute("RELEASE one_file")
@@ -1315,18 +1363,11 @@ def make_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--db", default=str(DEFAULT_DB), help="Путь к SQLite")
     parser.add_argument(
-        "--aliases", default=str(PROJECT_DIR / "aliases.json"), help="Файл алиасов"
-    )
-    parser.add_argument(
-        "--topics", default=str(PROJECT_DIR / "topics.json"), help="Файл тем"
-    )
-    parser.add_argument(
-        "--people", default=str(DEFAULT_PEOPLE), help="Файл персонажей"
-    )
-    parser.add_argument(
         "--source-types",
-        default=str(DEFAULT_SOURCE_TYPES),
-        help="Файл правил классификации источников",
+        help=(
+            "Необязательный файл правил классификации источников библиотеки; "
+            "без параметра используется локальный source_types.json, если он есть"
+        ),
     )
     parser.add_argument("--log", default=str(DEFAULT_LOG), help="Файл лога")
     parser.add_argument(

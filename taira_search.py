@@ -13,7 +13,6 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from metadata_utils import load_people, load_source_types, person_variants
 from search_schema import (
     ensure_search_schema,
     prepare_fts_text,
@@ -24,16 +23,9 @@ from text_utils import make_preview, normalize_text, unique_normalized
 
 PROJECT_DIR = Path(__file__).resolve().parent
 DEFAULT_DB = PROJECT_DIR / "taira_index.sqlite3"
-DEFAULT_ALIASES = PROJECT_DIR / "aliases.json"
-DEFAULT_TOPICS = PROJECT_DIR / "topics.json"
-DEFAULT_PEOPLE = PROJECT_DIR / "people.json"
-DEFAULT_SOURCE_TYPES = PROJECT_DIR / "source_types.json"
 DEFAULT_USED_FINDS = PROJECT_DIR / "used_finds.csv"
 DEFAULT_RESEARCH_PROFILE = PROJECT_DIR / "research_profile.json"
-DEFAULT_DAILY_OUTPUT = PROJECT_DIR / "daily_five_candidates.json"
 DEFAULT_RESEARCH_OUTPUT = PROJECT_DIR / "research_candidates.json"
-DEFAULT_EVENT_CARDS = PROJECT_DIR / "event_cards.json"
-DEFAULT_SOURCE_NOTES = PROJECT_DIR / "source_notes.json"
 SOURCE_TYPES = ("historical", "scholarship", "literary", "other")
 QUALITIES = ("good", "garbled", "no_text")
 JAPANESE_RUN_RE = re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]+")
@@ -46,25 +38,6 @@ def configure_console() -> None:
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8", errors="replace")
-
-
-def load_mapping(path: Path, label: str) -> dict[str, list[str]]:
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8-sig"))
-    except FileNotFoundError as exc:
-        raise RuntimeError(f"Не найден {label}: {path}") from exc
-    except json.JSONDecodeError as exc:
-        raise RuntimeError(f"Ошибка JSON в {path}: {exc}") from exc
-    if not isinstance(raw, dict):
-        raise RuntimeError(f"{path}: ожидается JSON-объект")
-    result: dict[str, list[str]] = {}
-    for key, values in raw.items():
-        if not isinstance(key, str) or not isinstance(values, list):
-            raise RuntimeError(f"{path}: ожидаются списки строк")
-        if not all(isinstance(value, str) for value in values):
-            raise RuntimeError(f"{path}: ожидаются списки строк")
-        result[key] = values
-    return result
 
 
 def fts_phrase(value: str) -> str:
@@ -128,52 +101,16 @@ def _placeholders(count: int) -> str:
 
 def build_search_plan(
     args: argparse.Namespace,
-    topics: dict[str, list[str]],
-    people: dict[str, dict[str, Any]],
-    *,
-    events_only: bool,
-) -> tuple[str | None, list[str], list[str], list[str], list[Any]]:
+) -> tuple[str | None, list[str], list[str], list[Any]]:
     expressions: list[str] = []
     snippet_terms = extract_terms(args.query)
     if args.query:
         expressions.append(f"({compile_fts_query(args.query)})")
 
-    for topic_name in args.topic:
-        if topic_name not in topics:
-            raise ValueError(
-                f"Неизвестная тема {topic_name!r}. Доступны: {', '.join(sorted(topics))}"
-            )
-        terms = unique_normalized(topics[topic_name])
-        expressions.append("(" + " OR ".join(fts_phrase(term) for term in terms) + ")")
-        snippet_terms.extend(terms)
-
-    person_labels: list[str] = []
-    person_expression: list[str] = []
-    for requested in args.person:
-        canonical, variants = person_variants(people, requested)
-        person_labels.append(canonical)
-        person_expression.extend(fts_phrase(term) for term in variants)
-        snippet_terms.extend(variants)
-    if person_expression:
-        expressions.append("(" + " OR ".join(unique_normalized(person_expression)) + ")")
-
     clauses: list[str] = []
     params: list[Any] = []
     if not args.include_duplicates:
         clauses.append("c.is_duplicate=0")
-    if person_labels:
-        clauses.append(
-            "EXISTS (SELECT 1 FROM json_each(c.people_json) p "
-            f"WHERE p.value IN ({_placeholders(len(person_labels))}))"
-        )
-        params.extend(person_labels)
-    if events_only:
-        clauses.append("c.people_json <> '[]'")
-    for topic_name in args.topic:
-        clauses.append(
-            "EXISTS (SELECT 1 FROM json_each(c.topics_json) t WHERE t.value=?)"
-        )
-        params.append(topic_name)
     if args.source_type:
         clauses.append(f"c.source_type IN ({_placeholders(len(args.source_type))})")
         params.extend(args.source_type)
@@ -195,7 +132,6 @@ def build_search_plan(
         " AND ".join(expressions) if expressions else None,
         clauses,
         unique_normalized(snippet_terms),
-        person_labels,
         params,
     )
 
@@ -203,14 +139,8 @@ def build_search_plan(
 def search_database(
     connection: sqlite3.Connection,
     args: argparse.Namespace,
-    topics: dict[str, list[str]],
-    people: dict[str, dict[str, Any]],
-    *,
-    events_only: bool = False,
 ) -> list[dict[str, Any]]:
-    match, clauses, snippet_terms, _person_labels, filter_params = build_search_plan(
-        args, topics, people, events_only=events_only
-    )
+    match, clauses, snippet_terms, filter_params = build_search_plan(args)
     where = " AND ".join(clauses) if clauses else "1=1"
     if match:
         sql = f"""
@@ -252,8 +182,6 @@ def search_database(
             "page_start": row["page_start"],
             "page_end": row["page_end"],
             "chunk_no": row["chunk_no"],
-            "people": json.loads(row["people_json"]),
-            "topics": json.loads(row["topics_json"]),
             "source_type": row["source_type"],
             "text_quality": row["text_quality"],
             "snippet": make_snippet(original, snippet_terms),
@@ -290,8 +218,6 @@ def print_results(results: list[dict[str, Any]], *, json_output: bool) -> None:
             f"page: {format_pages(result['page_start'], result['page_end'])}  "
             f"chunk: {result['chunk_no']}"
         )
-        print(f"people: {', '.join(result['people']) or '—'}")
-        print(f"topics: {', '.join(result['topics']) or '—'}")
         print(f"snippet: {result['snippet']}")
         print("-----")
 
@@ -330,8 +256,6 @@ def context_rows(
             "page_start": row["page_start"],
             "page_end": row["page_end"],
             "chunk_no": row["chunk_no"],
-            "people": json.loads(row["people_json"]),
-            "topics": json.loads(row["topics_json"]),
             "source_type": row["source_type"],
             "text_quality": row["text_quality"],
             "text": row["original_text"],
@@ -358,17 +282,11 @@ def print_context(rows: list[dict[str, Any]], *, json_output: bool) -> None:
 
 def add_config_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--db", default=str(DEFAULT_DB), help="Путь к SQLite")
-    parser.add_argument("--aliases", default=str(DEFAULT_ALIASES))
-    parser.add_argument("--topics-config", default=str(DEFAULT_TOPICS))
-    parser.add_argument("--people-config", default=str(DEFAULT_PEOPLE))
-    parser.add_argument("--source-types-config", default=str(DEFAULT_SOURCE_TYPES))
 
 
 def add_search_arguments(parser: argparse.ArgumentParser) -> None:
     add_config_arguments(parser)
     parser.add_argument("--query", help="Текст или выражение SQLite FTS5")
-    parser.add_argument("--topic", action="append", default=[], help="Тема; можно повторять")
-    parser.add_argument("--person", action="append", default=[], help="Персонаж; можно повторять")
     parser.add_argument(
         "--source-type", action="append", choices=SOURCE_TYPES, default=[]
     )
@@ -412,10 +330,6 @@ def validate_research_output_path(args: argparse.Namespace) -> None:
         ("--db", Path(args.db)),
         ("--profile", Path(args.profile)),
         ("--used-finds", Path(args.used_finds)),
-        ("--aliases", Path(args.aliases)),
-        ("--topics-config", Path(args.topics_config)),
-        ("--people-config", Path(args.people_config)),
-        ("--source-types-config", Path(args.source_types_config)),
     ]
     protected_inputs.extend(
         ("--continue-from", Path(path)) for path in args.continue_from
@@ -535,35 +449,12 @@ def make_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     search_parser = subparsers.add_parser("search", help="Поиск с BM25 и фильтрами")
     add_search_arguments(search_parser)
-    events_parser = subparsers.add_parser(
-        "events", help="Поиск только по чанкам с настроенными персонажами"
-    )
-    add_search_arguments(events_parser)
     context_parser = subparsers.add_parser("context", help="Соседние чанки документа")
     add_config_arguments(context_parser)
     context_parser.add_argument("chunk_id")
     context_parser.add_argument("--before", type=int, default=1)
     context_parser.add_argument("--after", type=int, default=1)
     context_parser.add_argument("--json", action="store_true")
-    daily_parser = subparsers.add_parser(
-        "daily-five", help="Автоматически отобрать пять новых эпизодов Тайра"
-    )
-    add_config_arguments(daily_parser)
-    daily_parser.add_argument(
-        "--mode", choices=("historical-events",), default="historical-events"
-    )
-    daily_parser.add_argument("--used-finds", default=str(DEFAULT_USED_FINDS))
-    daily_parser.add_argument("--top-per-topic", type=int, default=20)
-    daily_parser.add_argument("--pool-size", type=int, default=120)
-    daily_parser.add_argument("--output", default=str(DEFAULT_DAILY_OUTPUT))
-    daily_parser.add_argument(
-        "--from-json",
-        help="Только переоформить существующий daily-five JSON без нового поиска",
-    )
-    daily_parser.add_argument("--cards-config", default=str(DEFAULT_EVENT_CARDS))
-    daily_parser.add_argument("--source-notes-config", default=str(DEFAULT_SOURCE_NOTES))
-    daily_parser.add_argument("--dry-run", action="store_true")
-    daily_parser.add_argument("--json", action="store_true")
     research_parser = subparsers.add_parser(
         "research-findings",
         help="Отобрать находки по локальному исследовательскому профилю",
@@ -631,12 +522,6 @@ def make_parser() -> argparse.ArgumentParser:
     access_parser.add_argument("--db", default=str(DEFAULT_DB))
     access_parser.add_argument("--used-finds", default=str(DEFAULT_USED_FINDS))
     access_parser.add_argument("--json", action="store_true")
-    mark_parser = subparsers.add_parser(
-        "mark-used", help="Явно добавить daily-five JSON или chunk_id в used_finds.csv"
-    )
-    add_config_arguments(mark_parser)
-    mark_parser.add_argument("target", help="Путь к daily-five JSON или chunk_id")
-    mark_parser.add_argument("--used-finds", default=str(DEFAULT_USED_FINDS))
     publication_parser = subparsers.add_parser(
         "record-publication",
         help="Атомарно записать выбранные карточки из локального JSON",
@@ -659,22 +544,10 @@ def make_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def load_runtime(args: argparse.Namespace) -> tuple[
-    sqlite3.Connection,
-    dict[str, list[str]],
-    dict[str, dict[str, Any]],
-]:
+def load_runtime(args: argparse.Namespace) -> sqlite3.Connection:
     db_path = Path(args.db).expanduser().resolve()
     if not db_path.is_file():
         raise RuntimeError(f"Индекс не найден: {db_path}. Сначала запустите build_index.py")
-    aliases = load_mapping(Path(args.aliases).expanduser().resolve(), "aliases.json")
-    topics = load_mapping(
-        Path(args.topics_config).expanduser().resolve(), "topics.json"
-    )
-    people = load_people(Path(args.people_config).expanduser().resolve())
-    source_types = load_source_types(
-        Path(args.source_types_config).expanduser().resolve()
-    )
     def configure(connection: sqlite3.Connection) -> None:
         connection.row_factory = sqlite3.Row
         connection.create_function(
@@ -696,7 +569,7 @@ def load_runtime(args: argparse.Namespace) -> tuple[
     connection.execute("PRAGMA query_only=ON")
     connection.execute("BEGIN")
     if search_schema_is_current(connection):
-        return connection, topics, people
+        return connection
 
     # A retrieval command must never migrate a user's real database implicitly.
     connection.close()
@@ -716,11 +589,6 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--offset не может быть отрицательным")
     if args.command == "context" and (args.before < 0 or args.after < 0):
         parser.error("--before/--after не могут быть отрицательными")
-    if args.command == "daily-five":
-        if not 1 <= args.top_per_topic <= 100:
-            parser.error("--top-per-topic должен быть от 1 до 100")
-        if not 10 <= args.pool_size <= 500:
-            parser.error("--pool-size должен быть от 10 до 500")
     if args.command == "research-findings":
         if args.count is not None and not 1 <= args.count <= 20:
             parser.error("--count должен быть от 1 до 20")
@@ -834,13 +702,11 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Кандидатов с полным контекстом: {len(packet['candidates'])}")
             return 0
 
-        connection, topics, people = load_runtime(args)
-        if args.command in {"search", "events"}:
+        connection = load_runtime(args)
+        if args.command == "search":
             has_filter = any(
                 [
                     args.query,
-                    args.topic,
-                    args.person,
                     args.source_type,
                     args.exclude_source_type,
                     args.source,
@@ -850,57 +716,11 @@ def main(argv: list[str] | None = None) -> int:
             )
             if not has_filter:
                 parser.error("задайте --query или хотя бы один фильтр")
-            results = search_database(
-                connection,
-                args,
-                topics,
-                people,
-                events_only=args.command == "events",
-            )
+            results = search_database(connection, args)
             print_results(results, json_output=args.json)
         elif args.command == "context":
             rows = context_rows(connection, args.chunk_id, args.before, args.after)
             print_context(rows, json_output=args.json)
-        elif args.command == "daily-five":
-            from daily_five import (
-                apply_presentation_cards,
-                build_daily_five,
-                print_daily_result,
-                save_result,
-            )
-
-            if args.from_json:
-                if args.dry_run:
-                    raise ValueError("--from-json нельзя совмещать с --dry-run")
-                input_path = Path(args.from_json).expanduser().resolve()
-                result = json.loads(input_path.read_text(encoding="utf-8-sig"))
-                if not isinstance(result, dict) or not isinstance(result.get("final"), list):
-                    raise ValueError(f"{input_path}: это не daily-five JSON")
-            else:
-                result = build_daily_five(
-                    connection,
-                    topics,
-                    people,
-                    Path(args.used_finds).expanduser().resolve(),
-                    search_function=search_database,
-                    context_function=context_rows,
-                    top_per_topic=args.top_per_topic,
-                    pool_size=args.pool_size,
-                    dry_run=args.dry_run,
-                )
-            if not args.dry_run:
-                result = apply_presentation_cards(
-                    result,
-                    connection,
-                    context_function=context_rows,
-                    cards_path=Path(args.cards_config).expanduser().resolve(),
-                    source_notes_path=Path(args.source_notes_config).expanduser().resolve(),
-                )
-            if not args.dry_run:
-                output = Path(args.output).expanduser().resolve()
-                save_result(result, output)
-                print(f"Сохранено: {output}", file=sys.stderr if args.json else sys.stdout)
-            print_daily_result(result, json_output=args.json)
         elif args.command == "research-findings":
             from daily_five import save_result
             from research_findings import (
@@ -925,8 +745,6 @@ def main(argv: list[str] | None = None) -> int:
                     raise ValueError('discovery-path отличается от continuation; начните новый preview')
             result = build_research_findings(
                 connection,
-                topics,
-                people,
                 profile,
                 Path(args.used_finds).expanduser().resolve(),
                 search_function=search_database,
@@ -960,21 +778,6 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr if args.json else sys.stdout,
             )
             print_research_result(result, json_output=args.json)
-        else:
-            from daily_five import mark_used_chunk, mark_used_from_json
-
-            used_path = Path(args.used_finds).expanduser().resolve()
-            target_path = Path(args.target).expanduser()
-            if target_path.is_file():
-                added, skipped = mark_used_from_json(target_path.resolve(), used_path)
-            else:
-                added, skipped = mark_used_chunk(
-                    connection,
-                    args.target,
-                    used_path,
-                    context_function=context_rows,
-                )
-            print(f"Добавлено в {used_path}: {added}; уже было/пропущено: {skipped}")
         return 0
     except (RuntimeError, ValueError, OSError, sqlite3.Error, json.JSONDecodeError) as exc:
         print(f"Ошибка: {exc}", file=sys.stderr)
