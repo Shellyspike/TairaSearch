@@ -16,6 +16,7 @@ PROJECT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT))
 
 import build_index  # noqa: E402
+import taira_search  # noqa: E402
 from parsers import ParsedDocument, TextUnit  # noqa: E402
 
 
@@ -168,6 +169,96 @@ class IncrementalSafetyTests(unittest.TestCase):
         self.assertIn("NEW-MARKER", after[1][0][7])
         self.assertNotIn("OLD-MARKER", after[1][0][7])
         self.assertNotEqual(after[2], before[2])
+
+    def test_full_incremental_pass_indexes_only_new_file(self) -> None:
+        first = self.corpus / "first.txt"
+        first.write_text("Existing indexed document", encoding="utf-8")
+        initial_stats, _ = self.build()
+        before = self.document_snapshot("first.txt")
+
+        second = self.corpus / "second.txt"
+        second.write_text(
+            "A newly discovered IncrementalMarker document", encoding="utf-8"
+        )
+        update_stats, _ = self.build()
+
+        self.assertEqual(initial_stats["processed_this_run"], 1)
+        self.assertEqual(update_stats["processed_this_run"], 1)
+        self.assertEqual(update_stats["unchanged"], 1)
+        self.assertEqual(self.document_snapshot("first.txt"), before)
+        args = taira_search.make_parser().parse_args(
+            ["search", "--query", "IncrementalMarker", "--db", str(self.db)]
+        )
+        connection = taira_search.load_runtime(args)
+        try:
+            results = taira_search.search_database(connection, args)
+        finally:
+            connection.close()
+        self.assertEqual([row["filename"] for row in results], ["second.txt"])
+
+    def test_interrupt_commits_completed_files_and_resume_skips_them(self) -> None:
+        for number in range(1, 7):
+            (self.corpus / f"{number:02d}.txt").write_text(
+                f"Уникальный текст {number} для возобновления", encoding="utf-8"
+            )
+        original_parse = build_index.parse_file
+        calls = 0
+
+        def interrupt_on_third(path: Path, progress_callback=None):
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise KeyboardInterrupt
+            return original_parse(path, progress_callback=progress_callback)
+
+        first_stdout = io.StringIO()
+        with mock.patch.object(
+            build_index, "parse_file", side_effect=interrupt_on_third
+        ), contextlib.redirect_stdout(first_stdout):
+            first_code = build_index.main(self.arguments("--progress-every", "1"))
+
+        self.assertEqual(first_code, 130)
+        self.assertIn("Индексация остановлена пользователем", first_stdout.getvalue())
+        with contextlib.closing(sqlite3.connect(self.db)) as connection:
+            self.assertEqual(
+                connection.execute(
+                    "SELECT COUNT(*) FROM files WHERE status='ok'"
+                ).fetchone()[0],
+                2,
+            )
+            self.assertEqual(
+                connection.execute(
+                    "SELECT value FROM meta WHERE key='build_status'"
+                ).fetchone()[0],
+                "interrupted",
+            )
+            self.assertEqual(
+                connection.execute("PRAGMA integrity_check").fetchone()[0], "ok"
+            )
+
+        second_stdout = io.StringIO()
+        with contextlib.redirect_stdout(second_stdout):
+            second_code = build_index.main(
+                self.arguments("--progress-every", "1")
+            )
+        self.assertEqual(second_code, 0)
+        self.assertIn("Без изменений: 2", second_stdout.getvalue())
+        with contextlib.closing(sqlite3.connect(self.db)) as connection:
+            self.assertEqual(
+                connection.execute(
+                    "SELECT COUNT(*) FROM files WHERE status='ok'"
+                ).fetchone()[0],
+                6,
+            )
+            self.assertEqual(
+                connection.execute(
+                    "SELECT COUNT(*) FROM chunks WHERE is_duplicate=0"
+                ).fetchone()[0],
+                6,
+            )
+            self.assertEqual(
+                connection.execute("PRAGMA integrity_check").fetchone()[0], "ok"
+            )
 
     def test_targeted_update_refuses_global_metadata_refresh_without_walking(self) -> None:
         source_types = self.root / "source-types.json"

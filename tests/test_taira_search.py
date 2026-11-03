@@ -10,6 +10,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 PROJECT = Path(__file__).resolve().parents[1]
@@ -17,6 +18,8 @@ sys.path.insert(0, str(PROJECT))
 
 import build_index  # noqa: E402
 import taira_search  # noqa: E402
+from search_schema import upsert_fts_chunk  # noqa: E402
+from text_utils import normalize_text, split_text  # noqa: E402
 
 
 class TairaSearchIntegrationTests(unittest.TestCase):
@@ -67,7 +70,7 @@ class TairaSearchIntegrationTests(unittest.TestCase):
             check=False,
         )
 
-    def test_plain_query_and_source_filter(self) -> None:
+    def test_plain_query_and_current_filters(self) -> None:
         result = self.run_cli(
             "search", "--query", "清盛", "--source-type", "historical", "--json"
         )
@@ -75,6 +78,20 @@ class TairaSearchIntegrationTests(unittest.TestCase):
         rows = [json.loads(line) for line in result.stdout.splitlines()]
         self.assertTrue(rows)
         self.assertTrue(all(row["source_type"] == "historical" for row in rows))
+
+        result = self.run_cli(
+            "search", "--query", "清盛", "--source", "Кириллица", "--json"
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        rows = [json.loads(line) for line in result.stdout.splitlines()]
+        self.assertTrue(rows)
+        self.assertTrue(all("Кириллица" in row["relative_path"] for row in rows))
+
+    def test_text_normalization_and_chunk_bounds(self) -> None:
+        self.assertEqual(normalize_text("Ａ　 B\r\nC"), "A B C")
+        chunks = split_text("文。" * 4000)
+        self.assertGreater(len(chunks), 2)
+        self.assertTrue(all(len(chunk) <= 3000 for chunk in chunks))
 
     def test_context_returns_neighbouring_chunks(self) -> None:
         with contextlib.closing(sqlite3.connect(self.db)) as connection:
@@ -103,6 +120,192 @@ class TairaSearchIntegrationTests(unittest.TestCase):
                 connection.execute("DELETE FROM chunks")
         finally:
             connection.close()
+
+    def test_read_only_runtime_sees_committed_wal_updates(self) -> None:
+        root = self.root / "wal-visibility"
+        corpus = root / "corpus"
+        corpus.mkdir(parents=True)
+        (corpus / "base.txt").write_text("Base WAL document", encoding="utf-8")
+        db = root / "index.sqlite3"
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(
+                build_index.main(
+                    [
+                        str(corpus),
+                        "--db",
+                        str(db),
+                        "--log",
+                        str(root / "errors.log"),
+                    ]
+                ),
+                0,
+            )
+
+        writer = sqlite3.connect(db)
+        writer.row_factory = sqlite3.Row
+        try:
+            writer.execute("PRAGMA journal_mode=WAL")
+            writer.execute("PRAGMA wal_autocheckpoint=0")
+            writer.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            source = writer.execute("SELECT * FROM chunks LIMIT 1").fetchone()
+            columns = [item[1] for item in writer.execute("PRAGMA table_info(chunks)")]
+            copied_columns = [name for name in columns if name != "id"]
+            values = {name: source[name] for name in copied_columns}
+            values.update(
+                {
+                    "chunk_id": "ch_committed_only_in_wal",
+                    "filename": "wal.txt",
+                    "relative_path": "wal/wal.txt",
+                    "original_text": "FreshWALMarker committed update",
+                    "normalized_text": "FreshWALMarker committed update",
+                    "preview": "FreshWALMarker committed update",
+                    "text_hash": "wal-marker-hash",
+                }
+            )
+            placeholders = ",".join("?" for _ in copied_columns)
+            writer.execute(
+                f"INSERT INTO chunks({','.join(copied_columns)}) VALUES({placeholders})",
+                [values[name] for name in copied_columns],
+            )
+            upsert_fts_chunk(
+                writer,
+                values["chunk_id"],
+                values["normalized_text"],
+                values["preview"],
+                values["aliases_json"],
+                values["topics_json"],
+            )
+            writer.commit()
+            wal_path = db.with_name(f"{db.name}-wal")
+            self.assertTrue(wal_path.is_file())
+            self.assertGreater(wal_path.stat().st_size, 0)
+
+            args = taira_search.make_parser().parse_args(
+                ["search", "--query", "FreshWALMarker", "--db", str(db)]
+            )
+            reader = taira_search.load_runtime(args)
+            try:
+                rows = taira_search.search_database(reader, args)
+                self.assertEqual(rows[0]["chunk_id"], "ch_committed_only_in_wal")
+                with self.assertRaises(sqlite3.OperationalError):
+                    reader.execute("DELETE FROM chunks")
+            finally:
+                reader.close()
+        finally:
+            writer.close()
+
+    def test_read_only_runtime_handles_checkpointed_database_without_sidecars(
+        self,
+    ) -> None:
+        root = self.root / "wal-sidecars-absent"
+        corpus = root / "corpus"
+        corpus.mkdir(parents=True)
+        (corpus / "base.txt").write_text("Checkpointed document", encoding="utf-8")
+        db = root / "index.sqlite3"
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(
+                build_index.main(
+                    [
+                        str(corpus),
+                        "--db",
+                        str(db),
+                        "--log",
+                        str(root / "errors.log"),
+                    ]
+                ),
+                0,
+            )
+        for suffix in ("-wal", "-shm"):
+            db.with_name(f"{db.name}{suffix}").unlink(missing_ok=True)
+
+        args = taira_search.make_parser().parse_args(
+            ["search", "--query", "Checkpointed", "--db", str(db)]
+        )
+        connection = taira_search.load_runtime(args)
+        try:
+            self.assertGreater(
+                connection.execute("SELECT COUNT(*) FROM chunks").fetchone()[0], 0
+            )
+        finally:
+            connection.close()
+
+    def test_read_only_runtime_reports_unavailable_wal_access(self) -> None:
+        args = taira_search.make_parser().parse_args(
+            ["search", "--query", "清盛", "--db", str(self.db)]
+        )
+        with mock.patch.object(
+            taira_search.sqlite3,
+            "connect",
+            side_effect=sqlite3.OperationalError("unable to open database file"),
+        ), self.assertRaisesRegex(RuntimeError, "WAL"):
+            taira_search.load_runtime(args)
+
+    def test_read_only_runtime_rejects_missing_database(self) -> None:
+        missing = self.root / "missing-index.sqlite3"
+        args = taira_search.make_parser().parse_args(
+            ["search", "--query", "清盛", "--db", str(missing)]
+        )
+        with self.assertRaisesRegex(RuntimeError, "Индекс не найден"):
+            taira_search.load_runtime(args)
+
+    def test_read_only_runtime_rejects_legacy_schema_without_migration(self) -> None:
+        root = self.root / "legacy-migration"
+        root.mkdir()
+        db = root / "legacy.sqlite3"
+        with contextlib.closing(sqlite3.connect(db)) as connection:
+            connection.executescript(
+                """
+                CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                CREATE TABLE chunks(
+                    id INTEGER PRIMARY KEY,
+                    chunk_id TEXT NOT NULL UNIQUE,
+                    source TEXT NOT NULL,
+                    filename TEXT NOT NULL,
+                    relative_path TEXT NOT NULL,
+                    page_start INTEGER,
+                    page_end INTEGER,
+                    chunk_no INTEGER NOT NULL,
+                    original_text TEXT NOT NULL,
+                    normalized_text TEXT NOT NULL,
+                    preview TEXT NOT NULL,
+                    aliases_json TEXT NOT NULL,
+                    topics_json TEXT NOT NULL,
+                    search_terms_json TEXT NOT NULL,
+                    text_hash TEXT NOT NULL,
+                    is_duplicate INTEGER NOT NULL DEFAULT 0
+                );
+                CREATE VIRTUAL TABLE chunks_fts USING
+                    fts5(chunk_id UNINDEXED, normalized_text, tokenize='trigram');
+                INSERT INTO chunks VALUES(
+                    1, 'legacy_chunk', 'Chronicle', 'legacy.txt',
+                    'Chronicle/legacy.txt', NULL, NULL, 1,
+                    'legacy text', 'legacy text', 'legacy text',
+                    '[]', '[]', '[]', 'legacy-hash', 0
+                );
+                INSERT INTO chunks_fts VALUES('legacy_chunk', 'legacy text');
+                """
+            )
+        before = db.read_bytes()
+        args = taira_search.make_parser().parse_args(
+            ["search", "--query", "legacy", "--db", str(db)]
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "Устаревшая схема"):
+            taira_search.load_runtime(args)
+
+        self.assertEqual(db.read_bytes(), before)
+        self.assertEqual(list(root.glob("legacy.sqlite3*.bak")), [])
+        with contextlib.closing(sqlite3.connect(db)) as connection:
+            columns = {
+                item[1] for item in connection.execute("PRAGMA table_info(chunks)")
+            }
+            self.assertFalse(
+                {"source_type", "people_json", "text_quality"} & columns
+            )
+            self.assertEqual(
+                connection.execute("SELECT COUNT(*) FROM chunks_fts").fetchone()[0],
+                1,
+            )
 
     def test_new_index_has_no_dictionary_annotations(self) -> None:
         with contextlib.closing(sqlite3.connect(self.db)) as connection:
