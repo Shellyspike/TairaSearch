@@ -319,6 +319,18 @@ def _paths_refer_to_same_file(left: Path, right: Path) -> bool:
         return False
 
 
+def exploration_manifests_path(
+    used_finds: Path, configured: str | None
+) -> Path:
+    """Keep non-default journals isolated while preserving the daily default."""
+    if configured:
+        return Path(configured).expanduser().resolve()
+    used_path = used_finds.expanduser().resolve()
+    if _paths_refer_to_same_file(used_path, DEFAULT_USED_FINDS):
+        return DEFAULT_PUBLICATIONS.resolve()
+    return used_path.with_name(f"{used_path.stem}.publications")
+
+
 def validate_research_output_path(args: argparse.Namespace) -> None:
     """Prevent candidate JSON from replacing any input needed by the command."""
     output = Path(args.output)
@@ -485,10 +497,10 @@ def make_parser() -> argparse.ArgumentParser:
     )
     research_parser.add_argument(
         "--resume-exploration-from",
-        default=str(DEFAULT_PUBLICATIONS),
+        default=None,
         help=(
-            "Каталог publication manifest; последняя подтверждённая "
-            "record-publication закладка продолжает обзор между выпусками"
+            "Каталог publication manifest; по умолчанию work/publications для "
+            "основного журнала или отдельный каталог рядом с --used-finds"
         ),
     )
     research_parser.add_argument("--output", default=str(DEFAULT_RESEARCH_OUTPUT))
@@ -752,7 +764,9 @@ def main(argv: list[str] | None = None) -> int:
             discovery_state = load_discovery_state([Path(path).expanduser().resolve() for path in args.continue_from])
             registered_checkpoint, checkpoint_manifest = (
                 load_latest_registered_exploration_checkpoint(
-                    Path(args.resume_exploration_from),
+                    exploration_manifests_path(
+                        Path(args.used_finds), args.resume_exploration_from
+                    ),
                     Path(args.used_finds).expanduser().resolve(),
                 )
             )

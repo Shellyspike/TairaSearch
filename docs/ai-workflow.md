@@ -144,8 +144,11 @@ again, rewrite the cards, or create a new registration. Idempotent retry of the
 same manifest still skips already registered IDs, but it is unnecessary for
 recovery. The local JSON contains the unchanged exact cards needed for recovery.
 
-The default `research-findings --preview` resumes source exploration by scanning
-`work/publications/`. It accepts a checkpoint only when the seal matches the
+With the main `used_finds.csv`, the default `research-findings --preview`
+resumes source exploration by scanning `work/publications/`. A separate
+`--used-finds` gets its own sibling checkpoint directory unless an explicit
+`--resume-exploration-from` is supplied. The command accepts a checkpoint only
+when the seal matches the
 manifest and all cards still match `used_finds.csv`; file date and presence are
 not registration evidence. Failed preparation/registration therefore leaves
 the previous checkpoint active, and replaying one registered manifest cannot

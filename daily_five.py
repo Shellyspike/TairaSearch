@@ -534,6 +534,37 @@ def validate_exploration_checkpoint(value: Any) -> dict[str, Any]:
         seen_ids.add(chunk_id)
         normalized_seen.append({"chunk_id": chunk_id, "text_hash": text_hash})
     normalized_seen.sort(key=lambda item: item["chunk_id"])
+    rejected = value.get("rejected", [])
+    if not isinstance(rejected, list):
+        raise ValueError("exploration_checkpoint.rejected должен быть массивом")
+    normalized_rejected: list[dict[str, str]] = []
+    rejected_ids: set[str] = set()
+    for index, item in enumerate(rejected, start=1):
+        if not isinstance(item, dict):
+            raise ValueError(
+                f"exploration_checkpoint.rejected[{index}] должен быть объектом"
+            )
+        chunk_id = item.get("chunk_id")
+        text_hash = item.get("text_hash")
+        if not isinstance(chunk_id, str) or not chunk_id:
+            raise ValueError(
+                f"exploration_checkpoint.rejected[{index}].chunk_id повреждён"
+            )
+        if not isinstance(text_hash, str) or not text_hash:
+            raise ValueError(
+                f"exploration_checkpoint.rejected[{index}].text_hash повреждён"
+            )
+        if chunk_id in rejected_ids:
+            raise ValueError(
+                f"exploration_checkpoint содержит повторно отклонённый chunk_id {chunk_id}"
+            )
+        if chunk_id in seen_ids:
+            raise ValueError(
+                f"exploration_checkpoint не может одновременно показать и отклонить {chunk_id}"
+            )
+        rejected_ids.add(chunk_id)
+        normalized_rejected.append({"chunk_id": chunk_id, "text_hash": text_hash})
+    normalized_rejected.sort(key=lambda item: item["chunk_id"])
     core = {
         "version": EXPLORATION_CHECKPOINT_VERSION,
         "generation": generation,
@@ -542,6 +573,7 @@ def validate_exploration_checkpoint(value: Any) -> dict[str, Any]:
         "parent_checkpoint_id": parent,
         "next_lane": next_lane,
         "seen": normalized_seen,
+        "rejected": normalized_rejected,
     }
     expected_id = hashlib.sha256(_canonical_json(core)).hexdigest()
     if value.get("checkpoint_id") != expected_id:
@@ -553,6 +585,7 @@ def make_exploration_checkpoint(
     *, generation: int, cycle: int, profile: dict[str, Any],
     parent_checkpoint_id: str | None, seen: dict[str, str], next_lane: int = 0,
     discovery_paths: list[str] | None = None,
+    rejected: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     core = {
         "version": EXPLORATION_CHECKPOINT_VERSION,
@@ -567,6 +600,10 @@ def make_exploration_checkpoint(
         "seen": [
             {"chunk_id": chunk_id, "text_hash": seen[chunk_id]}
             for chunk_id in sorted(seen)
+        ],
+        "rejected": [
+            {"chunk_id": chunk_id, "text_hash": (rejected or {})[chunk_id]}
+            for chunk_id in sorted(rejected or {})
         ],
     }
     return {**core, "checkpoint_id": hashlib.sha256(_canonical_json(core)).hexdigest()}

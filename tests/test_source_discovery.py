@@ -8,6 +8,7 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import build_index
 import research_findings
@@ -31,6 +32,7 @@ class DiscoveryTests(unittest.TestCase):
             'Banned/other.txt': 'An unnamed potter left a bowl outside overnight. A neighbour mistook it for a gift, filled it with beans, and returned it in the morning with a thank-you note.',
             'Articles/note.md': 'A synthetic scholarly interpretation of royal household inventories compares several accounting traditions and explains the limits of drawing conclusions from surviving lists.',
             'Collection/reference.txt': 'Bibliography\n\nAda, Collected Letters, volume one, published in an unnamed city. This reference is a catalogue entry and contains no incident involving its author.',
+            'Collection/unreadable.txt': 'Short fragment.',
         }
         for name, text in texts.items():
             path = corpus / name
@@ -65,7 +67,8 @@ class DiscoveryTests(unittest.TestCase):
         cls.temp.cleanup()
 
     def run_preview(self, mode='open', changes=None, previous=None, batch_size=10,
-                    used_path=None, publications_path=None, database=None):
+                    used_path=None, publications_path=None, database=None,
+                    automatic_resume=False):
         profile = copy.deepcopy(self.profile)
         if mode is not None:
             profile['search_mode'] = mode
@@ -79,8 +82,9 @@ class DiscoveryTests(unittest.TestCase):
             previous_path.write_text(json.dumps(previous), encoding='utf-8')
         args = ['research-findings', '--db', str(database or self.database), '--profile', str(path),
                 '--used-finds', str(used_path or self.used), '--output', str(output), '--preview',
-                '--batch-size', str(batch_size),
-                '--resume-exploration-from', str(publications_path or self.publications)]
+                '--batch-size', str(batch_size)]
+        if not automatic_resume:
+            args += ['--resume-exploration-from', str(publications_path or self.publications)]
         if previous:
             args += ['--continue-from', str(previous_path)]
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()) as err:
@@ -253,6 +257,8 @@ class DiscoveryTests(unittest.TestCase):
         used.write_text('id,type,persons,topics,short_description,source,date_used\n', encoding='utf-8')
         shown_by_edition = []
         checkpoints = []
+        rejected_ids = set()
+        rejected_by_edition = []
         first_cycle = None
         for number in range(1, 10):
             result = self.run_preview(
@@ -262,6 +268,15 @@ class DiscoveryTests(unittest.TestCase):
             self.assertTrue(shown)
             shown_by_edition.append(set(shown))
             checkpoints.append(result['exploration_checkpoint'])
+            rejected_ids.update(
+                item['chunk_id']
+                for item in result['exploration_checkpoint']['rejected']
+            )
+            rejected_by_edition.append(set(
+                result['exploration_checkpoint_status'][
+                    'rejected_without_editorial_exposure'
+                ]
+            ))
             self.register_checkpoint(result, number, publications, used)
             first_cycle = first_cycle or result['exploration_checkpoint']['cycle']
             if result['exploration_checkpoint']['cycle'] > first_cycle:
@@ -277,6 +292,19 @@ class DiscoveryTests(unittest.TestCase):
             self.assertTrue(accumulated.isdisjoint(shown))
             accumulated.update(shown)
         self.assertTrue(shown_by_edition[-1] & accumulated)
+        self.assertTrue(rejected_ids)
+        self.assertTrue(rejected_ids.isdisjoint(
+            item['chunk_id'] for checkpoint in checkpoints for item in checkpoint['seen']
+        ))
+        first_cycle_rejections = [
+            rejected for rejected, checkpoint in zip(rejected_by_edition, checkpoints)
+            if checkpoint['cycle'] == first_cycle
+        ]
+        self.assertTrue(set().union(*first_cycle_rejections))
+        for chunk_id in rejected_ids:
+            self.assertLessEqual(
+                sum(chunk_id in rejected for rejected in first_cycle_rejections), 1
+            )
 
         latest, latest_path = daily_five.load_latest_registered_exploration_checkpoint(
             publications, used
@@ -375,6 +403,32 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(
             changed['exploration_checkpoint']['cycle'],
             first['exploration_checkpoint']['cycle'] + 1,
+        )
+
+    def test_default_resume_directory_is_scoped_to_the_publication_journal(self):
+        self.assertEqual(
+            taira_search.exploration_manifests_path(
+                taira_search.DEFAULT_USED_FINDS, None
+            ),
+            taira_search.DEFAULT_PUBLICATIONS.resolve(),
+        )
+        isolated = self.root / 'isolated-used.csv'
+        self.assertEqual(
+            taira_search.exploration_manifests_path(isolated, None),
+            self.root / 'isolated-used.publications',
+        )
+        explicit = self.root / 'explicit-publications'
+        self.assertEqual(
+            taira_search.exploration_manifests_path(isolated, str(explicit)),
+            explicit.resolve(),
+        )
+        with mock.patch(
+            'daily_five.load_latest_registered_exploration_checkpoint',
+            wraps=daily_five.load_latest_registered_exploration_checkpoint,
+        ) as loader:
+            self.run_preview(used_path=isolated, automatic_resume=True)
+        self.assertEqual(
+            loader.call_args.args[0], self.root / 'isolated-used.publications'
         )
 
     def test_pending_scope_and_unselected_person_cannot_be_registered(self):
