@@ -19,7 +19,10 @@ from daily_five import (
     candidate_pair_check,
     duplicate_check,
     load_used_finds,
+    make_exploration_checkpoint,
+    research_profile_fingerprint,
     source_group,
+    validate_exploration_checkpoint,
 )
 from text_utils import normalize_text, unique_normalized
 from research_profile import effective_search_mode
@@ -139,6 +142,10 @@ def build_editorial_packet(result: dict[str, Any]) -> dict[str, Any]:
         ],
         "comparison_context_count": len(result.get("comparison_contexts", [])),
         "candidate_pool": [item['chunk_id'] for item in result.get('final', []) + result.get('alternates', [])],
+        "exploration_checkpoint": result.get("exploration_checkpoint"),
+        "exploration_checkpoint_status": result.get(
+            "exploration_checkpoint_status", {}
+        ),
         "continuation": result.get("continuation", {}),
         "workflow": {
             "first_pass": "Review this packet once; do not print the full result.",
@@ -305,6 +312,60 @@ def load_discovery_state(paths: list[Path]) -> dict:
     return state
 
 
+def load_pending_exploration_checkpoint(
+    paths: list[Path], registered: dict[str, Any] | None
+) -> tuple[dict[str, Any] | None, bool]:
+    """Resume an unregistered proposal only inside one --continue-from chain."""
+    pending: dict[str, Any] | None = None
+    for path in paths:
+        payload = json.loads(path.read_text(encoding="utf-8-sig"))
+        value = payload.get("exploration_checkpoint")
+        if value is None:
+            continue
+        current = validate_exploration_checkpoint(value)
+        if pending is not None:
+            previous_seen = {
+                item["chunk_id"]: item["text_hash"] for item in pending["seen"]
+            }
+            current_seen = {
+                item["chunk_id"]: item["text_hash"] for item in current["seen"]
+            }
+            previous_rejected = {
+                item["chunk_id"]: item["text_hash"] for item in pending["rejected"]
+            }
+            current_rejected = {
+                item["chunk_id"]: item["text_hash"] for item in current["rejected"]
+            }
+            if (
+                current["generation"] != pending["generation"]
+                or current["cycle"] != pending["cycle"]
+                or current["profile_fingerprint"] != pending["profile_fingerprint"]
+                or current["parent_checkpoint_id"] != pending["parent_checkpoint_id"]
+                or current["next_lane"] not in (0, 1)
+                or not previous_seen.items() <= current_seen.items()
+                or not previous_rejected.items() <= current_rejected.items()
+            ):
+                raise ValueError(
+                    f"{path}: exploration_checkpoint не продолжает предыдущую партию"
+                )
+        pending = current
+    if pending is None:
+        return registered, False
+    if registered is None:
+        if pending["generation"] != 1 or pending["parent_checkpoint_id"] is not None:
+            raise ValueError("--continue-from содержит закладку с неизвестным предком")
+    elif pending["checkpoint_id"] != registered["checkpoint_id"] and (
+        pending["generation"] != registered["generation"] + 1
+        or pending["parent_checkpoint_id"] != registered["checkpoint_id"]
+    ):
+        raise ValueError(
+            "--continue-from основан не на последней зарегистрированной закладке"
+        )
+    return pending, pending["checkpoint_id"] != (
+        registered or {}
+    ).get("checkpoint_id")
+
+
 def _search_args(
     profile: dict[str, Any], interest: dict[str, Any], top: int
 ) -> Namespace:
@@ -460,6 +521,9 @@ def build_research_findings(
     discovery_rejections: dict[str, str] | None = None,
     discovery_next_lane: int = 0,
     discovery_paths: list[str] | None = None,
+    exploration_checkpoint: dict[str, Any] | None = None,
+    exploration_checkpoint_pending: bool = False,
+    exploration_checkpoint_source: str | None = None,
 ) -> dict[str, Any]:
     """Retrieve candidates without changing the index, profile, or journal."""
     requested_count = profile["max_results"] if count is None else count
@@ -471,7 +535,34 @@ def build_research_findings(
     excluded_before = set(excluded_chunk_ids or ())
     by_chunk: dict[str, dict[str, Any]] = {}
     mode = effective_search_mode(profile)
-    discovery_rejections = dict(discovery_rejections or {})
+    run_discovery_rejections = dict(discovery_rejections or {})
+    profile_fingerprint = research_profile_fingerprint({
+        "profile": profile,
+        "discovery_paths": discovery_paths or [],
+    })
+    checkpoint = (
+        validate_exploration_checkpoint(exploration_checkpoint)
+        if exploration_checkpoint is not None
+        else None
+    )
+    checkpoint_profile_changed = bool(
+        checkpoint and checkpoint["profile_fingerprint"] != profile_fingerprint
+    )
+    checkpoint_seen = {
+        item["chunk_id"]: item["text_hash"]
+        for item in (checkpoint or {}).get("seen", [])
+    }
+    checkpoint_rejections = {
+        item["chunk_id"]: item["text_hash"]
+        for item in (checkpoint or {}).get("rejected", [])
+    }
+    if checkpoint_profile_changed:
+        checkpoint_seen = {}
+        checkpoint_rejections = {}
+    discovery_rejections = {
+        **checkpoint_rejections,
+        **run_discovery_rejections,
+    }
     interest_hits: dict[str, int] = {}
     for interest in profile["interests"]:
         rows = search_function(
@@ -506,8 +597,22 @@ def build_research_findings(
         preference_hits = {row['chunk_id'] for row in search_function(
             connection, preference_args)}
     discovery_rows, discovery_stats = (discover_sources(
-        connection, profile, excluded_before, preference_hits, document_group,
+        connection, profile, checkpoint_seen, preference_hits, document_group,
         discovery_rejections, discovery_paths) if connection is not None else ([], {'sources': {}}))
+    cycle_reset = bool(
+        (checkpoint_seen or checkpoint_rejections)
+        and not discovery_rows
+        and not run_discovery_rejections
+        and discovery_stats.get("eligible_chunks", 0)
+    )
+    if cycle_reset:
+        checkpoint_seen = {}
+        checkpoint_rejections = {}
+        discovery_rejections = dict(run_discovery_rejections)
+        discovery_rows, discovery_stats = discover_sources(
+            connection, profile, checkpoint_seen, preference_hits, document_group,
+            discovery_rejections, discovery_paths
+        )
     exploration_by_id = {row['chunk_id']: row for row in discovery_rows}
     for row in ranked_unseen:
         discovery = exploration_by_id.get(row['chunk_id'])
@@ -678,6 +783,53 @@ def build_research_findings(
         verified, [*final, *alternates]
     )
     batch_chunk_ids = [str(item["chunk_id"]) for item in [*final, *alternates]]
+    exploration_exposed = {
+        str(item["chunk_id"]): exploration_by_id[str(item["chunk_id"])]["text_hash"]
+        for item in [*final, *alternates]
+        if "source_exploration" in item["retrieval"]["methods"]
+        and str(item["chunk_id"]) in exploration_by_id
+    }
+    proposed_seen = {**checkpoint_seen, **exploration_exposed}
+    proposed_rejections = dict(discovery_rejections)
+    for chunk_id in exploration_exposed:
+        proposed_rejections.pop(chunk_id, None)
+    for chunk_id in proposed_rejections:
+        proposed_seen.pop(chunk_id, None)
+    new_persistent_rejections = {
+        chunk_id: text_hash
+        for chunk_id, text_hash in proposed_rejections.items()
+        if checkpoint_rejections.get(chunk_id) != text_hash
+    }
+    exploration_checkpoint_result = checkpoint
+    checkpoint_advanced = bool(
+        exploration_exposed
+        or new_persistent_rejections
+        or cycle_reset
+        or checkpoint_profile_changed
+    )
+    if checkpoint_advanced:
+        if exploration_checkpoint_pending and not checkpoint_profile_changed and not cycle_reset:
+            generation = checkpoint["generation"] if checkpoint else 1
+            cycle = checkpoint["cycle"] if checkpoint else 1
+            parent_checkpoint_id = checkpoint["parent_checkpoint_id"] if checkpoint else None
+        else:
+            generation = (checkpoint["generation"] if checkpoint else 0) + 1
+            cycle = (
+                (checkpoint["cycle"] if checkpoint else 0) + 1
+                if checkpoint_profile_changed or cycle_reset
+                else (checkpoint["cycle"] if checkpoint else 1)
+            )
+            parent_checkpoint_id = checkpoint["checkpoint_id"] if checkpoint else None
+        exploration_checkpoint_result = make_exploration_checkpoint(
+            generation=generation,
+            cycle=cycle,
+            profile=profile,
+            parent_checkpoint_id=parent_checkpoint_id,
+            seen=proposed_seen,
+            next_lane=(discovery_next_lane + len(batch)) % 2,
+            discovery_paths=discovery_paths,
+            rejected=proposed_rejections,
+        )
     # Only candidates actually exposed to Codex and exact technical collapses are
     # consumed. A row rejected before editorial review may be a context neighbour
     # or become useful at another retrieval depth, so it must remain searchable.
@@ -713,7 +865,7 @@ def build_research_findings(
         info['omission_reason'] = (None if info['emitted'] else
             'hard_filter_or_navigation' if not info['eligible'] else
             'not_in_this_batch; use continuation (aliases may share a document turn)')
-    return {
+    result = {
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "mode": "research-findings",
         "preview": preview,
@@ -760,6 +912,20 @@ def build_research_findings(
         "final": final,
         "alternates": alternates,
         "comparison_contexts": comparison_contexts,
+        "exploration_checkpoint": exploration_checkpoint_result,
+        "exploration_checkpoint_status": {
+            "source_manifest": exploration_checkpoint_source,
+            "resumed": checkpoint is not None and not checkpoint_profile_changed,
+            "profile_changed_reset": checkpoint_profile_changed,
+            "cycle_reset": cycle_reset,
+            "advanced_in_this_batch": bool(
+                exploration_exposed or new_persistent_rejections
+            ),
+            "shown_via_source_exploration": sorted(exploration_exposed),
+            "rejected_without_editorial_exposure": sorted(
+                new_persistent_rejections
+            ),
+        },
         "continuation": {
             "seen_before_count": len(excluded_before),
             "discovery_state_version": 1,
@@ -782,6 +948,9 @@ def build_research_findings(
             ),
         },
     }
+    if result["exploration_checkpoint"] is None:
+        result.pop("exploration_checkpoint")
+    return result
 
 
 def print_research_result(result: dict[str, Any], *, json_output: bool) -> None:

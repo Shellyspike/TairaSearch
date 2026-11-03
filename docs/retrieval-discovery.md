@@ -75,6 +75,29 @@ is a live read-only view, not a claim of snapshot continuity across runs.
 One invocation uses a consistent read transaction and follows committed WAL.
 Old schemas fail without migration; explicit indexing is a separate operation.
 
+`--continue-from` remains the short-lived continuation between batches of one
+research session. Cross-edition source exploration is separate. The main
+`used_finds.csv` automatically uses `work/publications`; a custom `--used-finds`
+uses an isolated `<journal-stem>.publications` sibling unless
+`--resume-exploration-from` explicitly names another directory. The command
+resumes the highest unambiguous checkpoint whose cards still match
+`used_finds.csv` and whose registration seal matches the unchanged manifest.
+File names and modification times do not establish registration. A prepared or
+failed manifest has no seal and cannot advance the traversal; retrying the same
+`record-publication` is idempotent.
+
+The checkpoint records content hashes for target chunks actually emitted to the
+editor through `source_exploration` (whether final or alternate). Technical
+context/evidence rejects are stored separately and are never described as shown
+to the editor; unchanged rejects do not occupy later daily batches in the same
+cycle. Neither set suppresses thematic FTS, and changed content becomes eligible
+again. When no unseen or unevaluated eligible target remains, exploration begins
+a new numbered cycle and reconsiders the old technical rejects. A new book has
+unseen IDs and joins the current cycle without clearing prior visits.
+An exact profile change starts a new cycle after the first emitted exploration
+batch; old manifests without checkpoints remain valid publications but provide
+no cross-edition progress.
+
 The per-invocation context budget remains `pool_size`, and output remains
 `batch_size`. Metadata inventory is linear in library size; only the bounded
 pool loads full contexts. Larger libraries require more batches: neither one

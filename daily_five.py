@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import os
 import re
@@ -480,6 +481,168 @@ USED_FIELDS = [
     "id", "type", "persons", "topics", "short_description", "source", "date_used"
 ]
 USED_TYPES = {"event", "interpretation"}
+EXPLORATION_CHECKPOINT_VERSION = 1
+EXPLORATION_REGISTRATION_VERSION = 1
+
+
+def _canonical_json(value: Any) -> bytes:
+    return json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+
+
+def research_profile_fingerprint(profile: dict[str, Any]) -> str:
+    """Identify the exact profile whose exploration progress is being resumed."""
+    return hashlib.sha256(_canonical_json(profile)).hexdigest()
+
+
+def validate_exploration_checkpoint(value: Any) -> dict[str, Any]:
+    """Validate and normalize a checkpoint embedded in a research/publication JSON."""
+    if not isinstance(value, dict) or value.get("version") != EXPLORATION_CHECKPOINT_VERSION:
+        raise ValueError("exploration_checkpoint: неизвестная или отсутствующая версия")
+    generation = value.get("generation")
+    cycle = value.get("cycle")
+    if type(generation) is not int or generation < 1:
+        raise ValueError("exploration_checkpoint.generation должен быть положительным целым")
+    if type(cycle) is not int or cycle < 1:
+        raise ValueError("exploration_checkpoint.cycle должен быть положительным целым")
+    profile_fingerprint = value.get("profile_fingerprint")
+    if not isinstance(profile_fingerprint, str) or len(profile_fingerprint) != 64:
+        raise ValueError("exploration_checkpoint.profile_fingerprint повреждён")
+    parent = value.get("parent_checkpoint_id")
+    if parent is not None and (not isinstance(parent, str) or len(parent) != 64):
+        raise ValueError("exploration_checkpoint.parent_checkpoint_id повреждён")
+    next_lane = value.get("next_lane", 0)
+    if type(next_lane) is not int or next_lane not in (0, 1):
+        raise ValueError("exploration_checkpoint.next_lane должен быть 0 или 1")
+    seen = value.get("seen")
+    if not isinstance(seen, list):
+        raise ValueError("exploration_checkpoint.seen должен быть массивом")
+    normalized_seen: list[dict[str, str]] = []
+    seen_ids: set[str] = set()
+    for index, item in enumerate(seen, start=1):
+        if not isinstance(item, dict):
+            raise ValueError(f"exploration_checkpoint.seen[{index}] должен быть объектом")
+        chunk_id = item.get("chunk_id")
+        text_hash = item.get("text_hash")
+        if not isinstance(chunk_id, str) or not chunk_id:
+            raise ValueError(f"exploration_checkpoint.seen[{index}].chunk_id повреждён")
+        if not isinstance(text_hash, str) or not text_hash:
+            raise ValueError(f"exploration_checkpoint.seen[{index}].text_hash повреждён")
+        if chunk_id in seen_ids:
+            raise ValueError(f"exploration_checkpoint содержит повторный chunk_id {chunk_id}")
+        seen_ids.add(chunk_id)
+        normalized_seen.append({"chunk_id": chunk_id, "text_hash": text_hash})
+    normalized_seen.sort(key=lambda item: item["chunk_id"])
+    rejected = value.get("rejected", [])
+    if not isinstance(rejected, list):
+        raise ValueError("exploration_checkpoint.rejected должен быть массивом")
+    normalized_rejected: list[dict[str, str]] = []
+    rejected_ids: set[str] = set()
+    for index, item in enumerate(rejected, start=1):
+        if not isinstance(item, dict):
+            raise ValueError(
+                f"exploration_checkpoint.rejected[{index}] должен быть объектом"
+            )
+        chunk_id = item.get("chunk_id")
+        text_hash = item.get("text_hash")
+        if not isinstance(chunk_id, str) or not chunk_id:
+            raise ValueError(
+                f"exploration_checkpoint.rejected[{index}].chunk_id повреждён"
+            )
+        if not isinstance(text_hash, str) or not text_hash:
+            raise ValueError(
+                f"exploration_checkpoint.rejected[{index}].text_hash повреждён"
+            )
+        if chunk_id in rejected_ids:
+            raise ValueError(
+                f"exploration_checkpoint содержит повторно отклонённый chunk_id {chunk_id}"
+            )
+        if chunk_id in seen_ids:
+            raise ValueError(
+                f"exploration_checkpoint не может одновременно показать и отклонить {chunk_id}"
+            )
+        rejected_ids.add(chunk_id)
+        normalized_rejected.append({"chunk_id": chunk_id, "text_hash": text_hash})
+    normalized_rejected.sort(key=lambda item: item["chunk_id"])
+    core = {
+        "version": EXPLORATION_CHECKPOINT_VERSION,
+        "generation": generation,
+        "cycle": cycle,
+        "profile_fingerprint": profile_fingerprint,
+        "parent_checkpoint_id": parent,
+        "next_lane": next_lane,
+        "seen": normalized_seen,
+        "rejected": normalized_rejected,
+    }
+    expected_id = hashlib.sha256(_canonical_json(core)).hexdigest()
+    if value.get("checkpoint_id") != expected_id:
+        raise ValueError("exploration_checkpoint.checkpoint_id не соответствует содержимому")
+    return {**core, "checkpoint_id": expected_id}
+
+
+def make_exploration_checkpoint(
+    *, generation: int, cycle: int, profile: dict[str, Any],
+    parent_checkpoint_id: str | None, seen: dict[str, str], next_lane: int = 0,
+    discovery_paths: list[str] | None = None,
+    rejected: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    core = {
+        "version": EXPLORATION_CHECKPOINT_VERSION,
+        "generation": generation,
+        "cycle": cycle,
+        "profile_fingerprint": research_profile_fingerprint({
+            "profile": profile,
+            "discovery_paths": discovery_paths or [],
+        }),
+        "parent_checkpoint_id": parent_checkpoint_id,
+        "next_lane": next_lane,
+        "seen": [
+            {"chunk_id": chunk_id, "text_hash": seen[chunk_id]}
+            for chunk_id in sorted(seen)
+        ],
+        "rejected": [
+            {"chunk_id": chunk_id, "text_hash": (rejected or {})[chunk_id]}
+            for chunk_id in sorted(rejected or {})
+        ],
+    }
+    return {**core, "checkpoint_id": hashlib.sha256(_canonical_json(core)).hexdigest()}
+
+
+def _manifest_fingerprint(payload: dict[str, Any]) -> str:
+    unsigned = dict(payload)
+    unsigned.pop("exploration_checkpoint_registration", None)
+    return hashlib.sha256(_canonical_json(unsigned)).hexdigest()
+
+
+def _validate_checkpoint_registration(payload: dict[str, Any]) -> None:
+    registration = payload.get("exploration_checkpoint_registration")
+    checkpoint = validate_exploration_checkpoint(payload.get("exploration_checkpoint"))
+    if not isinstance(registration, dict) or registration.get("version") != EXPLORATION_REGISTRATION_VERSION:
+        raise ValueError("exploration_checkpoint не подтверждён record-publication")
+    if registration.get("publication_id") != payload.get("publication_id"):
+        raise ValueError("регистрация exploration_checkpoint относится к другому выпуску")
+    if registration.get("checkpoint_id") != checkpoint["checkpoint_id"]:
+        raise ValueError("регистрация exploration_checkpoint относится к другой закладке")
+    if registration.get("manifest_fingerprint") != _manifest_fingerprint(payload):
+        raise ValueError("манифест изменён после регистрации exploration_checkpoint")
+
+
+def _atomic_write_json(payload: dict[str, Any], path: Path) -> None:
+    descriptor, temp_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+    )
+    temp_path = Path(temp_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="") as stream:
+            json.dump(payload, stream, ensure_ascii=False, indent=2)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temp_path, path)
+    except BaseException:
+        temp_path.unlink(missing_ok=True)
+        raise
 
 
 def _load_publication_manifest(
@@ -492,6 +655,10 @@ def _load_publication_manifest(
     publication_id = normalize_text(str(payload.get("publication_id", "")))
     if not publication_id:
         raise ValueError(f"{manifest_path}: отсутствует publication_id")
+    if "exploration_checkpoint" in payload:
+        validate_exploration_checkpoint(payload["exploration_checkpoint"])
+    if "exploration_checkpoint_registration" in payload:
+        _validate_checkpoint_registration(payload)
     cards = payload.get("cards")
     if not isinstance(cards, list) or not cards:
         raise ValueError(f"{manifest_path}: ожидается непустой массив cards")
@@ -572,6 +739,11 @@ def publication_status_from_json(
 ) -> dict[str, Any]:
     """Report durable preparation/registration state without claiming delivery."""
     publication_id, cards, events = _load_publication_manifest(manifest_path)
+    payload = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
+    checkpoint_registered = (
+        "exploration_checkpoint" not in payload
+        or "exploration_checkpoint_registration" in payload
+    )
     missing_ids, conflicting_ids = _publication_registration_issues(
         events, _read_used_rows(used_path)
     )
@@ -579,7 +751,8 @@ def publication_status_from_json(
         "publication_id": publication_id,
         "card_count": len(cards),
         "prepared": True,
-        "registered": not missing_ids and not conflicting_ids,
+        "registered": checkpoint_registered and not missing_ids and not conflicting_ids,
+        "exploration_checkpoint_registered": checkpoint_registered,
         "missing_registration_ids": missing_ids,
         "conflicting_registration_ids": conflicting_ids,
         "delivery": "unconfirmed",
@@ -591,6 +764,15 @@ def render_registered_publication_from_json(
 ) -> tuple[str, str]:
     """Return the exact saved card Markdown only after journal registration."""
     publication_id, cards, events = _load_publication_manifest(manifest_path)
+    payload = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
+    if (
+        "exploration_checkpoint" in payload
+        and "exploration_checkpoint_registration" not in payload
+    ):
+        raise ValueError(
+            f"{manifest_path}: exploration_checkpoint не подтверждён "
+            "успешным record-publication"
+        )
     missing_ids, conflicting_ids = _publication_registration_issues(
         events, _read_used_rows(used_path)
     )
@@ -615,9 +797,113 @@ def record_publication_from_json(
 ) -> tuple[str, int, int]:
     """Record the exact finalized cards stored in a durable local manifest."""
     publication_id, _cards, events = _load_publication_manifest(manifest_path)
+    payload = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
+    if (
+        "exploration_checkpoint" in payload
+        and "exploration_checkpoint_registration" not in payload
+    ):
+        checkpoint = validate_exploration_checkpoint(payload["exploration_checkpoint"])
+        latest, _latest_path = load_latest_registered_exploration_checkpoint(
+            manifest_path.parent, used_path
+        )
+        if latest is None:
+            valid_parent = (
+                checkpoint["generation"] == 1
+                and checkpoint["parent_checkpoint_id"] is None
+            )
+        else:
+            valid_parent = checkpoint["checkpoint_id"] == latest["checkpoint_id"] or (
+                checkpoint["generation"] == latest["generation"] + 1
+                and checkpoint["parent_checkpoint_id"] == latest["checkpoint_id"]
+            )
+        if not valid_parent:
+            raise ValueError(
+                "exploration_checkpoint не продолжает последнюю "
+                "зарегистрированную закладку"
+            )
 
     added, skipped = append_used(events, used_path)
+    if "exploration_checkpoint" in payload:
+        checkpoint = validate_exploration_checkpoint(payload["exploration_checkpoint"])
+        registration = {
+            "version": EXPLORATION_REGISTRATION_VERSION,
+            "publication_id": publication_id,
+            "checkpoint_id": checkpoint["checkpoint_id"],
+        }
+        unsigned = dict(payload)
+        unsigned.pop("exploration_checkpoint_registration", None)
+        registration["manifest_fingerprint"] = hashlib.sha256(
+            _canonical_json(unsigned)
+        ).hexdigest()
+        expected = {**unsigned, "exploration_checkpoint_registration": registration}
+        if payload != expected:
+            _atomic_write_json(expected, manifest_path)
     return publication_id, added, skipped
+
+
+def load_latest_registered_exploration_checkpoint(
+    manifests_path: Path, used_path: Path
+) -> tuple[dict[str, Any] | None, Path | None]:
+    """Return the newest unambiguous checkpoint sealed by record-publication.
+
+    File dates and names are deliberately ignored. Generation is part of a
+    content-addressed checkpoint, and every contributing manifest must still
+    match both its registration seal and the existing publication journal.
+    """
+    manifests_path = manifests_path.expanduser().resolve()
+    if not manifests_path.exists():
+        return None, None
+    if not manifests_path.is_dir():
+        raise ValueError(
+            f"--resume-exploration-from ожидает каталог манифестов: {manifests_path}"
+        )
+    journal_rows = _read_used_rows(used_path)
+    checkpoints: list[tuple[dict[str, Any], Path]] = []
+    for path in sorted(manifests_path.glob("*.json")):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8-sig"))
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"{path}: повреждён JSON publication manifest: {exc}") from exc
+        if not isinstance(payload, dict) or "exploration_checkpoint" not in payload:
+            continue
+        checkpoint = validate_exploration_checkpoint(payload["exploration_checkpoint"])
+        if "exploration_checkpoint_registration" not in payload:
+            # A prepared or failed edition must not advance persistent progress.
+            continue
+        _validate_checkpoint_registration(payload)
+        _publication_id, _cards, events = _load_publication_manifest(path)
+        missing_ids, conflicting_ids = _publication_registration_issues(
+            events, journal_rows
+        )
+        if missing_ids or conflicting_ids:
+            raise ValueError(
+                f"{path}: exploration_checkpoint помечен зарегистрированным, "
+                "но карточки не совпадают с used_finds.csv"
+            )
+        checkpoints.append((checkpoint, path))
+    if not checkpoints:
+        return None, None
+    ids_by_generation: dict[int, set[str]] = {}
+    for checkpoint, _path in checkpoints:
+        ids_by_generation.setdefault(checkpoint["generation"], set()).add(
+            checkpoint["checkpoint_id"]
+        )
+    conflicts = [
+        generation for generation, ids in ids_by_generation.items() if len(ids) > 1
+    ]
+    if conflicts:
+        raise ValueError(
+            "Обнаружены расходящиеся зарегистрированные exploration_checkpoint "
+            f"одного поколения: {', '.join(map(str, sorted(conflicts)))}"
+        )
+    latest_generation = max(ids_by_generation)
+    checkpoint_id = next(iter(ids_by_generation[latest_generation]))
+    matches = [
+        (checkpoint, path)
+        for checkpoint, path in checkpoints
+        if checkpoint["checkpoint_id"] == checkpoint_id
+    ]
+    return matches[-1]
 
 
 def _read_used_rows(path: Path) -> list[dict[str, str]]:

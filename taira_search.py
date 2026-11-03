@@ -26,6 +26,7 @@ DEFAULT_DB = PROJECT_DIR / "taira_index.sqlite3"
 DEFAULT_USED_FINDS = PROJECT_DIR / "used_finds.csv"
 DEFAULT_RESEARCH_PROFILE = PROJECT_DIR / "research_profile.json"
 DEFAULT_RESEARCH_OUTPUT = PROJECT_DIR / "research_candidates.json"
+DEFAULT_PUBLICATIONS = PROJECT_DIR / "work" / "publications"
 SOURCE_TYPES = ("historical", "scholarship", "literary", "other")
 QUALITIES = ("good", "garbled", "no_text")
 JAPANESE_RUN_RE = re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]+")
@@ -318,6 +319,18 @@ def _paths_refer_to_same_file(left: Path, right: Path) -> bool:
         return False
 
 
+def exploration_manifests_path(
+    used_finds: Path, configured: str | None
+) -> Path:
+    """Keep non-default journals isolated while preserving the daily default."""
+    if configured:
+        return Path(configured).expanduser().resolve()
+    used_path = used_finds.expanduser().resolve()
+    if _paths_refer_to_same_file(used_path, DEFAULT_USED_FINDS):
+        return DEFAULT_PUBLICATIONS.resolve()
+    return used_path.with_name(f"{used_path.stem}.publications")
+
+
 def validate_research_output_path(args: argparse.Namespace) -> None:
     """Prevent candidate JSON from replacing any input needed by the command."""
     output = Path(args.output)
@@ -480,6 +493,14 @@ def make_parser() -> argparse.ArgumentParser:
         help=(
             "Предыдущий JSON research-findings; можно повторять для следующей "
             "партии без уже просмотренных chunk_id"
+        ),
+    )
+    research_parser.add_argument(
+        "--resume-exploration-from",
+        default=None,
+        help=(
+            "Каталог publication manifest; по умолчанию work/publications для "
+            "основного журнала или отдельный каталог рядом с --used-finds"
         ),
     )
     research_parser.add_argument("--output", default=str(DEFAULT_RESEARCH_OUTPUT))
@@ -728,8 +749,10 @@ def main(argv: list[str] | None = None) -> int:
                 build_research_findings,
                 load_continuation_chunk_ids,
                 load_discovery_state,
+                load_pending_exploration_checkpoint,
                 print_research_result,
             )
+            from daily_five import load_latest_registered_exploration_checkpoint
             from research_profile import load_research_profile
 
             profile_path = Path(args.profile).expanduser().resolve()
@@ -739,6 +762,22 @@ def main(argv: list[str] | None = None) -> int:
                 profile,
             )
             discovery_state = load_discovery_state([Path(path).expanduser().resolve() for path in args.continue_from])
+            registered_checkpoint, checkpoint_manifest = (
+                load_latest_registered_exploration_checkpoint(
+                    exploration_manifests_path(
+                        Path(args.used_finds), args.resume_exploration_from
+                    ),
+                    Path(args.used_finds).expanduser().resolve(),
+                )
+            )
+            exploration_checkpoint, checkpoint_pending = (
+                load_pending_exploration_checkpoint(
+                    [Path(path).expanduser().resolve() for path in args.continue_from],
+                    registered_checkpoint,
+                )
+            )
+            if not args.continue_from and exploration_checkpoint is not None:
+                discovery_state["next_lane"] = exploration_checkpoint["next_lane"]
             for path in args.continue_from:
                 previous = json.loads(Path(path).read_text(encoding='utf-8-sig'))
                 if previous.get('filters', {}).get('discovery_paths', []) != args.discovery_path:
@@ -758,6 +797,11 @@ def main(argv: list[str] | None = None) -> int:
                 discovery_rejections=discovery_state['rejections'],
                 discovery_next_lane=discovery_state['next_lane'],
                 discovery_paths=args.discovery_path,
+                exploration_checkpoint=exploration_checkpoint,
+                exploration_checkpoint_pending=checkpoint_pending,
+                exploration_checkpoint_source=(
+                    str(checkpoint_manifest) if checkpoint_manifest else None
+                ),
             )
             output = Path(args.output).expanduser().resolve()
             editorial_output = (

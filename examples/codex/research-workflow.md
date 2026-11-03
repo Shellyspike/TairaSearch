@@ -27,7 +27,10 @@ needed, and choose the final findings.
    shortlist, not an editorial verdict. It contains the theses, history
    matches, comparison grounds, and references needed for first-pass review;
    the full JSON remains the canonical evidence store. Inspect every
-   `semantic_review` entry in this compact view.
+   `semantic_review` entry in this compact view. By default the command resumes
+   `source_exploration` from the latest registered checkpoint under
+   `work/publications/`; do not select yesterday's file manually. Thematic FTS
+   still searches the whole permitted library every day.
 5. For uncertain relations classify the supported claims as
    `confirmed_repeat`, `probable_repeat_review`, `new_angle`, or `new_finding`.
    Do not publish confirmed repeats. Keep unresolved probable repeats visible
@@ -68,7 +71,9 @@ needed, and choose the final findings.
    repeat review.
 10. Retrieval and preview must not change the journal. Only if my request
     explicitly includes publication, save the exact finalized cards to a local
-    manifest under `work/` and use the existing `record-publication` command.
+    manifest under `work/publications/`, copy the unchanged root
+    `exploration_checkpoint` from the last full result when present, and use the
+    existing `record-publication` command.
     After exit code 0, run `render-publication` with that same manifest and
     return its complete stdout as the primary chat response. Do not replace it
     with titles, annotations, counts, or a technical status; a short status may
@@ -77,8 +82,10 @@ needed, and choose the final findings.
     The commands prove preparation and journal registration, not display to the
     user. If registration succeeded but delivery is unconfirmed, check the
     chat/run history and recover by running `render-publication` on the same
-    manifest without another search, rewrite, or registration. Never edit the
-    CSV directly.
+    manifest without another search, rewrite, or registration.
+    `record-publication` seals the checkpoint in that manifest only after the
+    cards reach the journal. A failed or merely prepared manifest cannot advance
+    the next edition. Never edit the seal or CSV directly.
 
 Errors reading the index, profile, source context, or journal are failures to
 report. Do not turn them into an empty result. Do not claim the corpus is
