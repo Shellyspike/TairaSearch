@@ -12,10 +12,11 @@ needed, and choose the final findings.
    `examples/codex/research-onboarding.md`: interview me briefly, confirm the
    interpretation, create the ignored local profile, and run its preview.
    If the profile exists, use its area, mode, interests, filters, preferences
-   for kinds of findings, and a concise style preference from
-   `finding_preferences.notes`. Apply that preference together with the short
-   author brief; it must not contain another writing guide or replace source
-   verification.
+   for kinds of findings, and settings from `finding_preferences.notes`. The
+   profile controls interests, kinds of material, result language, detail, and
+   style; the short author brief supplies only common clarity and accuracy
+   requirements and cannot override the profile. Profile settings do not
+   replace source verification.
 3. Resolve the intended existing index from my request or the project. If none
    is clear, or several are plausible, ask me for the path instead of guessing.
    Do not rebuild the index, alter the corpus, change the profile's interests,
@@ -36,13 +37,15 @@ needed, and choose the final findings.
    Do not publish confirmed repeats. Keep unresolved probable repeats visible
    for human review. Shared people, topics, sources, dates, wording, or a
    positional `chunk_id` are comparison clues, not proof by themselves.
-6. If fewer than the profile's maximum number of strong findings survive,
+6. If fewer than the profile's maximum number of materials remain that match
+   the profile, contain enough information for a coherent account, and do not
+   repeat a publication,
    request another batch with `--continue-from PREVIOUS_FULL_RESULT.json` and a
    new output path. Use one compact overview for that batch and do not reread a
    result file unless a concrete unresolved comparison requires it. If the JSON says no more
    candidates are available at the current depth, one bounded rerun may raise
    `--top-per-interest` or `--pool-size`; keep the same profile and filters.
-   Stop when enough strong findings exist or a pass yields no new candidate
+   Stop when the profile maximum is reached or a pass yields no new candidate
    IDs. Never invent a finding to meet a quota.
 7. After the compact review, choose provisional finalists. Then make one
    consolidated request for their full source context and all doubtful
@@ -57,8 +60,9 @@ needed, and choose the final findings.
    saved evidence lacks necessary corroboration or scholarship, and reuse their
    result instead of issuing the same search again. Verify a researcher's
    actual conclusion and distinguish it from historical-source evidence.
-8. After source and novelty checks, independently select reader-worthy stories
-   and write them under the short author brief. When an independent reader is
+8. After source and novelty checks, select materials that match the profile,
+   contain information for a coherent account, and do not repeat a publication,
+   then write them under the short author brief. When an independent reader is
    available, give them only the finished cards and the short reader brief.
    Check their concrete questions against the dossier and revise when a question
    reveals a real gap. Do not require a formal `pass`, hashes, multiple rounds,
@@ -98,11 +102,36 @@ exhausted merely because current profile terms or limits produced no finding.
 See `docs/retrieval-discovery.md`. The whole candidate_pool (final + alternates)
 is unreviewed; retrieval_excerpt is raw evidence, not a story. Resolve scope_review
 as accepted, rejected or uncertain with a reason and exact quotations before
-novelty and editorial selection. Reject out-of-area or uncertain passages.
-For focused_people, identify a selected person and verify a substantive connection
+novelty and editorial selection. Reject material outside the profile's area or
+relations unsupported by the cited context. `scope_review` tests area and person
+fit, not the historical truth of the evidence. Treat legends, rumours, and
+disputed testimony according to the profile and identify their status when
+needed. For focused_people, identify a selected person and verify a substantive connection
 to the action, not just their name. Preserve the profile's mode and preferred_kinds.
 New manifests carry root search_mode and focus_people (names), and each card has
 scope_review: status=accepted, reason, evidence (chunk_id/quote objects), plus
 focus_person in person mode. Pending/uncertain cannot be published. Legacy
 manifests remain unchanged. coverage.discovery explains source omissions;
 continuation advances through document positions instead of repeating FTS tops.
+
+
+## Review accumulated leads before stopping
+
+Stopping new retrieval does not end review of already retrieved material.
+Before calling two batches devoid of new candidates, inspect the full context of
+unreviewed leads from every batch. Uncertain authenticity, legends, and
+scholarly hypotheses are not exclusions by themselves: apply the profile and
+attribute them accurately. Distinguish a fragment exposed to the agent, a
+fragment substantively evaluated, and a story registered as published. `seen`
+and presence of a `chunk_id` in retrieval output prove exposure only, not
+substantive review or publication.
+
+Retrieval limits bound new requests, not review of accumulated leads. If the
+request or automation names a local JSON file of deferred reviews, read it
+before new retrieval. It is not a CLI queue: the program does not consume or
+update it. For each record taken up, obtain context and save the concrete review
+outcome in the run dossier. Before finishing, atomically retain in that same
+local JSON every record not yet substantively reviewed, preserving its
+`chunk_id` and path; repeated exposure is not a reason to remove it. A story is
+published only after successful `record-publication`. Never rewrite registered
+checkpoints or describe this manual local list as an automatic queue.

@@ -28,8 +28,9 @@ earlier JSON; it does not silently discard verified candidates that were not
 shown. For source checks, neighbouring context, and indexed scholarship, Codex
 may direct the existing read-only `search` and `context` commands; Python
 returns passages and Codex decides what they support. Codex may make one
-bounded increase to retrieval depth, then stops when it has enough strong
-findings or a pass yields no new IDs. The copy-ready instructions are in
+bounded increase to retrieval depth, then stops when it reaches the profile's
+maximum number of matching, tellable, nonduplicate materials or a pass yields
+no new IDs. The copy-ready instructions are in
 `examples/codex/research-workflow.md`.
 
 Each run now writes two artifacts: a lossless full JSON and a compact
@@ -80,7 +81,9 @@ profiles and indexes and the publication journal retain their contracts.
 
 Use the saved-profile `research-findings --preview` route and matching
 `examples/codex/research-workflow.md` or `.ru.md`.
-After source and novelty review, choose reader-worthy stories and use the short
+After source and novelty review, select materials that match the profile,
+contain enough information for a coherent account, and do not repeat a
+publication, then use the short
 [author brief](../examples/codex/daily-news-prompt.md). An optional independent
 reader receives only the cards and the short
 [reader brief](../examples/codex/reader-review.ru.md). This reading does not
@@ -236,8 +239,10 @@ used by the current workflow. It does not call a model or publish findings.
 See `docs/retrieval-discovery.md`. The whole candidate_pool (final + alternates)
 is unreviewed; retrieval_excerpt is raw evidence, not a story. Resolve scope_review
 as accepted, rejected or uncertain with a reason and exact quotations before
-novelty and editorial selection. Reject out-of-area or uncertain passages.
-For focused_people, identify a selected person and verify a substantive connection
+novelty and editorial selection. Reject material outside the profile's area or
+relations unsupported by the cited context. `scope_review` tests area and person
+fit, not the historical truth of the evidence. For focused_people, identify a
+selected person and verify a substantive connection
 to the action, not just their name. Preserve the profile's mode and preferred_kinds.
 New manifests carry root search_mode and focus_people (names), and each card has
 scope_review: status=accepted, reason, evidence (chunk_id/quote objects), plus
