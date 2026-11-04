@@ -106,3 +106,19 @@ scope_review: status=accepted, reason, evidence (chunk_id/quote objects), plus
 focus_person in person mode. Pending/uncertain cannot be published. Legacy
 manifests remain unchanged. coverage.discovery explains source omissions;
 continuation advances through document positions instead of repeating FTS tops.
+
+
+## Review accumulated leads before stopping
+
+Stopping new retrieval does not end review of already retrieved material.
+Before counting two batches as unproductive, inspect full contexts of promising
+leads from every batch. Uncertain authenticity, legends and scholarly hypotheses
+remain eligible with accurate attribution. Save a concrete question and review
+state for deferred leads: exposed, awaiting context, evaluated or published.
+Do not call every exposed passage researched or infer repetition from chunk IDs.
+
+Retrieval limits bound new requests, not review of accumulated leads. Keep
+unresolved leads in an explicit local queue under work/research/ for the next
+edition until the CLI supports a separate review queue. Inspect that queue before
+new retrieval. Never rewrite registered checkpoints or treat seen as proof of
+substantive editorial evaluation.
