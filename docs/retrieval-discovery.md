@@ -58,7 +58,9 @@ Discovery chooses a readable paragraph rather than centering every excerpt on
 a famous name. The full target and neighbours are stored unchanged, with IDs,
 pages and source positions. No thematic match means `primary_topic: null`, not
 an invented interest assignment. `scope_review.status: pending` explicitly
-requires the agent to reject unrelated and uncertain passages. The library can
+requires the agent to resolve whether the passage fits the profile's area and,
+in person mode, the selected person. Uncertainty about historical truth belongs
+to source attribution, not `scope_review`. The library can
 contain material outside the profile: exploration is permission to **inspect**,
 not permission to publish it.
 
@@ -151,27 +153,19 @@ The regression suite uses synthetic incidents, people, source bans, large and
 small books, multilingual preferences and mode switching. Real-library audit
 artifacts belong under ignored `work/` and must never enter a PR or release.
 
-## Editorial follow-up queue (proposed extension)
+## Deferred editorial review
 
-Current version-1 `seen` means exposure, not substantive evaluation. It excludes
-unchanged discovery targets until the next cycle even if the editor only skimmed
-an excerpt. Thematic FTS is not suppressed. Do not reinterpret or rewrite old
-sealed manifests to repair this distinction.
+Current version-1 `seen` means exposure through `source_exploration`, not
+substantive editorial evaluation. It excludes unchanged discovery targets until
+the next cycle even if the agent only skimmed an excerpt. Thematic FTS is not
+suppressed. Do not reinterpret or rewrite old sealed manifests to repair this
+distinction.
 
-Until a queue is implemented, preserve deferred IDs and source hashes in a local
-work/research/ queue and review it before fetching new batches. Record why a lead
-is deferred and the context still needed; absence of publication is not rejection.
-
-A future versioned extension should keep exposure/traversal state separate from
-editorial state: pending_context, evaluated, published. Pending leads must be
-offered through a bounded review lane alongside new exploration, with source
-hash checks and semantic publication deduplication. Evaluated rejection needs a
-concrete reason and evidence; uncertainty and small scale are not rejection
-reasons. Default legacy exposed-but-unassessed entries to pending, without
-claiming that this proves they were never evaluated. Keep technical rejected
-entries separate. Replaying immutable registrations must not change either state.
-
-Before implementation, require synthetic tests for a skimmed deferred lead
-returning next edition, evaluated rejects avoiding repeated work, changed source
-content reopening review, FTS independence, fair new-source exploration, and
-registration/replay idempotence. This proposal does not change runtime behaviour.
+The CLI has no editorial queue. An installation may keep an ignored local JSON
+list under `work/research/` for leads that still require context or semantic
+review. Such a file is a handoff artifact for the agent, not runtime state: the
+agent must be explicitly instructed to read it, record concrete review outcomes
+in the run dossier, and atomically preserve the unresolved remainder in the same
+file. Repeated exposure is not substantive review, absence of publication is not
+rejection, and publication exists only after successful `record-publication`.
+This manual handoff does not change checkpoints or automatic exploration order.
