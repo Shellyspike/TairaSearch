@@ -150,3 +150,28 @@ complete topical coverage.
 The regression suite uses synthetic incidents, people, source bans, large and
 small books, multilingual preferences and mode switching. Real-library audit
 artifacts belong under ignored `work/` and must never enter a PR or release.
+
+## Editorial follow-up queue (proposed extension)
+
+Current version-1 `seen` means exposure, not substantive evaluation. It excludes
+unchanged discovery targets until the next cycle even if the editor only skimmed
+an excerpt. Thematic FTS is not suppressed. Do not reinterpret or rewrite old
+sealed manifests to repair this distinction.
+
+Until a queue is implemented, preserve deferred IDs and source hashes in a local
+work/research/ queue and review it before fetching new batches. Record why a lead
+is deferred and the context still needed; absence of publication is not rejection.
+
+A future versioned extension should keep exposure/traversal state separate from
+editorial state: pending_context, evaluated, published. Pending leads must be
+offered through a bounded review lane alongside new exploration, with source
+hash checks and semantic publication deduplication. Evaluated rejection needs a
+concrete reason and evidence; uncertainty and small scale are not rejection
+reasons. Default legacy exposed-but-unassessed entries to pending, without
+claiming that this proves they were never evaluated. Keep technical rejected
+entries separate. Replaying immutable registrations must not change either state.
+
+Before implementation, require synthetic tests for a skimmed deferred lead
+returning next edition, evaluated rejects avoiding repeated work, changed source
+content reopening review, FTS independence, fair new-source exploration, and
+registration/replay idempotence. This proposal does not change runtime behaviour.
