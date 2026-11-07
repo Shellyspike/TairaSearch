@@ -126,14 +126,21 @@ fragment substantively evaluated, and a story registered as published. `seen`
 and presence of a `chunk_id` in retrieval output prove exposure only, not
 substantive review or publication.
 
-Retrieval limits bound new requests, not review of accumulated leads. If the
-request or automation names a local JSON file of deferred reviews, read it
-only after running `taira_search.py pending-editorial-review`. The command
-removes only `chunk_id` values already registered in `used_finds.csv`; unresolved
-records and `reviewed_reserve` stay in the same file. For each record taken up,
-obtain context and save the concrete review outcome in the run dossier. Writers
-must use the queue lock and atomic replacement so concurrent unresolved updates
-are retained. Repeated exposure is not a reason to remove a record. A story is
-published only after successful `record-publication`; for the main queue that
-command synchronizes the file with the journal again. Never rewrite registered
-checkpoints or treat this file as publication delivery or registration.
+Retrieval limits bound new requests, not review of accumulated leads. For the
+daily edition, first run `taira_search.py pending-editorial-review --json` and
+use exactly the first five `next` records in their stored order. Do not rerank
+them or skip the FIFO head. If `needs_refill` is true, run `research-findings
+--preview` with `--pending-queue` pointing to the same file, then read the FIFO
+batch again. Search appends every technically usable content passage before it
+builds `final`/`alternates`; navigation, unreadable, technical, and confirmed
+duplicate passages are not appended. The queue lock and atomic replacement
+preserve existing order and make repeated producers idempotent.
+
+`pending-editorial-review` removes only chunk IDs already registered in
+`used_finds.csv`; unresolved records and `reviewed_reserve` remain. Treat a
+record as published only after successful `record-publication`: that command
+enforces FIFO and removes registered items from the main queue. A proposed
+`exploration_checkpoint` is written to the search result only after the queue
+append succeeds and becomes durable under the existing publication-registration
+rule. Do not edit the queue or registered checkpoints manually or present the
+queue as delivery confirmation.

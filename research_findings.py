@@ -524,6 +524,7 @@ def build_research_findings(
     exploration_checkpoint: dict[str, Any] | None = None,
     exploration_checkpoint_pending: bool = False,
     exploration_checkpoint_source: str | None = None,
+    queue_all_candidates: bool = False,
 ) -> dict[str, Any]:
     """Retrieve candidates without changing the index, profile, or journal."""
     requested_count = profile["max_results"] if count is None else count
@@ -760,6 +761,30 @@ def build_research_findings(
         for item in verified_before_collapse
         if str(item["chunk_id"]) not in kept_ids
     }
+    arrival_order = {
+        str(item["chunk_id"]): index
+        for index, item in enumerate(verified_before_collapse)
+    }
+    queue_eligible = sorted(
+        (
+            item
+            for item in verified
+            if item.get("candidate_role") != "navigation"
+            and item.get("duplicate_check", {}).get("status") == "clear"
+        ),
+        key=lambda item: arrival_order[str(item["chunk_id"])],
+    )
+    queue_candidates = [
+        {
+            "chunk_id": str(item["chunk_id"]),
+            "relative_path": str(item.get("relative_path", "")),
+            "candidate_role": str(item.get("candidate_role", "")),
+            "duplicate_status": str(
+                item.get("duplicate_check", {}).get("status", "")
+            ),
+        }
+        for item in queue_eligible
+    ]
     attach_semantic_reviews(verified)
     verified.sort(
         key=lambda item: (
@@ -783,9 +808,12 @@ def build_research_findings(
         verified, [*final, *alternates]
     )
     batch_chunk_ids = [str(item["chunk_id"]) for item in [*final, *alternates]]
+    checkpoint_candidates = (
+        queue_eligible if queue_all_candidates else [*final, *alternates]
+    )
     exploration_exposed = {
         str(item["chunk_id"]): exploration_by_id[str(item["chunk_id"])]["text_hash"]
-        for item in [*final, *alternates]
+        for item in checkpoint_candidates
         if "source_exploration" in item["retrieval"]["methods"]
         and str(item["chunk_id"]) in exploration_by_id
     }
@@ -907,8 +935,10 @@ def build_research_findings(
             "rejected": dict(rejected),
             "final_count": len(final),
             "alternate_count": len(alternates),
+            "queue_candidate_count": len(queue_candidates),
             "semantic_review": review_stats,
         },
+        "queue_candidates": queue_candidates,
         "final": final,
         "alternates": alternates,
         "comparison_contexts": comparison_contexts,

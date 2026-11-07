@@ -800,6 +800,8 @@ def record_publication_from_json(
     """Record the exact finalized cards stored in a durable local manifest."""
     publication_id, _cards, events = _load_publication_manifest(manifest_path)
     payload = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
+    if pending_queue_path is not None:
+        _validate_pending_publication_order(pending_queue_path, used_path, events)
     if (
         "exploration_checkpoint" in payload
         and "exploration_checkpoint_registration" not in payload
@@ -1119,6 +1121,105 @@ def _read_pending_editorial_queue(queue_path: Path) -> dict[str, Any]:
         if not normalize_text(str(item.get("chunk_id", ""))):
             raise ValueError(f"{queue_path}: items[{index}] не содержит chunk_id")
     return payload
+
+
+def append_pending_editorial_candidates(
+    queue_path: Path,
+    used_path: Path,
+    candidates: list[dict[str, Any]],
+) -> tuple[int, int, int]:
+    """Append new technical candidates to the existing FIFO queue exactly once.
+
+    The candidate order is retained.  Publication and queue locks use the same
+    order as pruning so a concurrent registration cannot reintroduce a
+    published chunk and concurrent producers cannot overwrite one another.
+    """
+    queue_path = queue_path.expanduser().resolve()
+    used_path = used_path.expanduser().resolve()
+    if not queue_path.is_file():
+        raise ValueError(f"Редакционная очередь не найдена: {queue_path}")
+    with _publication_lock(used_path):
+        published_ids = {
+            normalize_text(row["id"]) for row in _read_used_rows(used_path)
+        }
+        with _pending_queue_lock(queue_path):
+            payload = _read_pending_editorial_queue(queue_path)
+            items = payload["items"]
+            existing_ids = {
+                normalize_text(str(item.get("chunk_id", ""))) for item in items
+            }
+            added = 0
+            skipped = 0
+            for candidate in candidates:
+                chunk_id = normalize_text(str(candidate.get("chunk_id", "")))
+                if not chunk_id:
+                    raise ValueError("Кандидат очереди не содержит chunk_id")
+                if chunk_id in published_ids or chunk_id in existing_ids:
+                    skipped += 1
+                    continue
+                items.append(
+                    {
+                        "chunk_id": chunk_id,
+                        "relative_path": normalize_text(
+                            str(candidate.get("relative_path", ""))
+                        ),
+                        "state": "pending_context",
+                        "reason": "technical_candidate_from_research_findings",
+                    }
+                )
+                existing_ids.add(chunk_id)
+                added += 1
+            if added:
+                _atomic_write_json({**payload, "items": items}, queue_path)
+            return len(items), added, skipped
+
+
+def pending_editorial_batch(
+    queue_path: Path, used_path: Path, *, limit: int = 5
+) -> tuple[list[dict[str, Any]], int, int]:
+    """Return the FIFO prefix after removing already-published entries."""
+    if limit < 1:
+        raise ValueError("Лимит редакционной очереди должен быть положительным")
+    _kept, removed = prune_pending_editorial_queue(queue_path, used_path)
+    queue_path = queue_path.expanduser().resolve()
+    with _pending_queue_lock(queue_path):
+        payload = _read_pending_editorial_queue(queue_path)
+        items = payload["items"]
+        return [dict(item) for item in items[:limit]], len(items), removed
+
+
+def _validate_pending_publication_order(
+    queue_path: Path, used_path: Path, events: list[dict[str, Any]]
+) -> None:
+    """Reject a new registration that skips an earlier FIFO queue entry."""
+    queue_path = queue_path.expanduser().resolve()
+    used_path = used_path.expanduser().resolve()
+    with _publication_lock(used_path):
+        published_ids = {
+            normalize_text(row["id"]) for row in _read_used_rows(used_path)
+        }
+        event_ids = [
+            normalize_text(str(event.get("chunk_id", ""))) for event in events
+        ]
+        unregistered_ids = [
+            chunk_id for chunk_id in event_ids if chunk_id not in published_ids
+        ]
+        if not unregistered_ids:
+            return
+        with _pending_queue_lock(queue_path):
+            payload = _read_pending_editorial_queue(queue_path)
+            active_ids = [
+                normalize_text(str(item.get("chunk_id", "")))
+                for item in payload["items"]
+                if normalize_text(str(item.get("chunk_id", "")))
+                not in published_ids
+            ]
+            expected = active_ids[: len(unregistered_ids)]
+            if unregistered_ids != expected:
+                raise ValueError(
+                    "Выпуск нарушает FIFO редакционной очереди: ожидаются "
+                    + ", ".join(expected)
+                )
 
 
 def prune_pending_editorial_queue(

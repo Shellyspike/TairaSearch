@@ -478,6 +478,14 @@ def make_parser() -> argparse.ArgumentParser:
     add_config_arguments(research_parser)
     research_parser.add_argument("--profile", default=str(DEFAULT_RESEARCH_PROFILE))
     research_parser.add_argument("--used-finds", default=str(DEFAULT_USED_FINDS))
+    research_parser.add_argument(
+        "--pending-queue",
+        default=None,
+        help=(
+            "Существующий pending-editorial-review.json, куда атомарно "
+            "добавляются все технически пригодные кандидаты до отбора final"
+        ),
+    )
     research_parser.add_argument("--count", type=int)
     research_parser.add_argument("--top-per-interest", type=int, default=30)
     research_parser.add_argument("--pool-size", type=int, default=160)
@@ -568,6 +576,10 @@ def make_parser() -> argparse.ArgumentParser:
         "--queue", default=str(DEFAULT_PENDING_EDITORIAL_QUEUE)
     )
     pending_parser.add_argument("--used-finds", default=str(DEFAULT_USED_FINDS))
+    pending_parser.add_argument(
+        "--limit", type=int, default=5, help="Размер FIFO-партии для выпуска"
+    )
+    pending_parser.add_argument("--json", action="store_true")
     render_parser = subparsers.add_parser(
         "render-publication",
         help="Вывести полный зарегистрированный выпуск из манифеста",
@@ -688,17 +700,35 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         if args.command == "pending-editorial-review":
-            from daily_five import prune_pending_editorial_queue
+            from daily_five import pending_editorial_batch
 
             queue_path = Path(args.queue).expanduser().resolve()
             if not queue_path.is_file():
                 raise ValueError(f"Редакционная очередь не найдена: {queue_path}")
-            kept, removed = prune_pending_editorial_queue(
-                queue_path, Path(args.used_finds).expanduser().resolve()
+            batch, kept, removed = pending_editorial_batch(
+                queue_path,
+                Path(args.used_finds).expanduser().resolve(),
+                limit=args.limit,
             )
+            if args.json:
+                print(
+                    json.dumps(
+                        {
+                            "queue": str(queue_path),
+                            "total": kept,
+                            "removed_published": removed,
+                            "needs_refill": kept < args.limit,
+                            "next": batch,
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    )
+                )
+                return 0
             print(f"Редакционная очередь: {queue_path}")
             print(f"Осталось нерешённых/резервных записей: {kept}")
             print(f"Исключено опубликованных записей: {removed}")
+            print("Следующие по FIFO: " + ", ".join(item["chunk_id"] for item in batch))
             return 0
 
         if args.command == "render-publication":
@@ -791,7 +821,7 @@ def main(argv: list[str] | None = None) -> int:
             rows = context_rows(connection, args.chunk_id, args.before, args.after)
             print_context(rows, json_output=args.json)
         elif args.command == "research-findings":
-            from daily_five import save_result
+            from daily_five import append_pending_editorial_candidates, save_result
             from research_findings import (
                 build_editorial_packet,
                 build_research_findings,
@@ -850,7 +880,23 @@ def main(argv: list[str] | None = None) -> int:
                 exploration_checkpoint_source=(
                     str(checkpoint_manifest) if checkpoint_manifest else None
                 ),
+                queue_all_candidates=bool(args.pending_queue),
             )
+            if args.pending_queue:
+                queue_path = Path(args.pending_queue).expanduser().resolve()
+                queue_total, queue_added, queue_skipped = (
+                    append_pending_editorial_candidates(
+                        queue_path,
+                        Path(args.used_finds).expanduser().resolve(),
+                        result.get("queue_candidates", []),
+                    )
+                )
+                result["pending_editorial_queue"] = {
+                    "path": str(queue_path),
+                    "total": queue_total,
+                    "added": queue_added,
+                    "already_queued_or_published": queue_skipped,
+                }
             output = Path(args.output).expanduser().resolve()
             editorial_output = (
                 Path(args.editorial_output).expanduser().resolve()

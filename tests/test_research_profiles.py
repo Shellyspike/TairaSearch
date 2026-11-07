@@ -16,6 +16,7 @@ import sys
 sys.path.insert(0, str(PROJECT))
 
 import build_index  # noqa: E402
+import daily_five  # noqa: E402
 import research_findings  # noqa: E402
 import taira_search  # noqa: E402
 from research_profile import load_research_profile  # noqa: E402
@@ -451,6 +452,54 @@ class ResearchProfileTests(unittest.TestCase):
         self.assertTrue(payload["preview"])
         self.assertEqual(len(payload["final"]), 2)
         self.assertEqual(used_path.read_bytes(), before)
+
+    def test_queue_candidates_precede_editorial_shortlist_and_are_technical_only(self) -> None:
+        payload = self.run_profile(
+            "rome",
+            PROJECT / "examples" / "profiles" / "ancient-rome.json",
+            output_name="queue-before-shortlist",
+            count=1,
+        )
+
+        self.assertGreater(len(payload["queue_candidates"]), len(payload["final"]))
+        for queued in payload["queue_candidates"]:
+            self.assertNotEqual(queued["candidate_role"], "navigation")
+            self.assertEqual(queued["duplicate_status"], "clear")
+
+    def test_queue_is_saved_before_checkpoint_result_becomes_available(self) -> None:
+        queue_path = self.root / "checkpoint-order-queue.json"
+        queue_path.write_text(
+            json.dumps({"created_at": "test", "items": []}), encoding="utf-8"
+        )
+        used_path = self.root / "checkpoint-order-used.csv"
+        used_path.write_text(USED_HEADER, encoding="utf-8-sig")
+        output = self.root / "checkpoint-order.json"
+        arguments = [
+            "research-findings",
+            "--db",
+            str(self.databases["rome"]),
+            "--profile",
+            str(PROJECT / "examples" / "profiles" / "ancient-rome.json"),
+            "--used-finds",
+            str(used_path),
+            "--pending-queue",
+            str(queue_path),
+            "--output",
+            str(output),
+            "--preview",
+        ]
+
+        with mock.patch.object(
+            daily_five, "_atomic_write_json", side_effect=OSError("queue write failed")
+        ):
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(
+                io.StringIO()
+            ):
+                code = taira_search.main(arguments)
+
+        self.assertEqual(code, 1)
+        self.assertFalse(output.exists())
+        self.assertEqual(json.loads(queue_path.read_text(encoding="utf-8"))["items"], [])
 
     def test_codex_can_reject_first_batch_and_request_disjoint_next_batch(self) -> None:
         profile = PROJECT / "examples" / "profiles" / "ancient-rome.json"
