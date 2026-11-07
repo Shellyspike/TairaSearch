@@ -793,7 +793,9 @@ def render_registered_publication_from_json(
 
 
 def record_publication_from_json(
-    manifest_path: Path, used_path: Path
+    manifest_path: Path,
+    used_path: Path,
+    pending_queue_path: Path | None = None,
 ) -> tuple[str, int, int]:
     """Record the exact finalized cards stored in a durable local manifest."""
     publication_id, _cards, events = _load_publication_manifest(manifest_path)
@@ -838,6 +840,8 @@ def record_publication_from_json(
         expected = {**unsigned, "exploration_checkpoint_registration": registration}
         if payload != expected:
             _atomic_write_json(expected, manifest_path)
+    if pending_queue_path is not None:
+        prune_pending_editorial_queue(pending_queue_path, used_path)
     return publication_id, added, skipped
 
 
@@ -1049,6 +1053,106 @@ def _publication_lock(used_path: Path, *, timeout: float = 15.0):
 
                 fcntl.flock(lock_stream.fileno(), fcntl.LOCK_UN)
         lock_stream.close()
+
+
+@contextmanager
+def _pending_queue_lock(queue_path: Path, *, timeout: float = 15.0):
+    """Serialize read/check/replace cycles for the existing editorial queue."""
+    queue_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = queue_path.with_name(f".{queue_path.name}.lock")
+    lock_stream = lock_path.open("a+b")
+    if lock_stream.seek(0, os.SEEK_END) == 0:
+        lock_stream.write(b"\0")
+        lock_stream.flush()
+    lock_stream.seek(0)
+    deadline = time.monotonic() + timeout
+    acquired = False
+    try:
+        while not acquired:
+            try:
+                if os.name == "nt":
+                    import msvcrt
+
+                    msvcrt.locking(lock_stream.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+
+                    fcntl.flock(lock_stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                acquired = True
+            except OSError as exc:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(
+                        f"Не удалось получить блокировку редакционной очереди "
+                        f"за {timeout:g} с: {lock_path}"
+                    ) from exc
+                time.sleep(0.05)
+        yield
+    finally:
+        if acquired:
+            lock_stream.seek(0)
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(lock_stream.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(lock_stream.fileno(), fcntl.LOCK_UN)
+        lock_stream.close()
+
+
+def _read_pending_editorial_queue(queue_path: Path) -> dict[str, Any]:
+    try:
+        payload = json.loads(queue_path.read_text(encoding="utf-8-sig"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"{queue_path}: повреждён JSON редакционной очереди: {exc}"
+        ) from exc
+    if not isinstance(payload, dict):
+        raise ValueError(f"{queue_path}: ожидается JSON-объект")
+    items = payload.get("items")
+    if not isinstance(items, list):
+        raise ValueError(f"{queue_path}: ожидается массив items")
+    for index, item in enumerate(items):
+        if not isinstance(item, dict):
+            raise ValueError(f"{queue_path}: items[{index}] должен быть объектом")
+        if not normalize_text(str(item.get("chunk_id", ""))):
+            raise ValueError(f"{queue_path}: items[{index}] не содержит chunk_id")
+    return payload
+
+
+def prune_pending_editorial_queue(
+    queue_path: Path, used_path: Path
+) -> tuple[int, int]:
+    """Remove journaled chunk IDs while preserving every unresolved queue item.
+
+    The publication lock is acquired before the queue lock in every call. Queue
+    writers must use ``_pending_queue_lock`` and atomic replacement as well; this
+    prevents a concurrent reserve/update from being overwritten by pruning.
+    """
+    queue_path = queue_path.expanduser().resolve()
+    used_path = used_path.expanduser().resolve()
+    if not queue_path.exists():
+        return 0, 0
+    with _publication_lock(used_path):
+        published_ids = {
+            normalize_text(row["id"]) for row in _read_used_rows(used_path)
+        }
+        with _pending_queue_lock(queue_path):
+            if not queue_path.exists():
+                return 0, 0
+            payload = _read_pending_editorial_queue(queue_path)
+            items = payload["items"]
+            kept = [
+                item
+                for item in items
+                if normalize_text(str(item.get("chunk_id", "")))
+                not in published_ids
+            ]
+            removed = len(items) - len(kept)
+            if removed:
+                _atomic_write_json({**payload, "items": kept}, queue_path)
+            return len(kept), removed
 
 
 def append_used(events: list[dict[str, Any]], used_path: Path) -> tuple[int, int]:

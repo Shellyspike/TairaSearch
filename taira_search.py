@@ -27,6 +27,9 @@ DEFAULT_USED_FINDS = PROJECT_DIR / "used_finds.csv"
 DEFAULT_RESEARCH_PROFILE = PROJECT_DIR / "research_profile.json"
 DEFAULT_RESEARCH_OUTPUT = PROJECT_DIR / "research_candidates.json"
 DEFAULT_PUBLICATIONS = PROJECT_DIR / "work" / "publications"
+DEFAULT_PENDING_EDITORIAL_QUEUE = (
+    PROJECT_DIR / "work" / "research" / "2026-11-04" / "pending-editorial-review.json"
+)
 SOURCE_TYPES = ("historical", "scholarship", "literary", "other")
 QUALITIES = ("good", "garbled", "no_text")
 JAPANESE_RUN_RE = re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]+")
@@ -549,6 +552,22 @@ def make_parser() -> argparse.ArgumentParser:
     )
     publication_parser.add_argument("manifest", help="JSON с готовыми карточками")
     publication_parser.add_argument("--used-finds", default=str(DEFAULT_USED_FINDS))
+    publication_parser.add_argument(
+        "--pending-queue",
+        default=None,
+        help=(
+            "Существующий pending-editorial-review.json; для основного "
+            "used_finds.csv применяется автоматически, если файл существует"
+        ),
+    )
+    pending_parser = subparsers.add_parser(
+        "pending-editorial-review",
+        help="Исключить из существующей редакционной очереди опубликованные ID",
+    )
+    pending_parser.add_argument(
+        "--queue", default=str(DEFAULT_PENDING_EDITORIAL_QUEUE)
+    )
+    pending_parser.add_argument("--used-finds", default=str(DEFAULT_USED_FINDS))
     render_parser = subparsers.add_parser(
         "render-publication",
         help="Вывести полный зарегистрированный выпуск из манифеста",
@@ -639,8 +658,18 @@ def main(argv: list[str] | None = None) -> int:
             if not manifest_path.is_file():
                 raise ValueError(f"Манифест публикации не найден: {manifest_path}")
             used_path = Path(args.used_finds).expanduser().resolve()
+            pending_queue_path = (
+                Path(args.pending_queue).expanduser().resolve()
+                if args.pending_queue
+                else (
+                    DEFAULT_PENDING_EDITORIAL_QUEUE.resolve()
+                    if used_path == DEFAULT_USED_FINDS.resolve()
+                    and DEFAULT_PENDING_EDITORIAL_QUEUE.is_file()
+                    else None
+                )
+            )
             publication_id, added, skipped = record_publication_from_json(
-                manifest_path, used_path
+                manifest_path, used_path, pending_queue_path
             )
             print(f"Пакет публикации: {publication_id}")
             print(f"Манифест для восстановления: {manifest_path}")
@@ -651,6 +680,25 @@ def main(argv: list[str] | None = None) -> int:
                 "Журнал зарегистрирован; доставка карточек в чат этой командой "
                 "не выполняется и не подтверждается."
             )
+            if pending_queue_path is not None:
+                print(
+                    "Редакционная очередь синхронизирована с журналом: "
+                    f"{pending_queue_path}"
+                )
+            return 0
+
+        if args.command == "pending-editorial-review":
+            from daily_five import prune_pending_editorial_queue
+
+            queue_path = Path(args.queue).expanduser().resolve()
+            if not queue_path.is_file():
+                raise ValueError(f"Редакционная очередь не найдена: {queue_path}")
+            kept, removed = prune_pending_editorial_queue(
+                queue_path, Path(args.used_finds).expanduser().resolve()
+            )
+            print(f"Редакционная очередь: {queue_path}")
+            print(f"Осталось нерешённых/резервных записей: {kept}")
+            print(f"Исключено опубликованных записей: {removed}")
             return 0
 
         if args.command == "render-publication":

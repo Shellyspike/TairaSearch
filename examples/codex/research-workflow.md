@@ -128,10 +128,12 @@ substantive review or publication.
 
 Retrieval limits bound new requests, not review of accumulated leads. If the
 request or automation names a local JSON file of deferred reviews, read it
-before new retrieval. It is not a CLI queue: the program does not consume or
-update it. For each record taken up, obtain context and save the concrete review
-outcome in the run dossier. Before finishing, atomically retain in that same
-local JSON every record not yet substantively reviewed, preserving its
-`chunk_id` and path; repeated exposure is not a reason to remove it. A story is
-published only after successful `record-publication`. Never rewrite registered
-checkpoints or describe this manual local list as an automatic queue.
+only after running `taira_search.py pending-editorial-review`. The command
+removes only `chunk_id` values already registered in `used_finds.csv`; unresolved
+records and `reviewed_reserve` stay in the same file. For each record taken up,
+obtain context and save the concrete review outcome in the run dossier. Writers
+must use the queue lock and atomic replacement so concurrent unresolved updates
+are retained. Repeated exposure is not a reason to remove a record. A story is
+published only after successful `record-publication`; for the main queue that
+command synchronizes the file with the journal again. Never rewrite registered
+checkpoints or treat this file as publication delivery or registration.
