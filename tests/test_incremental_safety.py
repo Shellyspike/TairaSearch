@@ -115,6 +115,68 @@ class IncrementalSafetyTests(unittest.TestCase):
             }
         self.assertEqual(paths, {"acquired/ocr-source/extracted.txt"})
 
+    def test_adding_preferred_sidecar_removes_previously_indexed_original(self) -> None:
+        source = self.corpus / "acquired" / "ocr-source"
+        source.mkdir(parents=True)
+        original = source / "original.txt"
+        original.write_text("Broken original marker TYPE-ONE", encoding="utf-8")
+        source_types = self.root / "source-types.json"
+        source_types.write_text(
+            json.dumps({"scholarship": [original.name]}), encoding="utf-8"
+        )
+        self.build("--source-types", str(source_types))
+
+        preferred = source / "reviewed.txt"
+        preferred.write_text("Readable replacement marker REVIEWED", encoding="utf-8")
+        (source / "source-metadata").write_text(
+            json.dumps({"preferred_index_text": preferred.name}),
+            encoding="utf-8",
+        )
+        stats, _ = self.build(
+            "--source-types", str(source_types), "--only-file", str(original)
+        )
+
+        self.assertEqual(stats["errors"], 0)
+        with contextlib.closing(sqlite3.connect(self.db)) as connection:
+            paths = connection.execute(
+                "SELECT relative_path FROM files WHERE relative_path LIKE ?",
+                ("acquired/ocr-source/%",),
+            ).fetchall()
+            text = connection.execute(
+                "SELECT original_text FROM chunks WHERE relative_path=?",
+                ("acquired/ocr-source/reviewed.txt",),
+            ).fetchone()[0]
+            source_type = connection.execute(
+                "SELECT DISTINCT source_type FROM chunks WHERE relative_path=?",
+                ("acquired/ocr-source/reviewed.txt",),
+            ).fetchone()[0]
+        self.assertEqual(paths, [("acquired/ocr-source/reviewed.txt",)])
+        self.assertIn("REVIEWED", text)
+        self.assertEqual(source_type, "scholarship")
+
+    def test_unchanged_preferred_sidecar_still_removes_stale_original(self) -> None:
+        source = self.corpus / "acquired" / "ocr-source"
+        source.mkdir(parents=True)
+        original = source / "original.txt"
+        preferred = source / "reviewed.txt"
+        original.write_text("Broken original", encoding="utf-8")
+        preferred.write_text("Readable replacement", encoding="utf-8")
+        self.build()
+        (source / "source-metadata").write_text(
+            json.dumps({"preferred_index_text": preferred.name}),
+            encoding="utf-8",
+        )
+        self.build("--only-file", str(preferred))
+        stats, _ = self.build("--only-file", str(original))
+
+        self.assertEqual(stats["errors"], 0)
+        with contextlib.closing(sqlite3.connect(self.db)) as connection:
+            paths = connection.execute(
+                "SELECT relative_path FROM files WHERE relative_path LIKE ?",
+                ("acquired/ocr-source/%",),
+            ).fetchall()
+        self.assertEqual(paths, [("acquired/ocr-source/reviewed.txt",)])
+
     def test_missing_preferred_sidecar_fails_before_changing_index(self) -> None:
         existing = self.corpus / "existing.txt"
         existing.write_text("Existing indexed text", encoding="utf-8")
