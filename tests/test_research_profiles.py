@@ -466,6 +466,19 @@ class ResearchProfileTests(unittest.TestCase):
             self.assertNotEqual(queued["candidate_role"], "navigation")
             self.assertEqual(queued["duplicate_status"], "clear")
 
+    def test_garbled_pdf_encoding_is_rejected_before_queueing(self) -> None:
+        garbled = (
+            "ϕΫτϧΛ༻͍ͨʰޠʱͷରԠ෇͚\x13 "
+            + "\u0378ͷͱͰΛΔ " * 20
+        )
+        readable = (
+            "В хронике связно описано событие, его участники и последствия. "
+            "Этот фрагмент можно проверить по источнику и пересказать читателю."
+        )
+
+        self.assertFalse(daily_five._evidence_readable(garbled))
+        self.assertTrue(daily_five._evidence_readable(readable))
+
     def test_queue_is_saved_before_checkpoint_result_becomes_available(self) -> None:
         queue_path = self.root / "checkpoint-order-queue.json"
         queue_path.write_text(

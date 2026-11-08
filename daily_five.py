@@ -9,6 +9,7 @@ import os
 import re
 import tempfile
 import time
+import unicodedata
 from contextlib import contextmanager
 from datetime import date
 from difflib import SequenceMatcher
@@ -457,6 +458,13 @@ def source_group(source: str) -> str:
 
 def _evidence_readable(text: str) -> bool:
     """Stricter than index text_quality because final claims need clear OCR."""
+    unexpected_controls = sum(
+        unicodedata.category(char) == "Cc" and ord(char) not in (9, 10, 13)
+        for char in text
+    )
+    unassigned = sum(unicodedata.category(char) == "Cn" for char in text)
+    if unexpected_controls or unassigned >= max(5, len(text) // 100):
+        return False
     japanese = sum(
         "\u3040" <= char <= "\u30ff" or "\u3400" <= char <= "\u9fff"
         for char in text
@@ -1186,6 +1194,32 @@ def pending_editorial_batch(
         payload = _read_pending_editorial_queue(queue_path)
         items = payload["items"]
         return [dict(item) for item in items[:limit]], len(items), removed
+
+
+def discard_pending_editorial_candidates(
+    queue_path: Path, used_path: Path, chunk_ids: list[str]
+) -> tuple[int, int]:
+    """Remove unusable queue entries without registering them as published."""
+    queue_path = queue_path.expanduser().resolve()
+    used_path = used_path.expanduser().resolve()
+    requested = {
+        normalize_text(str(chunk_id)) for chunk_id in chunk_ids if chunk_id
+    }
+    if not requested:
+        return len(_read_pending_editorial_queue(queue_path)["items"]), 0
+    with _publication_lock(used_path):
+        with _pending_queue_lock(queue_path):
+            payload = _read_pending_editorial_queue(queue_path)
+            items = payload["items"]
+            kept = [
+                item
+                for item in items
+                if normalize_text(str(item.get("chunk_id", ""))) not in requested
+            ]
+            removed = len(items) - len(kept)
+            if removed:
+                _atomic_write_json({**payload, "items": kept}, queue_path)
+            return len(kept), removed
 
 
 def _validate_pending_publication_order(
