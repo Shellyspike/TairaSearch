@@ -281,14 +281,16 @@ def discover_files(root: Path, log_error: Any) -> list[Path]:
     return result
 
 
-def select_preferred_index_files(
+def preferred_index_plan(
     paths: list[Path], discovered_paths: list[Path] | None = None
-) -> list[Path]:
-    """Index an explicitly selected text sidecar instead of its source file."""
+) -> tuple[list[Path], dict[Path, set[Path]], dict[Path, Path]]:
+    """Select preferred sidecars and identify superseded indexed paths."""
 
     result: list[Path] = []
     seen: set[Path] = set()
     preferred_by_directory: dict[Path, Path | None] = {}
+    superseded: dict[Path, set[Path]] = {}
+    classification_paths: dict[Path, Path] = {}
 
     def preferred_for(directory: Path) -> Path | None:
         if directory in preferred_by_directory:
@@ -340,10 +342,24 @@ def select_preferred_index_files(
     for path in paths:
         preferred_path = preferred_for(path.parent)
         selected = preferred_path or path
+        if preferred_path is not None and path != preferred_path:
+            superseded.setdefault(preferred_path, set()).add(path)
+            classification_paths.setdefault(preferred_path, path)
         if selected not in seen:
             seen.add(selected)
             result.append(selected)
-    return result
+    return result, superseded, classification_paths
+
+
+def select_preferred_index_files(
+    paths: list[Path], discovered_paths: list[Path] | None = None
+) -> list[Path]:
+    """Index an explicitly selected text sidecar instead of its source file."""
+
+    selected, _superseded, _classification_paths = preferred_index_plan(
+        paths, discovered_paths
+    )
+    return selected
 
 
 def select_explicit_files(root: Path, requested: list[str]) -> list[Path]:
@@ -706,7 +722,9 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
     supported_candidates = [
         path for path in all_files if path.suffix.casefold() in SUPPORTED_EXTENSIONS
     ]
-    supported = select_preferred_index_files(supported_candidates, all_files)
+    supported, superseded_by_preferred, classification_paths = preferred_index_plan(
+        supported_candidates, all_files
+    )
     file_stats = collect_file_stats(supported, collect_discovery_error)
     print_scan_summary(all_files, supported, extensions, file_stats)
     if discovery_errors:
@@ -853,6 +871,29 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
     ]
     reporter = ProgressReporter(len(supported), args.progress_every, args.verbose)
     affected_duplicate_groups: set[tuple[str, str]] = set()
+
+    def remove_superseded_paths(preferred_path: Path) -> None:
+        superseded = {
+            relative_posix(item, corpus)
+            for item in superseded_by_preferred.get(preferred_path, set())
+        }
+        if not superseded:
+            return
+        placeholders = ",".join("?" for _ in superseded)
+        affected_duplicate_groups.update(
+            (str(row[0]), str(row[1]))
+            for row in connection.execute(
+                f"""
+                SELECT DISTINCT text_hash, normalized_text
+                FROM chunks WHERE relative_path IN ({placeholders})
+                """,
+                sorted(superseded),
+            )
+        )
+        connection.execute(
+            f"DELETE FROM files WHERE relative_path IN ({placeholders})",
+            sorted(superseded),
+        )
     if targeted and relative_supported:
         placeholders = ",".join("?" for _ in relative_supported)
         affected_duplicate_groups.update(
@@ -956,6 +997,8 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
                         path,
                         "PDF без извлекаемого текстового слоя; OCR не запускался (статус сохранён).",
                     )
+                remove_superseded_paths(path)
+                connection.commit()
                 unchanged += 1
                 completed += 1
                 reporter.verbose_result(
@@ -1007,8 +1050,12 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
                     normalized = normalize_text(chunk.text)
                     if not normalized:
                         continue
+                    classification_path = classification_paths.get(path, path)
                     source_type = classify_source_type(
-                        source, path.name, relative_path, source_types
+                        source,
+                        classification_path.name,
+                        relative_posix(classification_path, corpus),
+                        source_types,
                     )
                     text_quality = classify_text_quality(normalized)
                     chunk_id = stable_chunk_id(
@@ -1058,6 +1105,7 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
                             "[]",
                         )
                     inserted_chunks += 1
+                remove_superseded_paths(path)
             connection.execute("RELEASE one_file")
             savepoint_active = False
             connection.commit()

@@ -12,6 +12,15 @@ from text_utils import normalize_text
 
 
 ESCAPED_UNICODE_RE = re.compile(r"#U[0-9A-Fa-f]{4,6}")
+TYPE_ONE_GLYPH_RE = re.compile(r"(?:/TypeOne\d+){3,}")
+EXPECTED_TEXT_SCRIPTS = {
+    "CJK",
+    "HIRAGANA",
+    "KATAKANA",
+    "HANGUL",
+    "LATIN",
+    "MODIFIER",
+}
 
 
 def load_json_object(path: Path, label: str) -> dict[str, Any]:
@@ -77,10 +86,28 @@ def classify_text_quality(text: str) -> str:
     private_or_unassigned = sum(
         1 for char in normalized if unicodedata.category(char) in {"Co", "Cn"}
     )
+    alphabetic = 0
+    unexpected_scripts: set[str] = set()
+    unexpected_letters = 0
+    for char in normalized:
+        if not char.isalpha():
+            continue
+        alphabetic += 1
+        script = unicodedata.name(char, "UNKNOWN").split()[0]
+        if script not in EXPECTED_TEXT_SCRIPTS:
+            unexpected_scripts.add(script)
+            unexpected_letters += 1
     if ESCAPED_UNICODE_RE.search(normalized):
+        return "garbled"
+    if TYPE_ONE_GLYPH_RE.search(normalized):
         return "garbled"
     if replacement + controls >= max(3, int(length * 0.01)):
         return "garbled"
     if private_or_unassigned >= max(8, int(length * 0.05)):
+        return "garbled"
+    if (
+        len(unexpected_scripts) >= 5
+        and unexpected_letters >= max(20, int(alphabetic * 0.1))
+    ):
         return "garbled"
     return "good"
