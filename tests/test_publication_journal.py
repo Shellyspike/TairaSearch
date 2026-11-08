@@ -434,10 +434,13 @@ daily_five.append_pending_editorial_candidates(
         ids = [item["chunk_id"] for item in self.read_pending()["items"]]
         self.assertEqual(len(ids), 30)
         self.assertEqual(len(set(ids)), 30)
-        # Each producer's own arrival order is retained even though either
-        # producer may acquire the cross-process lock first.
-        for start in (0, 10):
-            positions = [ids.index(f"ch_parallel_{index:03d}") for index in range(start, start + 20)]
+        # Either producer may win the overlapping 10..19 range.  Within every
+        # uniquely committed segment, insertion order must still be stable.
+        for start, stop in ((0, 10), (10, 20), (20, 30)):
+            positions = [
+                ids.index(f"ch_parallel_{index:03d}")
+                for index in range(start, stop)
+            ]
             self.assertEqual(positions, sorted(positions))
 
     def test_atomic_replace_failure_keeps_history_and_recovery_json(self) -> None:
