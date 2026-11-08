@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import csv
+import contextlib
+import io
 import json
 import subprocess
 import sys
@@ -28,6 +30,7 @@ class PublicationJournalTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.used_path = self.root / "used_finds.csv"
         self.manifest_path = self.root / "ready-cards.json"
+        self.pending_path = self.root / "pending-editorial-review.json"
 
     def tearDown(self) -> None:
         self.temp.cleanup()
@@ -102,6 +105,29 @@ class PublicationJournalTests(unittest.TestCase):
             encoding="utf-8",
         )
 
+    def write_manifest_for_ids(self, path: Path, finding_ids: list[str]) -> None:
+        path.write_text(
+            json.dumps(
+                {
+                    "publication_id": "fifo-" + finding_ids[0],
+                    "cards": [
+                        {
+                            "id": finding_id,
+                            "type": "event",
+                            "persons": [],
+                            "topics": ["история"],
+                            "short_description": f"История {finding_id}",
+                            "source": "Тестовый источник",
+                            "card_markdown": f"### {finding_id}\n\nТестовая история.",
+                        }
+                        for finding_id in finding_ids
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
     def write_five_card_manifest(self) -> dict[str, object]:
         cards = [
             {
@@ -132,6 +158,23 @@ class PublicationJournalTests(unittest.TestCase):
         with self.used_path.open(encoding="utf-8-sig", newline="") as stream:
             return list(csv.DictReader(stream))
 
+    def write_pending(self, items: list[dict[str, str]]) -> None:
+        self.pending_path.write_text(
+            json.dumps(
+                {
+                    "created_at": "2026-11-04T07:28:38+00:00",
+                    "not_automatically_consumed_by_cli": True,
+                    "items": items,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+    def read_pending(self) -> dict[str, object]:
+        return json.loads(self.pending_path.read_text(encoding="utf-8"))
+
     def test_preserves_70_rows_records_both_types_and_is_idempotent(self) -> None:
         original_rows = self.write_existing_history()
         payload = self.write_manifest()
@@ -157,6 +200,245 @@ class PublicationJournalTests(unittest.TestCase):
         self.assertEqual((added, skipped), (0, 2))
         self.assertEqual(self.read_history(), rows)
         self.assertEqual(self.used_path.read_bytes(), history_after_first_write)
+
+    def test_pending_queue_prune_is_idempotent_and_keeps_reserve(self) -> None:
+        rows = self.write_existing_history(1)
+        published_id = rows[0]["id"]
+        self.write_pending(
+            [
+                {"chunk_id": published_id, "state": "pending_context"},
+                {"chunk_id": "ch_unresolved", "state": "pending_context"},
+                {"chunk_id": "ch_reserve", "state": "reviewed_reserve"},
+            ]
+        )
+
+        first = daily_five.prune_pending_editorial_queue(
+            self.pending_path, self.used_path
+        )
+        after_first = self.pending_path.read_bytes()
+        second = daily_five.prune_pending_editorial_queue(
+            self.pending_path, self.used_path
+        )
+
+        self.assertEqual(first, (2, 1))
+        self.assertEqual(second, (2, 0))
+        self.assertEqual(self.pending_path.read_bytes(), after_first)
+        self.assertEqual(
+            [item["chunk_id"] for item in self.read_pending()["items"]],
+            ["ch_unresolved", "ch_reserve"],
+        )
+
+    def test_successful_registration_removes_cards_from_pending_queue(self) -> None:
+        self.write_existing_history(2)
+        payload = self.write_manifest()
+        cards = payload["cards"]
+        assert isinstance(cards, list)
+        selected_ids = [str(card["id"]) for card in cards]
+        self.write_pending(
+            [
+                {"chunk_id": selected_ids[0], "state": "pending_context"},
+                {"chunk_id": selected_ids[1], "state": "pending_semantic_review"},
+                {"chunk_id": "ch_reserve", "state": "reviewed_reserve"},
+            ]
+        )
+
+        result = daily_five.record_publication_from_json(
+            self.manifest_path, self.used_path, self.pending_path
+        )
+
+        self.assertEqual(result[1:], (2, 0))
+        self.assertEqual(
+            self.read_pending()["items"],
+            [{"chunk_id": "ch_reserve", "state": "reviewed_reserve"}],
+        )
+
+    def test_parallel_queue_update_is_not_lost_during_prune(self) -> None:
+        rows = self.write_existing_history(1)
+        self.write_pending(
+            [
+                {"chunk_id": rows[0]["id"], "state": "pending_context"},
+                {"chunk_id": "ch_unresolved", "state": "pending_context"},
+            ]
+        )
+        ready_path = self.root / "queue-writer-ready"
+        start_path = self.root / "queue-writer-start"
+        worker = r'''
+import json
+import pathlib
+import sys
+
+sys.path.insert(0, sys.argv[1])
+import daily_five
+
+queue = pathlib.Path(sys.argv[2])
+ready = pathlib.Path(sys.argv[3])
+start = pathlib.Path(sys.argv[4])
+ready.write_text("ready", encoding="utf-8")
+while not start.exists():
+    pass
+with daily_five._pending_queue_lock(queue):
+    payload = daily_five._read_pending_editorial_queue(queue)
+    payload["items"].append(
+        {"chunk_id": "ch_concurrent_reserve", "state": "reviewed_reserve"}
+    )
+    daily_five._atomic_write_json(payload, queue)
+'''
+        process = subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                worker,
+                str(PROJECT),
+                str(self.pending_path),
+                str(ready_path),
+                str(start_path),
+            ],
+            cwd=PROJECT,
+            text=True,
+            encoding="utf-8",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        deadline = time.monotonic() + 10
+        while not ready_path.exists():
+            if time.monotonic() >= deadline:
+                self.fail("parallel queue writer did not become ready")
+            time.sleep(0.02)
+        start_path.write_text("start", encoding="utf-8")
+        daily_five.prune_pending_editorial_queue(
+            self.pending_path, self.used_path
+        )
+        stdout, stderr = process.communicate(timeout=15)
+        self.assertEqual(process.returncode, 0, stdout + stderr)
+
+        self.assertEqual(
+            {item["chunk_id"] for item in self.read_pending()["items"]},
+            {"ch_unresolved", "ch_concurrent_reserve"},
+        )
+
+    def test_fifo_accumulates_30_publishes_5_and_keeps_next_25(self) -> None:
+        self.write_existing_history(0)
+        original_ids = [f"ch_existing_queue_{index:03d}" for index in range(64)]
+        self.write_pending(
+            [
+                {"chunk_id": chunk_id, "state": "pending_context"}
+                for chunk_id in original_ids
+            ]
+        )
+        candidates = [
+            {
+                "chunk_id": f"ch_new_queue_{index:03d}",
+                "relative_path": f"book-{index // 10}.txt",
+            }
+            for index in range(30)
+        ]
+
+        total, added, skipped = daily_five.append_pending_editorial_candidates(
+            self.pending_path, self.used_path, candidates
+        )
+        self.assertEqual((total, added, skipped), (94, 30, 0))
+        self.assertEqual(
+            [item["chunk_id"] for item in self.read_pending()["items"][:64]],
+            original_ids,
+        )
+
+        # Model the point where the pre-existing backlog has been consumed.
+        self.write_pending(self.read_pending()["items"][64:])
+        first, total, removed = daily_five.pending_editorial_batch(
+            self.pending_path, self.used_path
+        )
+        first_ids = [item["chunk_id"] for item in first]
+        self.assertEqual((total, removed), (30, 0))
+        self.assertEqual(first_ids, [f"ch_new_queue_{index:03d}" for index in range(5)])
+        self.write_manifest_for_ids(self.manifest_path, first_ids)
+        daily_five.record_publication_from_json(
+            self.manifest_path, self.used_path, self.pending_path
+        )
+
+        second, total, removed = daily_five.pending_editorial_batch(
+            self.pending_path, self.used_path
+        )
+        self.assertEqual((total, removed), (25, 0))
+        self.assertEqual(
+            [item["chunk_id"] for item in second],
+            [f"ch_new_queue_{index:03d}" for index in range(5, 10)],
+        )
+        self.assertEqual(second[0]["chunk_id"], "ch_new_queue_005")
+        self.assertEqual(
+            daily_five.append_pending_editorial_candidates(
+                self.pending_path, self.used_path, candidates
+            ),
+            (25, 0, 30),
+        )
+
+    def test_record_publication_rejects_skipping_fifo_head(self) -> None:
+        self.write_existing_history(0)
+        self.write_pending(
+            [
+                {"chunk_id": "ch_fifo_first", "state": "pending_context"},
+                {"chunk_id": "ch_fifo_second", "state": "pending_context"},
+            ]
+        )
+        self.write_manifest_for_ids(self.manifest_path, ["ch_fifo_second"])
+
+        with self.assertRaisesRegex(ValueError, "нарушает FIFO"):
+            daily_five.record_publication_from_json(
+                self.manifest_path, self.used_path, self.pending_path
+            )
+        self.assertEqual(self.read_history(), [])
+        self.assertEqual(len(self.read_pending()["items"]), 2)
+
+    def test_parallel_candidate_appends_keep_order_and_deduplicate(self) -> None:
+        self.write_existing_history(0)
+        self.write_pending([])
+        worker = r'''
+import json
+import pathlib
+import sys
+
+sys.path.insert(0, sys.argv[1])
+import daily_five
+
+start = int(sys.argv[4])
+candidates = [
+    {"chunk_id": f"ch_parallel_{index:03d}", "relative_path": "book.txt"}
+    for index in range(start, start + 20)
+]
+daily_five.append_pending_editorial_candidates(
+    pathlib.Path(sys.argv[2]), pathlib.Path(sys.argv[3]), candidates
+)
+'''
+        processes = [
+            subprocess.Popen(
+                [
+                    sys.executable,
+                    "-c",
+                    worker,
+                    str(PROJECT),
+                    str(self.pending_path),
+                    str(self.used_path),
+                    str(start),
+                ],
+                cwd=PROJECT,
+                text=True,
+                encoding="utf-8",
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            for start in (0, 10)
+        ]
+        for process in processes:
+            stdout, stderr = process.communicate(timeout=15)
+            self.assertEqual(process.returncode, 0, stdout + stderr)
+
+        ids = [item["chunk_id"] for item in self.read_pending()["items"]]
+        self.assertEqual(len(ids), 30)
+        self.assertEqual(len(set(ids)), 30)
+        # Each producer's own arrival order is retained even though either
+        # producer may acquire the cross-process lock first.
+        for start in (0, 10):
+            positions = [ids.index(f"ch_parallel_{index:03d}") for index in range(start, start + 20)]
+            self.assertEqual(positions, sorted(positions))
 
     def test_atomic_replace_failure_keeps_history_and_recovery_json(self) -> None:
         self.write_existing_history()
@@ -298,6 +580,68 @@ daily_five.record_publication_from_json(manifest, used)
         self.assertIn(str(self.manifest_path), result.stdout)
         self.assertIn("доставка карточек в чат", result.stdout)
         self.assertEqual(len(self.read_history()), 4)
+
+    def test_cli_prunes_existing_pending_queue_before_review(self) -> None:
+        rows = self.write_existing_history(1)
+        self.write_pending(
+            [
+                {"chunk_id": rows[0]["id"], "state": "pending_context"},
+                {"chunk_id": "ch_reserve", "state": "reviewed_reserve"},
+            ]
+        )
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(PROJECT / "taira_search.py"),
+                "pending-editorial-review",
+                "--queue",
+                str(self.pending_path),
+                "--used-finds",
+                str(self.used_path),
+            ],
+            cwd=PROJECT,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Исключено опубликованных записей: 1", result.stdout)
+        self.assertEqual(
+            self.read_pending()["items"],
+            [{"chunk_id": "ch_reserve", "state": "reviewed_reserve"}],
+        )
+
+    def test_cli_reports_fifo_batch_without_requesting_refill(self) -> None:
+        self.write_existing_history(0)
+        self.write_pending(
+            [
+                {"chunk_id": f"ch_fifo_{index}", "state": "pending_context"}
+                for index in range(6)
+            ]
+        )
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            code = taira_search.main(
+                [
+                    "pending-editorial-review",
+                    "--queue",
+                    str(self.pending_path),
+                    "--used-finds",
+                    str(self.used_path),
+                    "--json",
+                ]
+            )
+        payload = json.loads(stdout.getvalue())
+
+        self.assertEqual(code, 0)
+        self.assertFalse(payload["needs_refill"])
+        self.assertEqual(
+            [item["chunk_id"] for item in payload["next"]],
+            [f"ch_fifo_{index}" for index in range(5)],
+        )
 
     def test_five_registered_cards_render_in_full(self) -> None:
         payload = self.write_five_card_manifest()

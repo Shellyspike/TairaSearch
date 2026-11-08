@@ -126,12 +126,21 @@ fragment substantively evaluated, and a story registered as published. `seen`
 and presence of a `chunk_id` in retrieval output prove exposure only, not
 substantive review or publication.
 
-Retrieval limits bound new requests, not review of accumulated leads. If the
-request or automation names a local JSON file of deferred reviews, read it
-before new retrieval. It is not a CLI queue: the program does not consume or
-update it. For each record taken up, obtain context and save the concrete review
-outcome in the run dossier. Before finishing, atomically retain in that same
-local JSON every record not yet substantively reviewed, preserving its
-`chunk_id` and path; repeated exposure is not a reason to remove it. A story is
-published only after successful `record-publication`. Never rewrite registered
-checkpoints or describe this manual local list as an automatic queue.
+Retrieval limits bound new requests, not review of accumulated leads. For the
+daily edition, first run `taira_search.py pending-editorial-review --json` and
+use exactly the first five `next` records in their stored order. Do not rerank
+them or skip the FIFO head. If `needs_refill` is true, run `research-findings
+--preview` with `--pending-queue` pointing to the same file, then read the FIFO
+batch again. Search appends every technically usable content passage before it
+builds `final`/`alternates`; navigation, unreadable, technical, and confirmed
+duplicate passages are not appended. The queue lock and atomic replacement
+preserve existing order and make repeated producers idempotent.
+
+`pending-editorial-review` removes only chunk IDs already registered in
+`used_finds.csv`; unresolved records and `reviewed_reserve` remain. Treat a
+record as published only after successful `record-publication`: that command
+enforces FIFO and removes registered items from the main queue. A proposed
+`exploration_checkpoint` is written to the search result only after the queue
+append succeeds and becomes durable under the existing publication-registration
+rule. Do not edit the queue or registered checkpoints manually or present the
+queue as delivery confirmation.
