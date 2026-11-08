@@ -646,6 +646,64 @@ daily_five.record_publication_from_json(manifest, used)
             [f"ch_fifo_{index}" for index in range(5)],
         )
 
+    def test_unusable_fifo_entry_is_discarded_without_journal_record(self) -> None:
+        self.write_existing_history(1)
+        history_before = self.used_path.read_bytes()
+        self.write_pending(
+            [
+                {"chunk_id": "ch_fifo_first", "state": "pending_context"},
+                {"chunk_id": "ch_broken_text", "state": "pending_context"},
+                {"chunk_id": "ch_fifo_third", "state": "pending_context"},
+                {"chunk_id": "ch_fifo_fourth", "state": "pending_context"},
+                {"chunk_id": "ch_fifo_fifth", "state": "pending_context"},
+                {"chunk_id": "ch_fifo_sixth", "state": "pending_context"},
+            ]
+        )
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            code = taira_search.main(
+                [
+                    "pending-editorial-review",
+                    "--queue",
+                    str(self.pending_path),
+                    "--used-finds",
+                    str(self.used_path),
+                    "--discard-unusable",
+                    "ch_broken_text",
+                    "--json",
+                ]
+            )
+        payload = json.loads(stdout.getvalue())
+
+        self.assertEqual(code, 0)
+        self.assertEqual(payload["discarded_unusable"], 1)
+        self.assertEqual(
+            [item["chunk_id"] for item in payload["next"]],
+            [
+                "ch_fifo_first",
+                "ch_fifo_third",
+                "ch_fifo_fourth",
+                "ch_fifo_fifth",
+                "ch_fifo_sixth",
+            ],
+        )
+        self.assertEqual(self.used_path.read_bytes(), history_before)
+        with contextlib.redirect_stdout(io.StringIO()):
+            repeated_code = taira_search.main(
+                [
+                    "pending-editorial-review",
+                    "--queue",
+                    str(self.pending_path),
+                    "--used-finds",
+                    str(self.used_path),
+                    "--discard-unusable",
+                    "ch_broken_text",
+                    "--json",
+                ]
+            )
+        self.assertEqual(repeated_code, 0)
+        self.assertEqual(len(self.read_pending()["items"]), 5)
+
     def test_five_registered_cards_render_in_full(self) -> None:
         payload = self.write_five_card_manifest()
         daily_five.record_publication_from_json(self.manifest_path, self.used_path)

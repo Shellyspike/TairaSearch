@@ -579,6 +579,15 @@ def make_parser() -> argparse.ArgumentParser:
     pending_parser.add_argument(
         "--limit", type=int, default=5, help="Размер FIFO-партии для выпуска"
     )
+    pending_parser.add_argument(
+        "--discard-unusable",
+        action="append",
+        default=[],
+        help=(
+            "Нечитаемый или бессвязный chunk_id, который нужно атомарно "
+            "исключить из этой очереди без записи в used_finds.csv"
+        ),
+    )
     pending_parser.add_argument("--json", action="store_true")
     render_parser = subparsers.add_parser(
         "render-publication",
@@ -700,11 +709,21 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         if args.command == "pending-editorial-review":
-            from daily_five import pending_editorial_batch
+            from daily_five import (
+                discard_pending_editorial_candidates,
+                pending_editorial_batch,
+            )
 
             queue_path = Path(args.queue).expanduser().resolve()
             if not queue_path.is_file():
                 raise ValueError(f"Редакционная очередь не найдена: {queue_path}")
+            discarded = 0
+            if args.discard_unusable:
+                _remaining, discarded = discard_pending_editorial_candidates(
+                    queue_path,
+                    Path(args.used_finds).expanduser().resolve(),
+                    args.discard_unusable,
+                )
             batch, kept, removed = pending_editorial_batch(
                 queue_path,
                 Path(args.used_finds).expanduser().resolve(),
@@ -717,6 +736,7 @@ def main(argv: list[str] | None = None) -> int:
                             "queue": str(queue_path),
                             "total": kept,
                             "removed_published": removed,
+                            "discarded_unusable": discarded,
                             "needs_refill": kept < args.limit,
                             "next": batch,
                         },
@@ -728,6 +748,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Редакционная очередь: {queue_path}")
             print(f"Осталось нерешённых/резервных записей: {kept}")
             print(f"Исключено опубликованных записей: {removed}")
+            print(f"Исключено непригодных записей: {discarded}")
             print("Следующие по FIFO: " + ", ".join(item["chunk_id"] for item in batch))
             return 0
 

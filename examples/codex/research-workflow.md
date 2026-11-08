@@ -136,6 +136,15 @@ builds `final`/`alternates`; navigation, unreadable, technical, and confirmed
 duplicate passages are not appended. The queue lock and atomic replacement
 preserve existing order and make repeated producers idempotent.
 
+Evaluate each `next` record from its SQLite text first. Failure to access the
+original file does not by itself make the record unusable. If the SQLite text
+is unreadable or contains no coherent story, run `pending-editorial-review`
+again with `--discard-unusable <chunk_id>`. This atomically removes the record
+only from this queue, does not add it to `used_finds.csv`, and preserves the
+order of every other record. Continue with the refreshed `next` batch until it
+contains five usable stories. Do not create another status, list, or queue for
+discarded fragments.
+
 `pending-editorial-review` removes only chunk IDs already registered in
 `used_finds.csv`; unresolved records and `reviewed_reserve` remain. Treat a
 record as published only after successful `record-publication`: that command
