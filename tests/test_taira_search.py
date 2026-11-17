@@ -678,6 +678,22 @@ class MissingFilesCleanupTests(unittest.TestCase):
         self.assertIn("Файл снова появился", error)
         self.assertEqual(self.snapshot(), before)
 
+    def test_preview_does_not_delete_or_overwrite_database(self) -> None:
+        document = self.corpus / "story.txt"
+        document.write_text("A complete story.", encoding="utf-8")
+        self.build()
+        document.unlink()
+        database_before = self.db.read_bytes()
+        plan_path = taira_search.default_missing_files_plan_path(self.db)
+
+        code, _output, error = self.run_cleanup()
+
+        self.assertEqual(code, 0, error)
+        self.assertTrue(self.db.is_file())
+        self.assertEqual(self.db.read_bytes(), database_before)
+        self.assertNotEqual(plan_path, self.db)
+        self.assertTrue(plan_path.is_file())
+
     def test_preferred_index_text_does_not_make_existing_original_missing(self) -> None:
         source = self.corpus / "source"
         source.mkdir()

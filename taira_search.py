@@ -819,10 +819,6 @@ def make_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Применить ранее сохранённый точный план удаления без нового сканирования",
     )
-    cleanup_parser.add_argument(
-        "--plan",
-        help="Путь к плану; по умолчанию JSON рядом с SQLite",
-    )
     publication_parser = subparsers.add_parser(
         "record-publication",
         help="Атомарно записать выбранные карточки из локального JSON",
@@ -943,11 +939,7 @@ def main(argv: list[str] | None = None) -> int:
             validate_research_output_path(args)
         if args.command == "prune-missing-files":
             db_path = Path(args.db)
-            plan_path = (
-                Path(args.plan)
-                if args.plan
-                else default_missing_files_plan_path(db_path)
-            )
+            plan_path = default_missing_files_plan_path(db_path)
             if args.confirm_delete:
                 plan = load_missing_files_plan(plan_path)
                 corpus_path = (
