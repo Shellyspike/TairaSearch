@@ -474,5 +474,242 @@ class TairaSearchIntegrationTests(unittest.TestCase):
         self.assertFalse(used.exists())
 
 
+class MissingFilesCleanupTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory(prefix="missing-cleanup-")
+        self.root = Path(self.temp.name)
+        self.corpus = self.root / "corpus"
+        self.corpus.mkdir()
+        self.db = self.root / "index.sqlite3"
+        self.log = self.root / "index.log"
+
+    def tearDown(self) -> None:
+        self.temp.cleanup()
+
+    def build(self) -> None:
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(
+            io.StringIO()
+        ):
+            code = build_index.main(
+                [
+                    str(self.corpus),
+                    "--db",
+                    str(self.db),
+                    "--log",
+                    str(self.log),
+                ]
+            )
+        self.assertEqual(code, 0)
+
+    def snapshot(self) -> tuple[object, ...]:
+        with contextlib.closing(sqlite3.connect(self.db)) as connection:
+            return (
+                connection.execute("SELECT COUNT(*) FROM files").fetchone()[0],
+                connection.execute("SELECT COUNT(*) FROM chunks").fetchone()[0],
+                connection.execute("SELECT COUNT(*) FROM chunks_fts").fetchone()[0],
+                connection.execute(
+                    "SELECT relative_path FROM files ORDER BY relative_path"
+                ).fetchall(),
+            )
+
+    def run_cleanup(self, *extra: str) -> tuple[int, str, str]:
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            code = taira_search.main(
+                ["prune-missing-files", "--db", str(self.db), *extra]
+            )
+        return code, stdout.getvalue(), stderr.getvalue()
+
+    def test_lists_before_confirmed_transactional_deletion(self) -> None:
+        kept = self.corpus / "kept.txt"
+        missing = self.corpus / "missing.txt"
+        kept.write_text("A retained historical account.", encoding="utf-8")
+        missing.write_text("A removed historical account.", encoding="utf-8")
+        self.build()
+        before = self.snapshot()
+        journal = self.root / "used_finds.csv"
+        journal.write_text("id,type\nkeep,event\n", encoding="utf-8")
+        journal_before = journal.read_bytes()
+        missing.unlink()
+
+        code, output, error = self.run_cleanup()
+        self.assertEqual(code, 0, error)
+        self.assertIn("- missing.txt", output)
+        self.assertIn("Удаление не выполнялось", output)
+        self.assertEqual(self.snapshot(), before)
+
+        code, output, error = self.run_cleanup("--confirm-delete")
+        self.assertEqual(code, 0, error)
+        self.assertIn("- missing.txt", output)
+        self.assertIn("Удалено записей files: 1", output)
+        after = self.snapshot()
+        self.assertEqual(after[0], 1)
+        self.assertEqual(after[1], 1)
+        self.assertEqual(after[2], 1)
+        self.assertEqual(after[3], [("kept.txt",)])
+        self.assertEqual(journal.read_bytes(), journal_before)
+
+    def test_unavailable_corpus_forbids_deletion(self) -> None:
+        document = self.corpus / "story.txt"
+        document.write_text("A complete story.", encoding="utf-8")
+        self.build()
+        document.unlink()
+        code, _output, error = self.run_cleanup()
+        self.assertEqual(code, 0, error)
+        before = self.snapshot()
+        shutil.rmtree(self.corpus)
+
+        code, _output, error = self.run_cleanup("--confirm-delete")
+
+        self.assertEqual(code, 1)
+        self.assertIn("Корпус недоступен", error)
+        self.assertEqual(self.snapshot(), before)
+
+    def test_scan_error_forbids_deletion(self) -> None:
+        document = self.corpus / "story.txt"
+        document.write_text("A complete story.", encoding="utf-8")
+        self.build()
+        before = self.snapshot()
+
+        def failed_scan(root: Path, log_error: object) -> list[Path]:
+            log_error("WALK_ERROR", root / "blocked", "access denied")
+            return [document]
+
+        with mock.patch.object(build_index, "discover_files", side_effect=failed_scan):
+            code, _output, error = self.run_cleanup()
+
+        self.assertEqual(code, 1)
+        self.assertIn("очистка запрещена", error)
+        self.assertEqual(self.snapshot(), before)
+        self.assertFalse(
+            taira_search.default_missing_files_plan_path(self.db).exists()
+        )
+
+    def test_delete_error_rolls_back_files_chunks_and_fts(self) -> None:
+        document = self.corpus / "story.txt"
+        document.write_text("A complete story.", encoding="utf-8")
+        self.build()
+        document.unlink()
+        code, _output, error = self.run_cleanup()
+        self.assertEqual(code, 0, error)
+        with contextlib.closing(sqlite3.connect(self.db)) as connection:
+            connection.execute(
+                """
+                CREATE TRIGGER fail_missing_cleanup BEFORE DELETE ON files
+                BEGIN
+                    SELECT RAISE(ABORT, 'forced cleanup failure');
+                END
+                """
+            )
+            connection.commit()
+        before = self.snapshot()
+
+        code, _output, error = self.run_cleanup("--confirm-delete")
+
+        self.assertEqual(code, 1)
+        self.assertIn("forced cleanup failure", error)
+        self.assertEqual(self.snapshot(), before)
+
+    def test_confirm_applies_only_paths_saved_by_preview(self) -> None:
+        first = self.corpus / "first.txt"
+        second = self.corpus / "second.txt"
+        kept = self.corpus / "kept.txt"
+        first.write_text("First indexed story.", encoding="utf-8")
+        second.write_text("Second indexed story.", encoding="utf-8")
+        kept.write_text("Retained indexed story.", encoding="utf-8")
+        self.build()
+        first.unlink()
+
+        code, output, error = self.run_cleanup()
+        self.assertEqual(code, 0, error)
+        self.assertIn("- first.txt", output)
+        self.assertNotIn("- second.txt", output)
+        second.unlink()
+
+        code, output, error = self.run_cleanup("--confirm-delete")
+
+        self.assertEqual(code, 0, error)
+        self.assertIn("Удалено записей files: 1", output)
+        with contextlib.closing(sqlite3.connect(self.db)) as connection:
+            paths = connection.execute(
+                "SELECT relative_path FROM files ORDER BY relative_path"
+            ).fetchall()
+        self.assertEqual(paths, [("kept.txt",), ("second.txt",)])
+
+    def test_confirm_requires_plan_and_rejects_changed_entry(self) -> None:
+        document = self.corpus / "story.txt"
+        document.write_text("A complete story.", encoding="utf-8")
+        self.build()
+        document.unlink()
+
+        code, _output, error = self.run_cleanup("--confirm-delete")
+        self.assertEqual(code, 1)
+        self.assertIn("Сначала выполните preview", error)
+
+        code, _output, error = self.run_cleanup()
+        self.assertEqual(code, 0, error)
+        before = self.snapshot()
+        with contextlib.closing(sqlite3.connect(self.db)) as connection:
+            connection.execute(
+                "UPDATE files SET status='changed' WHERE relative_path='story.txt'"
+            )
+            connection.commit()
+
+        code, _output, error = self.run_cleanup("--confirm-delete")
+
+        self.assertEqual(code, 1)
+        self.assertIn("Запись индекса изменилась", error)
+        self.assertEqual(self.snapshot()[0:2], before[0:2])
+
+    def test_confirm_rejects_file_that_reappeared(self) -> None:
+        document = self.corpus / "story.txt"
+        document.write_text("A complete story.", encoding="utf-8")
+        self.build()
+        document.unlink()
+        code, _output, error = self.run_cleanup()
+        self.assertEqual(code, 0, error)
+        before = self.snapshot()
+        document.write_text("Restored story.", encoding="utf-8")
+
+        code, _output, error = self.run_cleanup("--confirm-delete")
+
+        self.assertEqual(code, 1)
+        self.assertIn("Файл снова появился", error)
+        self.assertEqual(self.snapshot(), before)
+
+    def test_preview_does_not_delete_or_overwrite_database(self) -> None:
+        document = self.corpus / "story.txt"
+        document.write_text("A complete story.", encoding="utf-8")
+        self.build()
+        document.unlink()
+        database_before = self.db.read_bytes()
+        plan_path = taira_search.default_missing_files_plan_path(self.db)
+
+        code, _output, error = self.run_cleanup()
+
+        self.assertEqual(code, 0, error)
+        self.assertTrue(self.db.is_file())
+        self.assertEqual(self.db.read_bytes(), database_before)
+        self.assertNotEqual(plan_path, self.db)
+        self.assertTrue(plan_path.is_file())
+
+    def test_preferred_index_text_does_not_make_existing_original_missing(self) -> None:
+        source = self.corpus / "source"
+        source.mkdir()
+        original = source / "original.txt"
+        original.write_text("Original indexed text.", encoding="utf-8")
+        self.build()
+        preferred = source / "reviewed.txt"
+        preferred.write_text("Reviewed replacement text.", encoding="utf-8")
+        (source / "source-metadata").write_text(
+            json.dumps({"preferred_index_text": preferred.name}), encoding="utf-8"
+        )
+
+        report = taira_search.scan_missing_index_files(self.db)
+
+        self.assertEqual(report["missing"], [])
+
+
 if __name__ == "__main__":
     unittest.main()
