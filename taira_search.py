@@ -460,6 +460,139 @@ def check_publication_access(db_path: Path, used_path: Path) -> dict[str, Any]:
     }
 
 
+def scan_missing_index_files(
+    db_path: Path, corpus_path: Path | None = None
+) -> dict[str, Any]:
+    """List indexed paths that are absent after a complete, error-free scan."""
+    from build_index import corpus_roots_match, discover_files, relative_posix
+
+    db_path = db_path.expanduser().resolve()
+    if not db_path.is_file():
+        raise RuntimeError(f"Индекс не найден: {db_path}")
+
+    connection = sqlite3.connect(f"{db_path.as_uri()}?mode=ro", uri=True)
+    try:
+        connection.execute("PRAGMA query_only=ON")
+        tables = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type IN ('table', 'view')"
+            )
+        }
+        required = {"meta", "files", "chunks", "chunks_fts"}
+        missing_tables = sorted(required - tables)
+        if missing_tables or not search_schema_is_current(connection):
+            details = ", ".join(missing_tables) if missing_tables else "поисковая схема"
+            raise RuntimeError(
+                f"Структура индекса не подходит для очистки: {details}. "
+                "Автоматическая миграция не выполнялась."
+            )
+        meta = dict(connection.execute("SELECT key, value FROM meta"))
+        stored_root = str(meta.get("corpus_root", "")).strip()
+        if not stored_root:
+            raise RuntimeError(
+                "Индекс не содержит corpus_root; безопасно определить корпус нельзя."
+            )
+        indexed_paths = {
+            str(row[0])
+            for row in connection.execute("SELECT relative_path FROM files")
+        }
+    finally:
+        connection.close()
+
+    corpus = (
+        corpus_path.expanduser().resolve(strict=False)
+        if corpus_path is not None
+        else Path(stored_root).expanduser().resolve(strict=False)
+    )
+    if corpus_path is not None and not corpus_roots_match(stored_root, corpus):
+        raise RuntimeError(
+            "Указанный корпус не совпадает с corpus_root индекса. "
+            "Очистка запрещена."
+        )
+    try:
+        corpus_available = corpus.is_dir()
+    except OSError:
+        corpus_available = False
+    if not corpus_available:
+        raise RuntimeError(f"Корпус недоступен; очистка запрещена: {corpus}")
+
+    scan_errors: list[tuple[str, Path, str]] = []
+
+    def collect_scan_error(kind: str, path: Path, message: str) -> None:
+        scan_errors.append((kind, path, message))
+
+    try:
+        discovered = discover_files(corpus, collect_scan_error)
+    except OSError as exc:
+        raise RuntimeError(
+            f"Сканирование корпуса завершилось с ошибкой; очистка запрещена: {exc}"
+        ) from exc
+    if scan_errors:
+        details = "; ".join(
+            f"{kind}: {path}: {message}" for kind, path, message in scan_errors[:5]
+        )
+        raise RuntimeError(
+            "Сканирование корпуса завершилось с ошибками; очистка запрещена. "
+            + details
+        )
+
+    # Compare against every physical file, not the indexer's selected input set.
+    # This preserves an original that is intentionally superseded by
+    # preferred_index_text but still has a legacy row in an older index.
+    present_paths = {relative_posix(path, corpus) for path in discovered}
+    missing = sorted(indexed_paths - present_paths, key=str.casefold)
+    return {
+        "database": str(db_path),
+        "corpus": str(corpus),
+        "indexed_files": len(indexed_paths),
+        "scanned_files": len(present_paths),
+        "missing": missing,
+    }
+
+
+def delete_missing_index_files(db_path: Path, relative_paths: list[str]) -> int:
+    """Delete confirmed missing file rows and their chunks/FTS rows atomically."""
+    if not relative_paths:
+        return 0
+    db_path = db_path.expanduser().resolve()
+    connection = sqlite3.connect(db_path)
+    try:
+        connection.execute("PRAGMA foreign_keys=ON")
+        if not search_schema_is_current(connection):
+            raise RuntimeError(
+                "Поисковая схема изменилась после сканирования; очистка отменена."
+            )
+        connection.execute("BEGIN IMMEDIATE")
+        deleted = 0
+        for relative_path in relative_paths:
+            chunk_ids = [
+                str(row[0])
+                for row in connection.execute(
+                    "SELECT chunk_id FROM chunks WHERE relative_path=?",
+                    (relative_path,),
+                )
+            ]
+            connection.executemany(
+                "DELETE FROM chunks_fts WHERE chunk_id=?",
+                ((chunk_id,) for chunk_id in chunk_ids),
+            )
+            connection.execute(
+                "DELETE FROM chunks WHERE relative_path=?", (relative_path,)
+            )
+            cursor = connection.execute(
+                "DELETE FROM files WHERE relative_path=?", (relative_path,)
+            )
+            deleted += cursor.rowcount
+        connection.commit()
+        return deleted
+    except BaseException:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
 def make_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Локальный FTS5-поиск по корпусу")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -554,6 +687,20 @@ def make_parser() -> argparse.ArgumentParser:
     access_parser.add_argument("--db", default=str(DEFAULT_DB))
     access_parser.add_argument("--used-finds", default=str(DEFAULT_USED_FINDS))
     access_parser.add_argument("--json", action="store_true")
+    cleanup_parser = subparsers.add_parser(
+        "prune-missing-files",
+        help="Показать и явно удалить из SQLite записи отсутствующих файлов",
+    )
+    cleanup_parser.add_argument("--db", default=str(DEFAULT_DB))
+    cleanup_parser.add_argument(
+        "--corpus",
+        help="Корпус; по умолчанию используется сохранённый в SQLite corpus_root",
+    )
+    cleanup_parser.add_argument(
+        "--confirm-delete",
+        action="store_true",
+        help="После повторного полного сканирования удалить показанные записи",
+    )
     publication_parser = subparsers.add_parser(
         "record-publication",
         help="Атомарно записать выбранные карточки из локального JSON",
@@ -672,6 +819,27 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "research-findings":
             validate_research_output_path(args)
+        if args.command == "prune-missing-files":
+            report = scan_missing_index_files(
+                Path(args.db), Path(args.corpus) if args.corpus else None
+            )
+            print(f"Корпус: {report['corpus']}")
+            print(f"Отсутствующих файлов в индексе: {len(report['missing'])}")
+            for relative_path in report["missing"]:
+                print(f"- {relative_path}")
+            if not report["missing"]:
+                print("Удаление не требуется.")
+                return 0
+            if not args.confirm_delete:
+                print(
+                    "Удаление не выполнялось. Проверьте список и повторите команду "
+                    "с --confirm-delete."
+                )
+                return 0
+            deleted = delete_missing_index_files(Path(args.db), report["missing"])
+            print(f"Удалено записей files: {deleted}")
+            print("Связанные chunks и chunks_fts удалены в той же транзакции.")
+            return 0
         if args.command == "record-publication":
             from daily_five import record_publication_from_json
 

@@ -63,6 +63,19 @@ checks. For an ambiguous TXT, Markdown, or JSON corpus, pass an explicit
 encoding such as `--text-encoding cp1251`; this reparses all supported text
 files.
 
+Missing source-file records are removed by a separate two-step command. First,
+run a read-only scan and review the complete list:
+
+```powershell
+.venv\Scripts\python taira_search.py prune-missing-files --db work/index.sqlite3
+```
+
+After reviewing it, repeat the command with `--confirm-delete`. Deletion is
+refused when the corpus is unavailable or any scan error occurs. The command
+removes related `files`, `chunks`, and `chunks_fts` rows in one transaction; it
+does not modify source documents or `used_finds.csv`. Do not run it concurrently
+with indexing: these operations do not yet share a process lock.
+
 Profile-driven research for Codex:
 
 ```powershell
