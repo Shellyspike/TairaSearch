@@ -70,11 +70,14 @@ run a read-only scan and review the complete list:
 .venv\Scripts\python taira_search.py prune-missing-files --db work/index.sqlite3
 ```
 
-After reviewing it, repeat the command with `--confirm-delete`. Deletion is
-refused when the corpus is unavailable or any scan error occurs. The command
-removes related `files`, `chunks`, and `chunks_fts` rows in one transaction; it
-does not modify source documents or `used_finds.csv`. Do not run it concurrently
-with indexing: these operations do not yet share a process lock.
+The preview saves an exact JSON plan beside SQLite. After reviewing it, repeat the
+command with `--confirm-delete`; it applies only that saved list without another
+full scan. The operation is cancelled if the database, corpus, or records
+changed, or if a file reappeared. An unavailable corpus or any error during the
+initial scan prevents plan creation. The command removes related `files`,
+`chunks`, and `chunks_fts` rows in one transaction; it does not modify source
+documents or `used_finds.csv`. Do not run it concurrently with indexing: these
+operations do not yet share a process lock.
 
 Profile-driven research for Codex:
 

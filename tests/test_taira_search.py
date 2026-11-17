@@ -554,6 +554,9 @@ class MissingFilesCleanupTests(unittest.TestCase):
         document = self.corpus / "story.txt"
         document.write_text("A complete story.", encoding="utf-8")
         self.build()
+        document.unlink()
+        code, _output, error = self.run_cleanup()
+        self.assertEqual(code, 0, error)
         before = self.snapshot()
         shutil.rmtree(self.corpus)
 
@@ -574,17 +577,22 @@ class MissingFilesCleanupTests(unittest.TestCase):
             return [document]
 
         with mock.patch.object(build_index, "discover_files", side_effect=failed_scan):
-            code, _output, error = self.run_cleanup("--confirm-delete")
+            code, _output, error = self.run_cleanup()
 
         self.assertEqual(code, 1)
         self.assertIn("очистка запрещена", error)
         self.assertEqual(self.snapshot(), before)
+        self.assertFalse(
+            taira_search.default_missing_files_plan_path(self.db).exists()
+        )
 
     def test_delete_error_rolls_back_files_chunks_and_fts(self) -> None:
         document = self.corpus / "story.txt"
         document.write_text("A complete story.", encoding="utf-8")
         self.build()
         document.unlink()
+        code, _output, error = self.run_cleanup()
+        self.assertEqual(code, 0, error)
         with contextlib.closing(sqlite3.connect(self.db)) as connection:
             connection.execute(
                 """
@@ -601,6 +609,73 @@ class MissingFilesCleanupTests(unittest.TestCase):
 
         self.assertEqual(code, 1)
         self.assertIn("forced cleanup failure", error)
+        self.assertEqual(self.snapshot(), before)
+
+    def test_confirm_applies_only_paths_saved_by_preview(self) -> None:
+        first = self.corpus / "first.txt"
+        second = self.corpus / "second.txt"
+        kept = self.corpus / "kept.txt"
+        first.write_text("First indexed story.", encoding="utf-8")
+        second.write_text("Second indexed story.", encoding="utf-8")
+        kept.write_text("Retained indexed story.", encoding="utf-8")
+        self.build()
+        first.unlink()
+
+        code, output, error = self.run_cleanup()
+        self.assertEqual(code, 0, error)
+        self.assertIn("- first.txt", output)
+        self.assertNotIn("- second.txt", output)
+        second.unlink()
+
+        code, output, error = self.run_cleanup("--confirm-delete")
+
+        self.assertEqual(code, 0, error)
+        self.assertIn("Удалено записей files: 1", output)
+        with contextlib.closing(sqlite3.connect(self.db)) as connection:
+            paths = connection.execute(
+                "SELECT relative_path FROM files ORDER BY relative_path"
+            ).fetchall()
+        self.assertEqual(paths, [("kept.txt",), ("second.txt",)])
+
+    def test_confirm_requires_plan_and_rejects_changed_entry(self) -> None:
+        document = self.corpus / "story.txt"
+        document.write_text("A complete story.", encoding="utf-8")
+        self.build()
+        document.unlink()
+
+        code, _output, error = self.run_cleanup("--confirm-delete")
+        self.assertEqual(code, 1)
+        self.assertIn("Сначала выполните preview", error)
+
+        code, _output, error = self.run_cleanup()
+        self.assertEqual(code, 0, error)
+        before = self.snapshot()
+        with contextlib.closing(sqlite3.connect(self.db)) as connection:
+            connection.execute(
+                "UPDATE files SET status='changed' WHERE relative_path='story.txt'"
+            )
+            connection.commit()
+
+        code, _output, error = self.run_cleanup("--confirm-delete")
+
+        self.assertEqual(code, 1)
+        self.assertIn("Запись индекса изменилась", error)
+        self.assertEqual(self.snapshot()[0:2], before[0:2])
+
+    def test_confirm_rejects_file_that_reappeared(self) -> None:
+        document = self.corpus / "story.txt"
+        document.write_text("A complete story.", encoding="utf-8")
+        self.build()
+        document.unlink()
+        code, _output, error = self.run_cleanup()
+        self.assertEqual(code, 0, error)
+        before = self.snapshot()
+        document.write_text("Restored story.", encoding="utf-8")
+
+        code, _output, error = self.run_cleanup("--confirm-delete")
+
+        self.assertEqual(code, 1)
+        self.assertIn("Файл снова появился", error)
         self.assertEqual(self.snapshot(), before)
 
     def test_preferred_index_text_does_not_make_existing_original_missing(self) -> None:

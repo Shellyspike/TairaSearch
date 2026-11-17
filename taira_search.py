@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -542,20 +543,123 @@ def scan_missing_index_files(
     # preferred_index_text but still has a legacy row in an older index.
     present_paths = {relative_posix(path, corpus) for path in discovered}
     missing = sorted(indexed_paths - present_paths, key=str.casefold)
+    connection = sqlite3.connect(f"{db_path.as_uri()}?mode=ro", uri=True)
+    try:
+        connection.execute("PRAGMA query_only=ON")
+        entries = [
+            {
+                "relative_path": relative_path,
+                "record_fingerprint": _indexed_file_fingerprint(
+                    connection, relative_path
+                ),
+            }
+            for relative_path in missing
+        ]
+    finally:
+        connection.close()
+    database_stat = db_path.stat()
     return {
         "database": str(db_path),
+        "database_device": database_stat.st_dev,
+        "database_inode": database_stat.st_ino,
         "corpus": str(corpus),
         "indexed_files": len(indexed_paths),
         "scanned_files": len(present_paths),
         "missing": missing,
+        "entries": entries,
     }
 
 
-def delete_missing_index_files(db_path: Path, relative_paths: list[str]) -> int:
-    """Delete confirmed missing file rows and their chunks/FTS rows atomically."""
-    if not relative_paths:
+def _indexed_file_fingerprint(
+    connection: sqlite3.Connection, relative_path: str
+) -> str:
+    file_row = connection.execute(
+        "SELECT * FROM files WHERE relative_path=?", (relative_path,)
+    ).fetchone()
+    if file_row is None:
+        raise RuntimeError(
+            f"Запись индекса изменилась после preview: {relative_path}"
+        )
+    chunk_rows = connection.execute(
+        "SELECT * FROM chunks WHERE relative_path=? ORDER BY chunk_id",
+        (relative_path,),
+    ).fetchall()
+    chunk_ids = [str(row[1]) for row in chunk_rows]
+    fts_rows: list[tuple[Any, ...]] = []
+    if chunk_ids:
+        placeholders = ",".join("?" for _ in chunk_ids)
+        fts_rows = connection.execute(
+            f"SELECT * FROM chunks_fts WHERE chunk_id IN ({placeholders}) "
+            "ORDER BY chunk_id",
+            chunk_ids,
+        ).fetchall()
+    payload = json.dumps(
+        [list(file_row), [list(row) for row in chunk_rows], [list(row) for row in fts_rows]],
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def default_missing_files_plan_path(db_path: Path) -> Path:
+    db_path = db_path.expanduser().resolve()
+    return db_path.with_name(f"{db_path.name}.prune-missing-files.json")
+
+
+def write_missing_files_plan(report: dict[str, Any], plan_path: Path) -> None:
+    payload = {
+        "version": 1,
+        "database": report["database"],
+        "database_device": report["database_device"],
+        "database_inode": report["database_inode"],
+        "corpus": report["corpus"],
+        "entries": report["entries"],
+    }
+    plan_path = plan_path.expanduser().resolve()
+    plan_path.parent.mkdir(parents=True, exist_ok=True)
+    plan_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+
+
+def load_missing_files_plan(plan_path: Path) -> dict[str, Any]:
+    plan_path = plan_path.expanduser().resolve()
+    if not plan_path.is_file():
+        raise RuntimeError(
+            f"План очистки не найден: {plan_path}. Сначала выполните preview."
+        )
+    try:
+        payload = json.loads(plan_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"Не удалось прочитать план очистки: {exc}") from exc
+    if payload.get("version") != 1 or not isinstance(payload.get("entries"), list):
+        raise RuntimeError("Неподдерживаемый или повреждённый план очистки.")
+    return payload
+
+
+def delete_missing_index_files(
+    db_path: Path, corpus_path: Path, plan: dict[str, Any]
+) -> int:
+    """Validate and apply one previously saved cleanup plan atomically."""
+    from build_index import corpus_roots_match
+
+    entries = plan["entries"]
+    if not entries:
         return 0
     db_path = db_path.expanduser().resolve()
+    corpus_path = corpus_path.expanduser().resolve(strict=False)
+    if str(db_path) != str(Path(plan.get("database", "")).expanduser().resolve()):
+        raise RuntimeError("План очистки относится к другой базе данных.")
+    if not corpus_roots_match(plan.get("corpus", ""), corpus_path):
+        raise RuntimeError("План очистки относится к другому корпусу.")
+    database_stat = db_path.stat()
+    if (
+        database_stat.st_dev != plan.get("database_device")
+        or database_stat.st_ino != plan.get("database_inode")
+    ):
+        raise RuntimeError("Файл базы данных заменён после preview; очистка отменена.")
+    if not corpus_path.is_dir():
+        raise RuntimeError(f"Корпус недоступен; очистка запрещена: {corpus_path}")
     connection = sqlite3.connect(db_path)
     try:
         connection.execute("PRAGMA foreign_keys=ON")
@@ -563,9 +667,23 @@ def delete_missing_index_files(db_path: Path, relative_paths: list[str]) -> int:
             raise RuntimeError(
                 "Поисковая схема изменилась после сканирования; очистка отменена."
             )
+        meta = dict(connection.execute("SELECT key, value FROM meta"))
+        if not corpus_roots_match(meta.get("corpus_root", ""), corpus_path):
+            raise RuntimeError("corpus_root базы изменился после preview.")
         connection.execute("BEGIN IMMEDIATE")
         deleted = 0
-        for relative_path in relative_paths:
+        for entry in entries:
+            relative_path = str(entry.get("relative_path", ""))
+            if not relative_path or _indexed_file_fingerprint(
+                connection, relative_path
+            ) != entry.get("record_fingerprint"):
+                raise RuntimeError(
+                    f"Запись индекса изменилась после preview: {relative_path}"
+                )
+            if (corpus_path / Path(relative_path)).is_file():
+                raise RuntimeError(
+                    f"Файл снова появился после preview; очистка отменена: {relative_path}"
+                )
             chunk_ids = [
                 str(row[0])
                 for row in connection.execute(
@@ -699,7 +817,11 @@ def make_parser() -> argparse.ArgumentParser:
     cleanup_parser.add_argument(
         "--confirm-delete",
         action="store_true",
-        help="После повторного полного сканирования удалить показанные записи",
+        help="Применить ранее сохранённый точный план удаления без нового сканирования",
+    )
+    cleanup_parser.add_argument(
+        "--plan",
+        help="Путь к плану; по умолчанию JSON рядом с SQLite",
     )
     publication_parser = subparsers.add_parser(
         "record-publication",
@@ -820,25 +942,44 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "research-findings":
             validate_research_output_path(args)
         if args.command == "prune-missing-files":
-            report = scan_missing_index_files(
-                Path(args.db), Path(args.corpus) if args.corpus else None
+            db_path = Path(args.db)
+            plan_path = (
+                Path(args.plan)
+                if args.plan
+                else default_missing_files_plan_path(db_path)
             )
+            if args.confirm_delete:
+                plan = load_missing_files_plan(plan_path)
+                corpus_path = (
+                    Path(args.corpus) if args.corpus else Path(plan["corpus"])
+                )
+                missing = [str(entry["relative_path"]) for entry in plan["entries"]]
+                print(f"Корпус: {corpus_path}")
+                print(f"Записей в подтверждённом плане: {len(missing)}")
+                for relative_path in missing:
+                    print(f"- {relative_path}")
+                deleted = delete_missing_index_files(db_path, corpus_path, plan)
+                print(f"Удалено записей files: {deleted}")
+                print("Связанные chunks и chunks_fts удалены в той же транзакции.")
+                plan_path.unlink(missing_ok=True)
+                return 0
+            plan_path.unlink(missing_ok=True)
+            report = scan_missing_index_files(
+                db_path, Path(args.corpus) if args.corpus else None
+            )
+            write_missing_files_plan(report, plan_path)
             print(f"Корпус: {report['corpus']}")
             print(f"Отсутствующих файлов в индексе: {len(report['missing'])}")
             for relative_path in report["missing"]:
                 print(f"- {relative_path}")
+            print(f"План очистки сохранён: {plan_path.resolve()}")
             if not report["missing"]:
                 print("Удаление не требуется.")
                 return 0
-            if not args.confirm_delete:
-                print(
-                    "Удаление не выполнялось. Проверьте список и повторите команду "
-                    "с --confirm-delete."
-                )
-                return 0
-            deleted = delete_missing_index_files(Path(args.db), report["missing"])
-            print(f"Удалено записей files: {deleted}")
-            print("Связанные chunks и chunks_fts удалены в той же транзакции.")
+            print(
+                "Удаление не выполнялось. Проверьте список и примените этот план "
+                "с --confirm-delete."
+            )
             return 0
         if args.command == "record-publication":
             from daily_five import record_publication_from_json
