@@ -145,6 +145,16 @@ order of every other record. Continue with the refreshed `next` batch until it
 contains five usable stories. Do not create another status, list, or queue for
 discarded fragments.
 
+If a readable, coherent candidate repeats an independently published story, do
+not label it `unusable`. Confirm the semantic match from full contexts, locate
+the registered manifest for the earlier edition, and rerun the command with
+`--mark-already-published <chunk_id>`, `--previous-publication <manifest>`,
+`--previous-chunk-id <published_chunk_id>`, and a specific
+`--already-published-reason`. The command removes the record from active FIFO
+while preserving `already_published`, the reason, and a verified link to the
+earlier edition in the same queue's `processing_log`. Continue with the updated
+`next` batch and do not create a separate duplicate list.
+
 `pending-editorial-review` removes only chunk IDs already registered in
 `used_finds.csv`; unresolved records and `reviewed_reserve` remain. Treat a
 record as published only after successful `record-publication`: that command

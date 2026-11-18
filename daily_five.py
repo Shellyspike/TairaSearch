@@ -1128,6 +1128,11 @@ def _read_pending_editorial_queue(queue_path: Path) -> dict[str, Any]:
             raise ValueError(f"{queue_path}: items[{index}] должен быть объектом")
         if not normalize_text(str(item.get("chunk_id", ""))):
             raise ValueError(f"{queue_path}: items[{index}] не содержит chunk_id")
+    processing_log = payload.get("processing_log", [])
+    if not isinstance(processing_log, list) or not all(
+        isinstance(item, dict) for item in processing_log
+    ):
+        raise ValueError(f"{queue_path}: processing_log должен быть массивом объектов")
     return payload
 
 
@@ -1220,6 +1225,96 @@ def discard_pending_editorial_candidates(
             if removed:
                 _atomic_write_json({**payload, "items": kept}, queue_path)
             return len(kept), removed
+
+
+def exclude_pending_already_published(
+    queue_path: Path,
+    used_path: Path,
+    chunk_id: str,
+    previous_manifest_path: Path,
+    previous_chunk_id: str,
+    reason: str,
+) -> tuple[int, int]:
+    """Remove one semantic repeat from active FIFO and retain its audit record."""
+    queue_path = queue_path.expanduser().resolve()
+    used_path = used_path.expanduser().resolve()
+    previous_manifest_path = previous_manifest_path.expanduser().resolve()
+    chunk_id = normalize_text(chunk_id)
+    previous_chunk_id = normalize_text(previous_chunk_id)
+    reason = normalize_text(reason)
+    if not chunk_id or not previous_chunk_id or not reason:
+        raise ValueError(
+            "already_published требует chunk_id, previous_chunk_id и причину"
+        )
+    if not previous_manifest_path.is_file():
+        raise ValueError(f"Предыдущий манифест не найден: {previous_manifest_path}")
+    publication_id, _cards, events = _load_publication_manifest(
+        previous_manifest_path
+    )
+    previous_events = [
+        event
+        for event in events
+        if normalize_text(str(event.get("chunk_id", ""))) == previous_chunk_id
+    ]
+    if not previous_events:
+        raise ValueError(
+            f"{previous_chunk_id}: нет в указанном предыдущем выпуске"
+        )
+
+    with _publication_lock(used_path):
+        missing_ids, conflicting_ids = _publication_registration_issues(
+            previous_events, _read_used_rows(used_path)
+        )
+        if missing_ids or conflicting_ids:
+            raise ValueError(
+                f"Предыдущий выпуск не подтверждён журналом для {previous_chunk_id}"
+            )
+        with _pending_queue_lock(queue_path):
+            payload = _read_pending_editorial_queue(queue_path)
+            items = payload["items"]
+            processing_log = list(payload.get("processing_log", []))
+            existing_log = next(
+                (
+                    item
+                    for item in processing_log
+                    if normalize_text(str(item.get("chunk_id", ""))) == chunk_id
+                    and item.get("status") == "already_published"
+                ),
+                None,
+            )
+            matching_items = [
+                item
+                for item in items
+                if normalize_text(str(item.get("chunk_id", ""))) == chunk_id
+            ]
+            if not matching_items:
+                if existing_log is not None:
+                    return len(items), 0
+                raise ValueError(f"{chunk_id}: запись не найдена в активной FIFO")
+            kept = [
+                item
+                for item in items
+                if normalize_text(str(item.get("chunk_id", ""))) != chunk_id
+            ]
+            processing_log.append(
+                {
+                    "chunk_id": chunk_id,
+                    "status": "already_published",
+                    "reason": reason,
+                    "previous_publication": {
+                        "publication_id": publication_id,
+                        "manifest": str(previous_manifest_path),
+                        "chunk_id": previous_chunk_id,
+                    },
+                    "queue_item": dict(matching_items[0]),
+                    "processed_on": date.today().isoformat(),
+                }
+            )
+            _atomic_write_json(
+                {**payload, "items": kept, "processing_log": processing_log},
+                queue_path,
+            )
+            return len(kept), len(matching_items)
 
 
 def _validate_pending_publication_order(
