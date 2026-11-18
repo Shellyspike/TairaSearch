@@ -853,6 +853,22 @@ def make_parser() -> argparse.ArgumentParser:
             "исключить из этой очереди без записи в used_finds.csv"
         ),
     )
+    pending_parser.add_argument(
+        "--mark-already-published",
+        help="Связный кандидат, подтверждённый как смысловой повтор прежней истории",
+    )
+    pending_parser.add_argument(
+        "--previous-publication",
+        help="Манифест зарегистрированного выпуска с предыдущей историей",
+    )
+    pending_parser.add_argument(
+        "--previous-chunk-id",
+        help="chunk_id предыдущей опубликованной истории",
+    )
+    pending_parser.add_argument(
+        "--already-published-reason",
+        help="Конкретное обоснование совпадения самостоятельной истории",
+    )
     pending_parser.add_argument("--json", action="store_true")
     render_parser = subparsers.add_parser(
         "render-publication",
@@ -1012,6 +1028,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "pending-editorial-review":
             from daily_five import (
                 discard_pending_editorial_candidates,
+                exclude_pending_already_published,
                 pending_editorial_batch,
             )
 
@@ -1019,11 +1036,45 @@ def main(argv: list[str] | None = None) -> int:
             if not queue_path.is_file():
                 raise ValueError(f"Редакционная очередь не найдена: {queue_path}")
             discarded = 0
+            excluded_already_published = 0
             if args.discard_unusable:
                 _remaining, discarded = discard_pending_editorial_candidates(
                     queue_path,
                     Path(args.used_finds).expanduser().resolve(),
                     args.discard_unusable,
+                )
+            if not args.mark_already_published and any(
+                (
+                    args.previous_publication,
+                    args.previous_chunk_id,
+                    args.already_published_reason,
+                )
+            ):
+                raise ValueError(
+                    "Параметры предыдущего выпуска требуют "
+                    "--mark-already-published"
+                )
+            if args.mark_already_published:
+                if not all(
+                    (
+                        args.previous_publication,
+                        args.previous_chunk_id,
+                        args.already_published_reason,
+                    )
+                ):
+                    raise ValueError(
+                        "--mark-already-published требует --previous-publication, "
+                        "--previous-chunk-id и --already-published-reason"
+                    )
+                _remaining, excluded_already_published = (
+                    exclude_pending_already_published(
+                        queue_path,
+                        Path(args.used_finds).expanduser().resolve(),
+                        args.mark_already_published,
+                        Path(args.previous_publication),
+                        args.previous_chunk_id,
+                        args.already_published_reason,
+                    )
                 )
             batch, kept, removed = pending_editorial_batch(
                 queue_path,
@@ -1038,6 +1089,7 @@ def main(argv: list[str] | None = None) -> int:
                             "total": kept,
                             "removed_published": removed,
                             "discarded_unusable": discarded,
+                            "excluded_already_published": excluded_already_published,
                             "needs_refill": kept < args.limit,
                             "next": batch,
                         },
@@ -1050,6 +1102,10 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Осталось нерешённых/резервных записей: {kept}")
             print(f"Исключено опубликованных записей: {removed}")
             print(f"Исключено непригодных записей: {discarded}")
+            print(
+                "Исключено подтверждённых смысловых повторов: "
+                f"{excluded_already_published}"
+            )
             print("Следующие по FIFO: " + ", ".join(item["chunk_id"] for item in batch))
             return 0
 

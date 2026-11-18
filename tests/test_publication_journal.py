@@ -704,6 +704,101 @@ daily_five.record_publication_from_json(manifest, used)
         self.assertEqual(repeated_code, 0)
         self.assertEqual(len(self.read_pending()["items"]), 5)
 
+    def test_semantic_repeat_is_logged_and_removed_from_active_fifo(self) -> None:
+        previous_chunk_id = "ch_previously_published_story"
+        repeated_chunk_id = "ch_same_story_in_another_chunk"
+        self.write_single_card_manifest(self.manifest_path, previous_chunk_id)
+        daily_five.record_publication_from_json(
+            self.manifest_path, self.used_path
+        )
+        history_before = self.used_path.read_bytes()
+        self.write_pending(
+            [
+                {
+                    "chunk_id": repeated_chunk_id,
+                    "relative_path": "another-source.txt",
+                    "state": "pending_context",
+                },
+                {"chunk_id": "ch_fifo_next", "state": "pending_context"},
+            ]
+        )
+        reason = "Тот же самостоятельный эпизод пересказан в другом фрагменте."
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            code = taira_search.main(
+                [
+                    "pending-editorial-review",
+                    "--queue",
+                    str(self.pending_path),
+                    "--used-finds",
+                    str(self.used_path),
+                    "--mark-already-published",
+                    repeated_chunk_id,
+                    "--previous-publication",
+                    str(self.manifest_path),
+                    "--previous-chunk-id",
+                    previous_chunk_id,
+                    "--already-published-reason",
+                    reason,
+                    "--json",
+                ]
+            )
+        result = json.loads(stdout.getvalue())
+
+        self.assertEqual(code, 0)
+        self.assertEqual(result["excluded_already_published"], 1)
+        self.assertEqual(
+            [item["chunk_id"] for item in result["next"]], ["ch_fifo_next"]
+        )
+        queue = self.read_pending()
+        self.assertEqual(
+            [item["chunk_id"] for item in queue["items"]], ["ch_fifo_next"]
+        )
+        log_entry = queue["processing_log"][0]
+        self.assertEqual(log_entry["chunk_id"], repeated_chunk_id)
+        self.assertEqual(log_entry["status"], "already_published")
+        self.assertEqual(log_entry["reason"], reason)
+        self.assertEqual(
+            log_entry["previous_publication"],
+            {
+                "publication_id": f"publication-{previous_chunk_id}",
+                "manifest": str(self.manifest_path.resolve()),
+                "chunk_id": previous_chunk_id,
+            },
+        )
+        self.assertEqual(self.used_path.read_bytes(), history_before)
+
+        repeated = daily_five.exclude_pending_already_published(
+            self.pending_path,
+            self.used_path,
+            repeated_chunk_id,
+            self.manifest_path,
+            previous_chunk_id,
+            reason,
+        )
+        self.assertEqual(repeated, (1, 0))
+        self.assertEqual(len(self.read_pending()["processing_log"]), 1)
+
+    def test_semantic_repeat_requires_registered_previous_publication(self) -> None:
+        self.write_existing_history(0)
+        self.write_single_card_manifest(self.manifest_path, "ch_unregistered")
+        self.write_pending(
+            [{"chunk_id": "ch_candidate", "state": "pending_context"}]
+        )
+        queue_before = self.pending_path.read_bytes()
+
+        with self.assertRaisesRegex(ValueError, "не подтверждён журналом"):
+            daily_five.exclude_pending_already_published(
+                self.pending_path,
+                self.used_path,
+                "ch_candidate",
+                self.manifest_path,
+                "ch_unregistered",
+                "Проверенный смысловой повтор.",
+            )
+
+        self.assertEqual(self.pending_path.read_bytes(), queue_before)
+
     def test_five_registered_cards_render_in_full(self) -> None:
         payload = self.write_five_card_manifest()
         daily_five.record_publication_from_json(self.manifest_path, self.used_path)
