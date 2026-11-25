@@ -12,10 +12,12 @@ import sys
 import time
 import traceback
 from collections import Counter
+from contextlib import ExitStack, closing
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from index_lock import index_lock_path, index_writer_lock
 from metadata_utils import (
     classify_source_type,
     classify_text_quality,
@@ -671,6 +673,11 @@ def upsert_file(
 
 
 def build_index(args: argparse.Namespace) -> dict[str, Any]:
+    with ExitStack() as resources:
+        return _build_index(args, resources)
+
+
+def _build_index(args: argparse.Namespace, resources: ExitStack) -> dict[str, Any]:
     corpus_input = Path(args.corpus).expanduser()
     print(f"Корпус: {corpus_input}", flush=True)
     print("Этап 1/3: поиск файлов...", flush=True)
@@ -707,6 +714,9 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
             raise RuntimeError(
                 f"Неизвестная кодировка --text-encoding: {args.text_encoding}"
             ) from exc
+
+    if not args.scan_only:
+        resources.enter_context(index_writer_lock(db_path))
 
     discovery_errors: list[tuple[str, Path, str]] = []
 
@@ -745,6 +755,7 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
             "--log": log_path,
         },
         {
+            "блокировка индекса": index_lock_path(db_path),
             **({"--source-types": source_types_path} if source_types_path else {}),
             **{
                 f"файл корпуса {index}": path
@@ -778,7 +789,9 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
 
     db_path.parent.mkdir(parents=True, exist_ok=True)
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    log_stream = log_path.open("w", encoding="utf-8", newline="\n")
+    log_stream = resources.enter_context(
+        log_path.open("w", encoding="utf-8", newline="\n")
+    )
     log_stream.write(
         f"TairaSearch indexing log — {datetime.now(timezone.utc).isoformat()}\n"
     )
@@ -790,7 +803,7 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
     for kind, path, message in discovery_errors:
         log_error(kind, path, message)
 
-    connection = sqlite3.connect(db_path)
+    connection = resources.enter_context(closing(sqlite3.connect(db_path)))
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA journal_mode=WAL")
     connection.execute("PRAGMA synchronous=NORMAL")
@@ -1339,8 +1352,6 @@ def build_index(args: argparse.Namespace) -> dict[str, Any]:
         "INSERT OR REPLACE INTO meta(key, value) VALUES(?, ?)", metadata.items()
     )
     connection.commit()
-    connection.close()
-    log_stream.close()
 
     return {
         **metadata,

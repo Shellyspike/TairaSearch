@@ -76,8 +76,9 @@ full scan. The operation is cancelled if the database, corpus, or records
 changed, or if a file reappeared. An unavailable corpus or any error during the
 initial scan prevents plan creation. The command removes related `files`,
 `chunks`, and `chunks_fts` rows in one transaction; it does not modify source
-documents or `used_finds.csv`. Do not run it concurrently with indexing: these
-operations do not yet share a process lock.
+documents or `used_finds.csv`. Confirmed cleanup and indexing share an exclusive
+writer lock beside the SQLite file. If the index is busy, wait and retry.
+The OS releases the lock on exit. Leave the `.writer.lock` file in place.
 
 Profile-driven research for Codex:
 
