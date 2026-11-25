@@ -14,6 +14,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from index_lock import index_writer_lock
 from search_schema import (
     ensure_search_schema,
     prepare_fts_text,
@@ -957,19 +958,20 @@ def main(argv: list[str] | None = None) -> int:
             db_path = Path(args.db)
             plan_path = default_missing_files_plan_path(db_path)
             if args.confirm_delete:
-                plan = load_missing_files_plan(plan_path)
-                corpus_path = (
-                    Path(args.corpus) if args.corpus else Path(plan["corpus"])
-                )
-                missing = [str(entry["relative_path"]) for entry in plan["entries"]]
-                print(f"Корпус: {corpus_path}")
-                print(f"Записей в подтверждённом плане: {len(missing)}")
-                for relative_path in missing:
-                    print(f"- {relative_path}")
-                deleted = delete_missing_index_files(db_path, corpus_path, plan)
-                print(f"Удалено записей files: {deleted}")
-                print("Связанные chunks и chunks_fts удалены в той же транзакции.")
-                plan_path.unlink(missing_ok=True)
+                with index_writer_lock(db_path):
+                    plan = load_missing_files_plan(plan_path)
+                    corpus_path = (
+                        Path(args.corpus) if args.corpus else Path(plan["corpus"])
+                    )
+                    missing = [str(entry["relative_path"]) for entry in plan["entries"]]
+                    print(f"Корпус: {corpus_path}")
+                    print(f"Записей в подтверждённом плане: {len(missing)}")
+                    for relative_path in missing:
+                        print(f"- {relative_path}")
+                    deleted = delete_missing_index_files(db_path, corpus_path, plan)
+                    print(f"Удалено записей files: {deleted}")
+                    print("Связанные chunks и chunks_fts удалены в той же транзакции.")
+                    plan_path.unlink(missing_ok=True)
                 return 0
             plan_path.unlink(missing_ok=True)
             report = scan_missing_index_files(
